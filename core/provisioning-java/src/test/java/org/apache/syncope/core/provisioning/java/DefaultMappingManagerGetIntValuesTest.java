@@ -34,6 +34,7 @@ import org.apache.syncope.core.provisioning.api.PlainAttrGetter;
 import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.apache.syncope.core.persistence.api.entity.user.User;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -136,6 +137,27 @@ class DefaultMappingManagerGetIntValuesTest {
                 AccountGetter.DEFAULT,
                 plainAttrGetter);
     }
+    private MappingManager.IntValues executeGetFieldValues(
+            final String field,
+            final Any reference) {
+
+        Item item = mock(Item.class);
+        when(item.getIntAttrName()).thenReturn(field);
+        when(item.getTransformers()).thenReturn(List.of());
+
+        IntAttrName intAttrName = mock(IntAttrName.class);
+        when(intAttrName.getField()).thenReturn(field);
+
+        return mappingManager.getIntValues(
+                resource,
+                provision,
+                item,
+                intAttrName,
+                AttrSchemaType.String,
+                reference,
+                AccountGetter.DEFAULT,
+                (attributable, schemaName) -> null);
+    }
 
     private PlainAttr plainAttr(final String... values) {
         PlainAttr attr = new PlainAttr();
@@ -149,4 +171,35 @@ class DefaultMappingManagerGetIntValuesTest {
 
         return attr;
     }
+/*
+* nuovi 2 test
+* testiamo username e key sulla base che key è un campo speciale recuperato
+* tramite Any, username viene restituito solo quando l'entità implementa
+* account
+* */
+
+@Test
+void specialFieldUsername() {
+    User user = mock(User.class);
+    when(user.getUsername()).thenReturn("mrossi");
+
+    MappingManager.IntValues result =
+            executeGetFieldValues("username", user);
+
+    assertEquals(AttrSchemaType.String, result.attrSchemaType());
+    assertEquals(1, result.values().size());
+    assertEquals("mrossi", result.values().getFirst().getStringValue());
+}
+
+@Test
+void specialFieldKey() {
+    when(any.getKey()).thenReturn("any-key-001");
+
+    MappingManager.IntValues result =
+            executeGetFieldValues("key", any);
+
+    assertEquals(AttrSchemaType.String, result.attrSchemaType());
+    assertEquals(1, result.values().size());
+    assertEquals("any-key-001", result.values().getFirst().getStringValue());
+}
 }
