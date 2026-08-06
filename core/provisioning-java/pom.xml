@@ -181,4 +181,53 @@ under the License.
       </testResource>
     </testResources>
   </build>
+  <profiles>
+    <profile>
+      <id>pit-default-mapping</id>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.25.8</version>
+
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.3</version>
+              </dependency>
+            </dependencies>
+
+            <configuration>
+              <targetClasses>
+                <param>org.apache.syncope.core.provisioning.java.DefaultMappingManager*</param>
+              </targetClasses>
+
+              <targetTests>
+                <param>org.apache.syncope.core.provisioning.java.DefaultMappingManager*Test</param>
+              </targetTests>
+
+              <mutators>
+                <mutator>DEFAULTS</mutator>
+              </mutators>
+
+              <threads>2</threads>
+
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+                <param>CSV</param>
+              </outputFormats>
+
+              <reportsDirectory>${project.build.directory}/pit-reports/default-mapping-manager</reportsDirectory>
+
+              <verbose>true</verbose>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

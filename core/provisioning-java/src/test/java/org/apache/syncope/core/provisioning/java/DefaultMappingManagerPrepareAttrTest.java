@@ -60,6 +60,7 @@ class DefaultMappingManagerPrepareAttrTest {
 
     private Any any;
 
+    //
     @BeforeEach
     void setUp() throws Exception {
         intAttrNameParser = mock(IntAttrNameParser.class);

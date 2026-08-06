@@ -176,4 +176,53 @@ under the License.
       </resource>
     </resources>
   </build>
+  <profiles>
+    <profile>
+      <id>pit-access-token-verifier</id>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.25.8</version>
+
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.3</version>
+              </dependency>
+            </dependencies>
+
+            <configuration>
+              <targetClasses>
+                <param>org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier*</param>
+              </targetClasses>
+
+              <targetTests>
+                <param>org.apache.syncope.core.spring.security.jws.AccessTokenJWS*</param>
+              </targetTests>
+
+              <mutators>
+                <mutator>DEFAULTS</mutator>
+              </mutators>
+
+              <threads>2</threads>
+
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+                <param>CSV</param>
+              </outputFormats>
+
+              <reportsDirectory>${project.build.directory}/pit-reports/access-token-verifier</reportsDirectory>
+
+              <verbose>true</verbose>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

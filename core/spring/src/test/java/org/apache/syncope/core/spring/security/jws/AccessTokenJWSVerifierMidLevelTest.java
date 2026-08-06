@@ -635,6 +635,7 @@ class AccessTokenJWSVerifierMidLevelTest {
                 null,
                 signature));
     }
+    //
 
     /**
      * Una firma null non può essere decodificata

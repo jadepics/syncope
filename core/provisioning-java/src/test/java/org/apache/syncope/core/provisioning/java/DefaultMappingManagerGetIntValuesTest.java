@@ -178,6 +178,7 @@ class DefaultMappingManagerGetIntValuesTest {
 * account
 * */
 
+    //
 @Test
 void specialFieldUsername() {
     User user = mock(User.class);

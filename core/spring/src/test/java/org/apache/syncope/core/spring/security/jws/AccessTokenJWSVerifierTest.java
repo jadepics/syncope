@@ -54,6 +54,7 @@ class AccessTokenJWSVerifierTest {
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJtcm9zc2kifQ".
                     getBytes(StandardCharsets.US_ASCII);
 
+    //
     /*
      * Header JWS che dichiara l'utilizzo dell'algoritmo HS256.
      */

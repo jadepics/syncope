@@ -35,6 +35,7 @@ import java.util.Base64;
 import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 
+
 public class AccessTokenJWSSigner implements JWSSigner {
 
     private final JWSAlgorithm jwsAlgorithm;

@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
  * soltanto la configurazione indispensabile.
  */
 class DefaultMappingManagerSetIntValuesMidLevelTest {
-
+//
     /**
      * Parser simulato.
      *
