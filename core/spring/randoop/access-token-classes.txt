@@ -1,0 +1,4 @@
+org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier
+com.nimbusds.jose.JWSAlgorithm
+com.nimbusds.jose.JWSHeader
+com.nimbusds.jose.util.Base64URL

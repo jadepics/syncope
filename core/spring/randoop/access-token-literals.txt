@@ -1,0 +1,15 @@
+START CLASSLITERALS
+CLASSNAME
+org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier
+LITERALS
+String:"HS256"
+String:"HS384"
+String:"HS512"
+String:"RS256"
+String:"0123456789abcdef0123456789abcdef"
+String:"fedcba9876543210fedcba9876543210"
+String:"0123456789abcdef0123456789abcdef0123456789abcdef"
+String:"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+String:"header.payload"
+String:""
+END CLASSLITERALS

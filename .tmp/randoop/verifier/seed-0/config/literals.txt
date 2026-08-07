@@ -1,0 +1,11 @@
+START CLASSLITERALS
+CLASSNAME
+org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier
+LITERALS
+String:"0123456789abcdef0123456789abcdef"
+String:"fedcba9876543210fedcba9876543210"
+String:"0123456789abcdef0123456789abcdef0123456789abcdef"
+String:"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+String:"header.payload"
+String:""
+END CLASSLITERALS

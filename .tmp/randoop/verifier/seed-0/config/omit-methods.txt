@@ -1,0 +1,6 @@
+.*\.removeLast\(\)
+.*\.removeFirst\(\)
+.*\.remove\(.*\)
+.*\.removeAll\(.*\)
+.*\.retainAll\(.*\)
+.*\.clear\(\)

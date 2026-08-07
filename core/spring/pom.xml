@@ -347,5 +347,132 @@ under the License.
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>pit-access-token-jws-integration</id>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.25.9</version>
+
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.3</version>
+              </dependency>
+            </dependencies>
+
+            <configuration>
+
+              <!--
+                  In questa campagna vengono mutate entrambe
+                  le classi coinvolte nell'integrazione.
+              -->
+              <targetClasses>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier
+                </param>
+
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSigner
+                </param>
+              </targetClasses>
+
+              <!--
+                  Viene utilizzato esclusivamente il test
+                  d'integrazione Signer -> Verifier.
+              -->
+              <targetTests>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationTest
+                </param>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationBlackBoxRefinementTest
+                </param>
+
+              </targetTests>
+
+              <!--
+                  Manteniamo lo stesso insieme esteso già
+                  utilizzato sul Verifier, così i risultati
+                  rimangono metodologicamente confrontabili.
+              -->
+              <mutators>
+                <mutator>STRONGER</mutator>
+                <mutator>REMOVE_CONDITIONALS_EQUAL_IF</mutator>
+                <mutator>NON_VOID_METHOD_CALLS</mutator>
+                <mutator>INLINE_CONSTS</mutator>
+                <mutator>CONSTRUCTOR_CALLS</mutator>
+              </mutators>
+
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+              </outputFormats>
+
+              <reportsDirectory>
+                ${project.build.directory}/pit-reports/access-token-jws-integration
+              </reportsDirectory>
+
+              <timestampedReports>false</timestampedReports>
+
+              <threads>1</threads>
+
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>randoop-only</id>
+
+      <dependencies>
+
+        <!--
+          I test prodotti da Randoop 4.3.4 sono JUnit 4.
+        -->
+        <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <version>4.13.2</version>
+          <scope>test</scope>
+        </dependency>
+
+        <!--
+          Permette alla piattaforma JUnit già usata da Syncope
+          di eseguire anche i test JUnit 4 generati da Randoop.
+        -->
+        <dependency>
+          <groupId>org.junit.vintage</groupId>
+          <artifactId>junit-vintage-engine</artifactId>
+          <scope>test</scope>
+        </dependency>
+
+      </dependencies>
+
+      <build>
+        <plugins>
+
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.25.9</version>
+
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.3</version>
+              </dependency>
+            </dependencies>
+
+          </plugin>
+
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 </project>
