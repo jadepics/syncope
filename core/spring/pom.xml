@@ -180,6 +180,7 @@ under the License.
     <profile>
       <id>pit-access-token-verifier</id>
 
+
       <build>
         <plugins>
           <plugin>
@@ -219,6 +220,128 @@ under the License.
               <reportsDirectory>${project.build.directory}/pit-reports/access-token-verifier</reportsDirectory>
 
               <verbose>true</verbose>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>pit-access-token-verifier-extended</id>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.25.9</version>
+
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.3</version>
+              </dependency>
+            </dependencies>
+
+            <configuration>
+              <targetClasses>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier
+                </param>
+              </targetClasses>
+
+              <targetTests>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier*Test
+                </param>
+              </targetTests>
+
+              <mutators>
+                <!-- Mutatori standard più rimozione delle condizioni verso else. -->
+                <mutator>STRONGER</mutator>
+
+                <!-- Complementare: forza l'esecuzione del ramo if. -->
+                <mutator>REMOVE_CONDITIONALS_EQUAL_IF</mutator>
+
+                <!-- Elimina chiamate non-void sostituendone il risultato. -->
+                <mutator>NON_VOID_METHOD_CALLS</mutator>
+
+                <!-- Modifica le costanti inline presenti nel bytecode. -->
+                <mutator>INLINE_CONSTS</mutator>
+
+                <!-- Sostituisce con null i risultati dei costruttori. -->
+                <mutator>CONSTRUCTOR_CALLS</mutator>
+              </mutators>
+
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+              </outputFormats>
+
+              <reportsDirectory>
+                ${project.build.directory}/pit-reports/access-token-verifier-extended
+              </reportsDirectory>
+
+              <timestampedReports>false</timestampedReports>
+              <threads>1</threads>
+              <verbose>false</verbose>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>pit-access-token-verifier-integration-only</id>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.25.9</version>
+
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>1.2.3</version>
+              </dependency>
+            </dependencies>
+
+            <configuration>
+
+              <targetClasses>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier
+                </param>
+              </targetClasses>
+
+              <targetTests>
+                <param>
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationTest
+                </param>
+              </targetTests>
+
+              <mutators>
+                <mutator>STRONGER</mutator>
+                <mutator>REMOVE_CONDITIONALS_EQUAL_IF</mutator>
+                <mutator>NON_VOID_METHOD_CALLS</mutator>
+                <mutator>INLINE_CONSTS</mutator>
+                <mutator>CONSTRUCTOR_CALLS</mutator>
+              </mutators>
+
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+              </outputFormats>
+
+              <reportsDirectory>
+                ${project.build.directory}/pit-reports/access-token-verifier-integration-only
+              </reportsDirectory>
+
+              <timestampedReports>false</timestampedReports>
+              <threads>1</threads>
+
             </configuration>
           </plugin>
         </plugins>
