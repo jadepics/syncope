@@ -1,0 +1,32 @@
+START CLASSLITERALS
+CLASSNAME
+org.apache.syncope.core.provisioning.java.DefaultMappingManager
+LITERALS
+String:""
+String:"firstname"
+String:"givenName"
+String:"aliases"
+String:"mailAlternateAddress"
+String:"email"
+String:"mail"
+String:"mobile"
+String:"telephoneNumber"
+String:"department"
+String:"ou"
+String:"title"
+String:"username"
+String:"key"
+String:"name"
+String:"fullPath"
+String:"mustChangePassword"
+String:"Mario"
+String:"Engineering"
+String:"Software Engineer"
+String:"mario.rossi@example.org"
+String:"mrossi@example.com"
+String:"newUsername"
+String:"user-key"
+String:"realm-key"
+String:"/parent/child"
+String:"secret"
+END CLASSLITERALS

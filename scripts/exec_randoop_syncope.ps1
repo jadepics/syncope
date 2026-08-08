@@ -55,11 +55,7 @@ if (-not (Test-Path $CoveredClassJar)) {
     throw "covered-class agent non trovato: $CoveredClassJar"
 }
 
-# ---------------------------------------------------------------------------
-# Scrittura UTF-8 senza BOM
-# Evita che Randoop legga il BOM come parte del primo nome di classe.
-# ---------------------------------------------------------------------------
-
+# UTF-8 senza BOM: Randoop interpreta il BOM come parte del primo token.
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Write-TextNoBom {
@@ -144,9 +140,6 @@ New-Item -ItemType Directory -Force -Path $ConfigRoot | Out-Null
 
 function Write-RandoopSupportFiles {
 
-    # IMPORTANTE:
-    # tutti i file letti direttamente da Randoop vengono scritti
-    # esplicitamente in UTF-8 SENZA BOM.
     Write-LinesNoBom -Path $ClassListFile -Lines $SupportClasses
     Write-TextNoBom -Path $RequiredCoveredFile -Content $TargetClass
 
@@ -162,7 +155,6 @@ function Write-RandoopSupportFiles {
     Write-TextNoBom -Path $OmitMethodsFile -Content $OmitMethods
 
     if ($Target -eq "verifier") {
-
         $Literals = @'
 START CLASSLITERALS
 CLASSNAME
@@ -176,11 +168,8 @@ String:"header.payload"
 String:""
 END CLASSLITERALS
 '@
-
-        Write-TextNoBom -Path $LiteralsFile -Content $Literals
     }
     else {
-
         $Literals = @'
 START CLASSLITERALS
 CLASSNAME
@@ -194,28 +183,45 @@ String:"value"
 String:"schema"
 END CLASSLITERALS
 '@
-
-        Write-TextNoBom -Path $LiteralsFile -Content $Literals
     }
+
+    Write-TextNoBom -Path $LiteralsFile -Content $Literals
 }
 
 function Build-ProjectClasspath {
 
-    Write-Host "=== Maven test-compile + dependency classpath ==="
+    Write-Host "=== Maven compile + dependency classpath ==="
 
     if (Test-Path $ClasspathFile) {
         Remove-Item $ClasspathFile -Force
     }
 
-    & mvn.cmd `
-        -f $Pom `
-        "-DskipTests" `
-        "-Djacoco.skip=true" `
-        test-compile `
-        dependency:build-classpath `
-        "-Dmdep.outputFile=$ClasspathFile"
+    # CRITICAL FIX:
+    # Maven writes its normal log to stdout. If it is left unconsumed inside
+    # this function, PowerShell treats every Maven log line as part of the
+    # function return value. Since the caller assigns:
+    #
+    #   $ProjectCp = Build-ProjectClasspath
+    #
+    # the Maven log would become part of the Java classpath.
+    #
+    # Capture Maven output locally, then explicitly print it with Write-Host.
+    # Only the final classpath string is emitted by this function.
+    $MavenOutput = & mvn.cmd `
+    -f $Pom `
+    "-DskipTests" `
+    "-Djacoco.skip=true" `
+    compile `
+    dependency:build-classpath `
+    "-Dmdep.outputFile=$ClasspathFile" 2>&1
 
-    if ($LASTEXITCODE -ne 0) {
+    $MavenExitCode = $LASTEXITCODE
+
+    foreach ($Line in $MavenOutput) {
+        Write-Host $Line
+    }
+
+    if ($MavenExitCode -ne 0) {
         throw "Maven classpath generation failed"
     }
 
@@ -226,6 +232,21 @@ function Build-ProjectClasspath {
     $DependencyCp = (Get-Content $ClasspathFile -Raw).Trim()
     $ClassesDir = Join-Path $ModuleRoot "target\classes"
 
+    if (-not (Test-Path $ClassesDir)) {
+        throw "Directory target\classes non trovata: $ClassesDir"
+    }
+
+    $TargetClassFile = Join-Path `
+        $ClassesDir `
+        (($TargetClass.Replace(".", "\")) + ".class")
+
+    if (-not (Test-Path $TargetClassFile)) {
+        throw "La classe target compilata non esiste: $TargetClassFile"
+    }
+
+    Write-Host "Target class compilata: $TargetClassFile"
+
+    # This is intentionally the ONLY success-stream output of the function.
     return "$ClassesDir;$DependencyCp"
 }
 
@@ -248,25 +269,20 @@ function Normalize-GeneratedTests {
         $Text = Get-Content $File.FullName -Raw
 
         if ($Text -match "(?m)^\s*package\s+[^;]+;") {
-
             $Text = [regex]::Replace(
-                $Text,
-                "(?m)^\s*package\s+[^;]+;",
-                "package $TestPackage;",
-                1
+                    $Text,
+                    "(?m)^\s*package\s+[^;]+;",
+                    "package $TestPackage;",
+                    1
             )
         }
         else {
-
             $Text = "package $TestPackage;`r`n`r`n" + $Text
         }
 
         $Destination = Join-Path $CaseRoot $File.Name
 
-        # Anche i .java normalizzati vengono scritti senza BOM,
-        # evitando problemi di compilazione con javac.
         Write-TextNoBom -Path $Destination -Content $Text
-
         Write-Host "GENERATED $Destination"
     }
 }
@@ -287,6 +303,16 @@ function Generate-RandoopTests {
     New-Item -ItemType Directory -Force -Path $RawOutput | Out-Null
 
     $RandoopCp = "$RandoopJar;$ProjectCp"
+
+    # Sanity check: the classpath must be a single line and must not contain
+    # Maven log messages.
+    if ($RandoopCp -match "\[INFO\]" -or $RandoopCp -match "\r|\n") {
+        throw "Classpath contaminato da output Maven. Interruzione preventiva."
+    }
+
+    Write-Host "=== Randoop classpath sanity check ==="
+    Write-Host "Project classes: $(Join-Path $ModuleRoot 'target\classes')"
+    Write-Host "Classpath length: $($RandoopCp.Length) characters"
 
     $Arguments = @(
         "-Xmx3g",
@@ -320,11 +346,17 @@ function Generate-RandoopTests {
 
     Write-Host "=== Generated files ==="
 
-    Get-ChildItem $CaseRoot -Filter "*.java" -File |
-        Sort-Object Name |
-        ForEach-Object {
+    $Generated = Get-ChildItem $CaseRoot -Filter "*.java" -File |
+            Sort-Object Name
+
+    if (-not $Generated) {
+        Write-Warning "Randoop ha terminato senza produrre file Java."
+    }
+    else {
+        $Generated | ForEach-Object {
             Write-Host $_.FullName
         }
+    }
 }
 
 function Run-RandoopMetrics {
@@ -335,17 +367,57 @@ function Run-RandoopMetrics {
         throw "Esegui prima generate per questo seed"
     }
 
+    # Randoop genera:
+    #
+    #   AccessTokenVerifierRandoopRegressionS0.java
+    #       -> suite aggregatrice
+    #
+    #   AccessTokenVerifierRandoopRegressionS00.java
+    #   AccessTokenVerifierRandoopRegressionS01.java
+    #       -> classi che contengono realmente i test
+    #
+    # Non dobbiamo eseguire contemporaneamente suite + classi leaf,
+    # altrimenti gli stessi test vengono eseguiti due volte.
+
+    $EscapedRegressionBase = [regex]::Escape($RegressionBase)
+
     $RegressionFiles = Get-ChildItem `
-        $CaseRoot `
-        -Filter "$RegressionBase*.java" `
-        -File
+    $CaseRoot `
+    -Filter "$RegressionBase*.java" `
+    -File |
+            Where-Object {
+                $_.BaseName -match "^${EscapedRegressionBase}[0-9]+$"
+            }
 
     if (-not $RegressionFiles) {
-        throw "Nessun regression test trovato in $CaseRoot"
+        throw "Nessuna classe regression leaf trovata in $CaseRoot"
     }
 
-    $TestPattern = "$RegressionBase*"
-    $PitTestPattern = "$TestPackage.$RegressionBase*"
+    # Surefire accetta più classi separate da virgola.
+    $TestPattern = (
+    $RegressionFiles |
+            Sort-Object Name |
+            ForEach-Object { $_.BaseName }
+    ) -join ","
+
+    # Stessa selezione per PIT, ma con package completo.
+    $PitTestPattern = (
+    $RegressionFiles |
+            Sort-Object Name |
+            ForEach-Object {
+                "$TestPackage.$($_.BaseName)"
+            }
+    ) -join ","
+
+    Write-Host "Randoop regression leaf classes:"
+    $RegressionFiles |
+            Sort-Object Name |
+            ForEach-Object {
+                Write-Host "  $($_.BaseName)"
+            }
+
+    Write-Host "Surefire test pattern: $TestPattern"
+    Write-Host "PIT test pattern:      $PitTestPattern"
 
     Write-Host "Surefire test pattern: $TestPattern"
     Write-Host "PIT test pattern:      $PitTestPattern"

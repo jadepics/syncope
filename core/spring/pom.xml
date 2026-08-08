@@ -474,5 +474,66 @@ under the License.
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>evosuite-jws</id>
+
+      <properties>
+        <evosuite.local.version>1.2.0</evosuite.local.version>
+      </properties>
+
+      <dependencies>
+        <!--
+          Installed automatically into ~/.m2 by evosuite_run_jws.sh from:
+            tools/evosuite/evosuite-1.2.0.jar
+
+          The executable EvoSuite jar contains the runtime classes required by
+          generated tests, so the script gives it a private local Maven coordinate.
+        -->
+        <dependency>
+          <groupId>org.evosuite</groupId>
+          <artifactId>evosuite-local-runtime</artifactId>
+          <version>${evosuite.local.version}</version>
+          <scope>test</scope>
+        </dependency>
+
+        <!-- EvoSuite 1.2.0 emits JUnit 4 tests. -->
+        <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <version>4.13.2</version>
+          <scope>test</scope>
+        </dependency>
+
+        <!-- Allows JUnit 4 EvoSuite tests to execute when Surefire selects JUnit Platform. -->
+        <dependency>
+          <groupId>org.junit.vintage</groupId>
+          <artifactId>junit-vintage-engine</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>add-evosuite-jws-test-source</id>
+                <phase>generate-test-sources</phase>
+                <goals>
+                  <goal>add-test-source</goal>
+                </goals>
+                <configuration>
+                  <sources>
+                    <source>${project.basedir}/src/test/evosuite</source>
+                  </sources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 </project>

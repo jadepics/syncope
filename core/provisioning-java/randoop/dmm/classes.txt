@@ -1,0 +1,12 @@
+org.apache.syncope.core.provisioning.java.DefaultMappingManager
+org.apache.syncope.core.provisioning.java.randoopsupport.DefaultMappingManagerRandoopFactory
+org.apache.syncope.common.lib.to.Item
+org.apache.syncope.common.lib.to.Mapping
+org.apache.syncope.common.lib.to.Provision
+org.apache.syncope.common.lib.to.UserTO
+org.apache.syncope.common.lib.to.GroupTO
+org.apache.syncope.common.lib.to.AnyObjectTO
+org.apache.syncope.common.lib.to.RealmTO
+org.apache.syncope.core.persistence.api.entity.PlainAttr
+org.apache.syncope.core.persistence.api.entity.PlainAttrValue
+org.identityconnectors.framework.common.objects.AttributeBuilder

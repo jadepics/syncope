@@ -1,0 +1,17 @@
+.*\.removeLast\(\)
+.*\.removeFirst\(\)
+.*\.remove\(.*\)
+.*\.removeAll\(.*\)
+.*\.retainAll\(.*\)
+.*\.clear\(\)
+
+# Il costruttore diretto viene escluso: il receiver DefaultMappingManager
+# deve provenire dalla factory. Cosi' --require-classname-in-test non
+# conserva semplici test del solo costruttore.
+^org\.apache\.syncope\.core\.provisioning\.java\.DefaultMappingManager\.<init>\(.*$
+
+# Metodi pubblici di DefaultMappingManager fuori dallo scope del progetto.
+^org\.apache\.syncope\.core\.provisioning\.java\.DefaultMappingManager\.getConnObjectKeyValue\(.*$
+^org\.apache\.syncope\.core\.provisioning\.java\.DefaultMappingManager\.prepareAttrsFromLinkedAccount\(.*$
+^org\.apache\.syncope\.core\.provisioning\.java\.DefaultMappingManager\.prepareAttrsFromRealm\(.*$
+^org\.apache\.syncope\.core\.provisioning\.java\.DefaultMappingManager\.hasMustChangePassword\(.*$

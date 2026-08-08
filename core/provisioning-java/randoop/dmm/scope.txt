@@ -1,0 +1,18 @@
+RANDOOP SCOPE - DefaultMappingManager
+
+Questo file documenta lo scope; NON viene passato a Randoop come --methodlist.
+
+Metodi target:
+- getIntValues(...) overload Any
+- getIntValues(...) overload Realm
+- setIntValues(...) overload AnyTO
+- setIntValues(...) overload RealmTO
+- prepareAttr(...) overload Any
+- prepareAttr(...) overload Realm
+- prepareAttrsFromAny(...)
+
+Strategia:
+- la factory e le classi di supporto forniscono operazioni per costruire input validi;
+- omit-methods.txt esclude i metodi pubblici di DefaultMappingManager fuori scope;
+- --require-classname-in-test mantiene solo test che usano direttamente DefaultMappingManager;
+- non si usa --methodlist, per non impedire a Randoop di costruire gli argomenti complessi necessari.
