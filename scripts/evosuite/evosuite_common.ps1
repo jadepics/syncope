@@ -10,7 +10,42 @@ $ErrorActionPreference = "Stop"
 # Questo file NON va eseguito direttamente: viene importato dagli altri script.
 # ============================================================================
 
-$script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+# Individua automaticamente la root del repository Syncope risalendo
+# dalla cartella dello script. Evita dipendenze dal numero esatto di livelli
+# della directory scripts\evosuite.
+function Find-SyncopeRepoRoot {
+    param([Parameter(Mandatory=$true)][string]$StartDirectory)
+
+    $current = (Resolve-Path $StartDirectory).Path
+
+    while ($true) {
+        $rootPom = Join-Path $current "pom.xml"
+        $springPom = Join-Path $current "core\spring\pom.xml"
+
+        if ((Test-Path $rootPom) -and (Test-Path $springPom)) {
+            return $current
+        }
+
+        $parent = Split-Path $current -Parent
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
+            break
+        }
+
+        $current = $parent
+    }
+
+    throw @"
+Impossibile individuare automaticamente la root del repository Syncope
+partendo da:
+    $StartDirectory
+
+La root attesa deve contenere contemporaneamente:
+    pom.xml
+    core\spring\pom.xml
+"@
+}
+
+$script:RepoRoot = Find-SyncopeRepoRoot -StartDirectory $PSScriptRoot
 $script:ModuleRelative = "core\spring"
 $script:ModuleDir = Join-Path $script:RepoRoot $script:ModuleRelative
 
@@ -156,14 +191,14 @@ function Find-EvoSuiteJar {
     }
 
     $preferred = Get-ChildItem -Path $tools -Recurse -File -Filter "evosuite-1.2.0.jar" -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+        Select-Object -First 1
     if ($null -ne $preferred) {
         return $preferred.FullName
     }
 
     $fallback = Get-ChildItem -Path $tools -Recurse -File -Filter "*evosuite*.jar" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notmatch "runtime" } |
-            Select-Object -First 1
+        Where-Object { $_.Name -notmatch "runtime" } |
+        Select-Object -First 1
 
     if ($null -eq $fallback) {
         throw @"
@@ -192,7 +227,7 @@ function Find-MavenExecutable {
 }
 
 $script:Jdk11Home = Find-JdkHome -Major 11 -EnvironmentVariable "JDK11_HOME"
-$script:Jdk25Home = Find-JdkHome -Major 25 -EnvironmentVariable "JDK25_HOME"
+$script:Jdk21Home = Find-JdkHome -Major 21 -EnvironmentVariable "JDK21_HOME"
 $script:EvoSuiteJar = Find-EvoSuiteJar
 $script:MavenExe = Find-MavenExecutable
 
@@ -267,7 +302,7 @@ function Get-MavenProperty {
         # Fallback Maven sotto.
     }
 
-    $value = Invoke-MavenCapture -JdkHome $script:Jdk25Home -Arguments @(
+    $value = Invoke-MavenCapture -JdkHome $script:Jdk21Home -Arguments @(
         "-q",
         "help:evaluate",
         "-Dexpression=$Name",
@@ -275,9 +310,9 @@ function Get-MavenProperty {
     )
 
     if ([string]::IsNullOrWhiteSpace($value) -or
-            $value -match "null object" -or
-            $value -match "invalid expression" -or
-            $value -match "^\$\{") {
+        $value -match "null object" -or
+        $value -match "invalid expression" -or
+        $value -match "^\$\{") {
         throw "Impossibile determinare la proprietà Maven '$Name'."
     }
 
@@ -298,10 +333,10 @@ function Get-ClassMajorVersion {
         $bytes = New-Object byte[] 8
         $read = $stream.Read($bytes, 0, 8)
         if ($read -lt 8 -or
-                $bytes[0] -ne 0xCA -or
-                $bytes[1] -ne 0xFE -or
-                $bytes[2] -ne 0xBA -or
-                $bytes[3] -ne 0xBE) {
+            $bytes[0] -ne 0xCA -or
+            $bytes[1] -ne 0xFE -or
+            $bytes[2] -ne 0xBA -or
+            $bytes[3] -ne 0xBE) {
             throw "File non valido come Java class: $ClassFile"
         }
         return (($bytes[6] -shl 8) -bor $bytes[7])
@@ -346,7 +381,7 @@ function Test-AndPrepareJarForJava11 {
                 if ($read -lt 8) { continue }
 
                 if ($bytes[0] -eq 0xCA -and $bytes[1] -eq 0xFE -and
-                        $bytes[2] -eq 0xBA -and $bytes[3] -eq 0xBE) {
+                    $bytes[2] -eq 0xBA -and $bytes[3] -eq 0xBE) {
                     $major = (($bytes[6] -shl 8) -bor $bytes[7])
                     if ($major -gt 55) {
                         $badEntries.Add("$($entry.FullName) [major=$major]")
@@ -406,8 +441,8 @@ per evitare un classpath EvoSuite semanticamente incompleto.
         $metaInf = Join-Path $work "META-INF"
         if (Test-Path $metaInf) {
             Get-ChildItem $metaInf -File -ErrorAction SilentlyContinue |
-                    Where-Object { $_.Extension -in @(".SF", ".RSA", ".DSA", ".EC") } |
-                    Remove-Item -Force
+                Where-Object { $_.Extension -in @(".SF", ".RSA", ".DSA", ".EC") } |
+                Remove-Item -Force
         }
 
         if (Test-Path $outputJar) {
@@ -415,10 +450,10 @@ per evitare un classpath EvoSuite semanticamente incompleto.
         }
 
         [System.IO.Compression.ZipFile]::CreateFromDirectory(
-                $work,
-                $outputJar,
-                [System.IO.Compression.CompressionLevel]::Optimal,
-                $false
+            $work,
+            $outputJar,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false
         )
     }
     finally {
@@ -541,7 +576,7 @@ function New-TemporaryEvoSuiteRunPom {
 function Install-EvoSuiteRuntimeIntoLocalMaven {
     Write-Section "Installazione del JAR EvoSuite nel repository Maven locale (test runtime)"
 
-    Invoke-Maven -JdkHome $script:Jdk25Home -Arguments @(
+    Invoke-Maven -JdkHome $script:Jdk21Home -Arguments @(
         "org.apache.maven.plugins:maven-install-plugin:3.1.3:install-file",
         "-Dfile=$($script:EvoSuiteJar)",
         "-DgroupId=org.evosuite",
@@ -557,7 +592,7 @@ function Show-Configuration {
     Write-Host "Modulo             : $script:ModuleRelative"
     Write-Host "CUT                : $script:TargetClass"
     Write-Host "JDK 11             : $script:Jdk11Home"
-    Write-Host "JDK 25             : $script:Jdk25Home"
+    Write-Host "JDK 21             : $script:Jdk21Home"
     Write-Host "EvoSuite           : $script:EvoSuiteJar"
     Write-Host "Maven              : $script:MavenExe"
 }

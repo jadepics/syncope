@@ -80,7 +80,7 @@ $compatPomContent = @"
 
 Set-Content -Path $script:CompatPom -Value $compatPomContent -Encoding UTF8
 
-Invoke-Maven -JdkHome $script:Jdk25Home -WorkingDirectory $script:CompatRoot -Arguments @(
+Invoke-Maven -JdkHome $script:Jdk21Home -WorkingDirectory $script:CompatRoot -Arguments @(
     "-f", $script:CompatPom,
     "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies",
     "-DincludeScope=runtime",
@@ -180,9 +180,29 @@ if (-not (Test-Path $rawScaffolding)) {
 
 Write-Section "7. Copia dei test generati nella directory EvoSuite separata"
 
-New-Item -ItemType Directory -Force -Path $script:GeneratedPackageDir | Out-Null
-Copy-Item -Force $rawTest $script:GeneratedTestFile
-Copy-Item -Force $rawScaffolding $script:GeneratedScaffoldingFile
+# Su Windows creiamo esplicitamente tutta la gerarchia con System.IO.
+# Questo evita problemi del provider PowerShell quando la directory src\test\evosuite
+# e l'intero package non esistono ancora.
+[void][System.IO.Directory]::CreateDirectory($script:GeneratedPackageDir)
+
+if (-not (Test-Path -LiteralPath $script:GeneratedPackageDir -PathType Container)) {
+    throw "Impossibile creare la directory di destinazione: $script:GeneratedPackageDir"
+}
+
+Write-Host "Directory destinazione:"
+Write-Host "  $script:GeneratedPackageDir"
+
+# Copiamo verso la directory, non verso un path file completo:
+# PowerShell mantiene automaticamente i nomi originali dei due file.
+Copy-Item -LiteralPath $rawTest -Destination $script:GeneratedPackageDir -Force
+Copy-Item -LiteralPath $rawScaffolding -Destination $script:GeneratedPackageDir -Force
+
+if (-not (Test-Path -LiteralPath $script:GeneratedTestFile)) {
+    throw "Il test generato non risulta presente dopo la copia: $script:GeneratedTestFile"
+}
+if (-not (Test-Path -LiteralPath $script:GeneratedScaffoldingFile)) {
+    throw "Lo scaffolding non risulta presente dopo la copia: $script:GeneratedScaffoldingFile"
+}
 
 Write-Host "Test:"
 Write-Host "  $script:GeneratedTestFile"
