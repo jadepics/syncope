@@ -1,398 +1,612 @@
-﻿param(
-    [int]$BudgetSeconds = 180,
-    [switch]$KeepCompatibilityFiles
-)
-
+﻿
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-. (Join-Path $PSScriptRoot "evosuite_common_dmm.ps1")
-
-Write-Section "EvoSuite GENERATE - DefaultMappingManager - JDK11 generator / JDK21 build"
-Show-Configuration
-
-if (-not (Test-Path $script:TargetSource)) {
-    throw "Sorgente della CUT non trovato: $script:TargetSource"
-}
-
-if (-not (Test-Path $script:EvoSuiteJar)) {
-    throw "JAR EvoSuite non trovato: $script:EvoSuiteJar"
-}
-
-Write-Section "1. Build reale del modulo e delle dipendenze con JDK 21"
-
-# Usato per riconoscere solo le target\classes ricostruite da QUESTA run.
-$buildStart = (Get-Date).AddSeconds(-2)
-
-Invoke-Maven `
-    -JdkHome $script:Jdk21Home `
-    -WorkingDirectory $script:RepoRoot `
-    -Arguments @(
-    "-pl", $script:ModuleRelative,
-    "-am",
-    "-DtargetJdk=21",
-    "-Dmaven.build.cache.skipCache=true",
-    "-Dmaven.test.skip=true",
-    "-Drat.skip=true",
-    "-Dspotless.check.skip=true",
-    "-Dcheckstyle.skip=true",
-    "clean",
-    "compile"
-)
-
-if (-not (Test-Path $script:RealClassFile)) {
-    throw "CUT reale non trovata dopo la build: $script:RealClassFile"
-}
-
-$realMajor = Get-ClassMajorVersion -ClassFile $script:RealClassFile
-Write-Host "CUT reale classfile major version: $realMajor"
-
-if ($realMajor -ne 65) {
-    throw @"
-La CUT reale non risulta compilata per Java 21.
-Major trovata: $realMajor
-Major attesa: 65
-"@
-}
-
-Write-Section "2. Creazione mirror compatibility per EvoSuite 1.2.0"
-
-if (Test-Path $script:CompatRoot) {
-    Remove-Item -Recurse -Force $script:CompatRoot
-}
-
-[void][System.IO.Directory]::CreateDirectory($script:CompatClasses)
-[void][System.IO.Directory]::CreateDirectory($script:CompatLib)
-
-# DefaultMappingManager usa API/costrutti moderni; non riscriviamo il sorgente.
-# Partiamo invece dal bytecode REALE Java 21 e creiamo una copia separata in cui
-# viene cambiato soltanto il campo classfile major version, così l'ASM interno
-# di EvoSuite 1.2.0 può leggerla. Le classi reali sotto target\classes restano
-# completamente intatte.
-$reactorClassDirs = @(Get-ReactorClassDirectories -ModifiedSince $buildStart)
-
-if ($reactorClassDirs.Count -eq 0) {
-    throw "Nessuna directory target\classes trovata dopo la build reactor."
-}
-
-$totalPatchedProjectClasses = 0
-
-foreach ($classDir in $reactorClassDirs) {
-    Write-Host "Mirror reactor: $classDir"
-    $patched = Copy-ClassDirectoryForEvoSuite `
-        -SourceDirectory $classDir `
-        -DestinationDirectory $script:CompatClasses
-
-    $totalPatchedProjectClasses += $patched
-}
-
-$compatTargetClass = Join-Path `
-    $script:CompatClasses `
-    "$($script:TargetClassRelative).class"
-
-if (-not (Test-Path $compatTargetClass)) {
-    throw "CUT compatibility non trovata: $compatTargetClass"
-}
-
-$compatMajor = Get-ClassMajorVersion -ClassFile $compatTargetClass
-Write-Host "CUT compatibility classfile major version: $compatMajor"
-
-if ($compatMajor -ne 55) {
-    throw "La CUT compatibility deve dichiarare major 55; trovata major $compatMajor."
-}
-
-Assert-OnlyClassMajorChanged `
-    -OriginalClass $script:RealClassFile `
-    -CompatibilityClass $compatTargetClass
-
-Write-Host "Classi reactor con major adattata: $totalPatchedProjectClasses"
-
-Write-Section "3. Classpath Maven e copie compatibility delle dipendenze"
-
-$dependencyEntries = @(Resolve-ModuleDependencyClasspath)
-
-$patchedJars = New-Object System.Collections.Generic.List[string]
-$totalPatchedJarClasses = 0
-$jarIndex = 0
-
-foreach ($entry in $dependencyEntries) {
-    if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
-        continue
-    }
-
-    if ([System.IO.Path]::GetExtension($entry) -ine ".jar") {
-        continue
-    }
-
-    $jarIndex++
-    $safeName = "{0:D4}-{1}" -f $jarIndex, [System.IO.Path]::GetFileName($entry)
-    $outputJar = Join-Path $script:CompatLib $safeName
-
-    Write-Host "Compat JAR: $([System.IO.Path]::GetFileName($entry))"
-
-    $patchedCount = Patch-JarForEvoSuite `
-        -InputJar $entry `
-        -OutputJar $outputJar
-
-    $totalPatchedJarClasses += $patchedCount
-    [void]$patchedJars.Add($outputJar)
-}
-
-Write-Host "JAR compatibility creati: $($patchedJars.Count)"
-Write-Host "Classi nei JAR con major adattata: $totalPatchedJarClasses"
-
-Write-Section "4. Costruzione classpath compatibility piatto"
-
-if (Test-Path $script:CompatFlatCp) {
-    Remove-Item -Recurse -Force $script:CompatFlatCp
-}
-[void][System.IO.Directory]::CreateDirectory($script:CompatFlatCp)
-
-# Prima espandiamo tutte le dipendenze compatibility.
-$totalFlatEntries = 0
-foreach ($jar in $patchedJars) {
-    $written = Expand-CompatibilityJarToDirectory `
-        -JarFile $jar `
-        -DestinationDirectory $script:CompatFlatCp
-
-    $totalFlatEntries += $written
-}
-
-# Poi sovrapponiamo per ultime le classi appena compilate dal reactor.
-# In caso di duplicati, la build corrente di Syncope ha quindi precedenza
-# rispetto a eventuali SNAPSHOT presenti nel repository Maven locale.
-Overlay-Directory `
-    -SourceDirectory $script:CompatClasses `
-    -DestinationDirectory $script:CompatFlatCp
-
-$flatTargetClass = Join-Path `
-    $script:CompatFlatCp `
-    "$($script:TargetClassRelative).class"
-
-$membershipClass = Join-Path `
-    $script:CompatFlatCp `
-    "org\apache\syncope\common\lib\to\MembershipTO.class"
-
-if (-not (Test-Path -LiteralPath $flatTargetClass)) {
-    throw "CUT assente dal flat classpath: $flatTargetClass"
-}
-
-if (-not (Test-Path -LiteralPath $membershipClass)) {
-    throw @"
-MembershipTO è ancora assente dal classpath compatibility piatto:
-    $membershipClass
-
-La generazione viene fermata PRIMA di EvoSuite perché il classpath non è
-completo.
-"@
-}
-
-$flatTargetMajor = Get-ClassMajorVersion -ClassFile $flatTargetClass
-$membershipMajor = Get-ClassMajorVersion -ClassFile $membershipClass
-
-Write-Host "Flat classpath:"
-Write-Host "  $script:CompatFlatCp"
-Write-Host "CUT presente:          SI (major $flatTargetMajor)"
-Write-Host "MembershipTO presente: SI (major $membershipMajor)"
-Write-Host "Entry estratte dalle JAR compatibility: $totalFlatEntries"
-
-if ($flatTargetMajor -ne 55) {
-    throw "CUT nel flat classpath non è major 55: $flatTargetMajor"
-}
-
-if ($membershipMajor -gt 55) {
-    throw "MembershipTO nel flat classpath è ancora troppo recente: major $membershipMajor"
-}
-
-# Passiamo a EvoSuite UNA SOLA root di classpath. Questo evita problemi
-# di risoluzione con decine di JAR e rende visibili nello stesso namespace
-# tutte le classi necessarie all'instrumentazione ASM.
-$projectCp = $script:CompatFlatCp
-
-Write-Section "5. Generazione EvoSuite JDK 11 con flatCP anche nel context classloader"
-
-if (Test-Path $script:EvoGeneratedRoot) {
-    Remove-Item -Recurse -Force $script:EvoGeneratedRoot
-}
-
-[void][System.IO.Directory]::CreateDirectory($script:EvoGeneratedTests)
-[void][System.IO.Directory]::CreateDirectory($script:EvoReportDir)
-
-$java11 = Join-Path $script:Jdk11Home "bin\java.exe"
-
-if (-not (Test-Path -LiteralPath $java11)) {
-    throw "java.exe JDK 11 non trovato: $java11"
-}
-
-$detectedGenerateMajor = Get-JavaMajorFromHome -JdkHome $script:Jdk11Home
-if ($detectedGenerateMajor -ne 11) {
-    throw @"
-ERRORE DI SICUREZZA:
-la fase GENERATE deve usare JDK 11.
-
-JDK configurata:
-    $script:Jdk11Home
-
-Major rilevata:
-    $detectedGenerateMajor
-"@
-}
-
-Write-Host "JAVA GENERATE ATTESA: JDK 11"
-Write-Host "Path:"
-Write-Host "  $java11"
-Write-Host "Versione effettiva:"
-& $java11 -version
-
-if ($LASTEXITCODE -ne 0) {
-    throw "Impossibile eseguire la JDK 11: $java11"
-}
-
-Write-Host ""
-Write-Host "Budget EvoSuite: $BudgetSeconds secondi"
-Write-Host "CUT compatibility originale: $compatTargetClass"
-Write-Host "CUT compatibility major: $(Get-ClassMajorVersion -ClassFile $compatTargetClass)"
-Write-Host "ProjectCP effettivo EvoSuite:"
-Write-Host "  $projectCp"
-Write-Host ""
-Write-Host "NOTA: nessuna JDK 21 viene usata dal processo EvoSuite di generazione."
-
-# Ultimo preflight: queste classi DEVONO essere risolvibili dal flatcp che
-# verrà aggiunto anche al runtime classpath del processo EvoSuite.
-$preflightMembership = Join-Path `
-    $projectCp `
-    "org\apache\syncope\common\lib\to\MembershipTO.class"
-
-$preflightTarget = Join-Path `
-    $projectCp `
-    "$($script:TargetClassRelative).class"
-
-foreach ($requiredClass in @($preflightTarget, $preflightMembership)) {
-    if (-not (Test-Path -LiteralPath $requiredClass -PathType Leaf)) {
-        throw "Preflight runtime classpath fallito. Classe assente: $requiredClass"
-    }
-}
-
-Write-Host "Preflight runtime CP:"
-Write-Host "  DefaultMappingManager.class -> OK"
-Write-Host "  MembershipTO.class          -> OK"
-
-# IMPORTANTISSIMO:
-# ComputeClassWriter di EvoSuite risolve i tipi tramite il context classloader
-# del thread. Con "java -jar evosuite.jar" il projectCP NON fa parte del
-# classloader di EvoSuite; per questo MembershipTO non veniva trovato anche
-# se era presente fisicamente nel flatcp.
+# ============================================================================
+# EvoSuite / Apache Syncope - configurazione comune per Windows 11 + PowerShell
 #
-# Avviamo quindi EvoSuite tramite -cp e inseriamo nello stesso runtime CP:
-#   1) evosuite-1.2.0.jar
-#   2) flatcp compatibility
+# Posizione prevista:
+#   <syncope>\scripts\evosuite\evosuite_common.ps1
 #
-# -projectCP viene comunque mantenuto perché EvoSuite distingue il proprio
-# classpath dal target project classpath.
-$evoRuntimeCp = "$($script:EvoSuiteJar);$projectCp"
+# Questo file NON va eseguito direttamente: viene importato dagli altri script.
+# ============================================================================
 
-Write-Host "Runtime classpath EvoSuite:"
-Write-Host "  EvoSuite JAR + flatcp"
-Write-Host "Context CP contiene flatcp: SI"
+# Individua automaticamente la root del repository Syncope risalendo
+# dalla cartella dello script. Evita dipendenze dal numero esatto di livelli
+# della directory scripts\evosuite.
+function Find-SyncopeRepoRoot {
+    param([Parameter(Mandatory=$true)][string]$StartDirectory)
 
-$evoArgs = @(
-    "-Xmx3500m",
-    "-cp", $evoRuntimeCp,
-    "org.evosuite.EvoSuite",
-    "-generateMOSuite",
-    "-class", $script:TargetClass,
-    "-projectCP", $projectCp,
-    "-Dtest_dir=$($script:EvoGeneratedTests)",
-    "-Dreport_dir=$($script:EvoReportDir)",
-    "-Dcriterion=LINE:BRANCH",
-    "-Dsearch_budget=$BudgetSeconds",
-    "-Dstopping_condition=MaxTime",
-    "-Dassertions=true",
-    "-Dminimize=true",
-    "-Dsandbox=false",
-    "-Dclient_on_thread=true",
-    "-Dinstrument_context=false",
-    "-Dmock_if_no_generator=true"
-)
+    $current = (Resolve-Path $StartDirectory).Path
 
-# La fase RUN Java 21 usa JDK_JAVA_OPTIONS per SecurityManager/add-opens.
-# Durante GENERATE vogliamo invece una JVM 11 pulita e riproducibile.
-$oldJdkJavaOptions = $env:JDK_JAVA_OPTIONS
+    while ($true) {
+        $rootPom = Join-Path $current "pom.xml"
+        $provisioningPom = Join-Path $current "core\provisioning-java\pom.xml"
 
-try {
-    Remove-Item Env:JDK_JAVA_OPTIONS -ErrorAction SilentlyContinue
+        if ((Test-Path $rootPom) -and (Test-Path $provisioningPom)) {
+            return $current
+        }
 
-    & $java11 @evoArgs
+        $parent = Split-Path $current -Parent
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
+            break
+        }
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "EvoSuite terminato con exit code $LASTEXITCODE."
+        $current = $parent
     }
-}
-finally {
-    if ($null -eq $oldJdkJavaOptions) {
-        Remove-Item Env:JDK_JAVA_OPTIONS -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:JDK_JAVA_OPTIONS = $oldJdkJavaOptions
-    }
-}
 
-$generatedPackageDir = Join-Path `
-    $script:EvoGeneratedTests `
-    "org\apache\syncope\core\provisioning\java"
+    throw @"
+Impossibile individuare automaticamente la root del repository Syncope
+partendo da:
+    $StartDirectory
 
-$rawTest = Join-Path `
-    $generatedPackageDir `
-    "DefaultMappingManager_ESTest.java"
-
-$rawScaffolding = Join-Path `
-    $generatedPackageDir `
-    "DefaultMappingManager_ESTest_scaffolding.java"
-
-if (-not (Test-Path $rawTest)) {
-    throw "EvoSuite non ha prodotto il test atteso: $rawTest"
+La root attesa deve contenere contemporaneamente:
+    pom.xml
+    core\provisioning-java\pom.xml
+"@
 }
 
-if (-not (Test-Path $rawScaffolding)) {
-    throw "EvoSuite non ha prodotto lo scaffolding atteso: $rawScaffolding"
-}
+$script:RepoRoot = Find-SyncopeRepoRoot -StartDirectory $PSScriptRoot
+$script:ModuleRelative = "core\provisioning-java"
+$script:ModuleDir = Join-Path $script:RepoRoot $script:ModuleRelative
 
-Write-Section "6. Copia dei test generati in src\test\evosuite"
+$script:TargetClass = "org.apache.syncope.core.provisioning.java.DefaultMappingManager"
+$script:TargetClassRelative = "org\apache\syncope\core\provisioning\java\DefaultMappingManager"
+$script:TargetSource = Join-Path $script:ModuleDir "src\main\java\$($script:TargetClassRelative).java"
+$script:RealClassFile = Join-Path $script:ModuleDir "target\classes\$($script:TargetClassRelative).class"
 
-[void][System.IO.Directory]::CreateDirectory($script:GeneratedPackageDir)
+$script:GeneratedTestRoot = Join-Path $script:ModuleDir "src\test\evosuite"
+$script:GeneratedPackageDir = Join-Path $script:GeneratedTestRoot "org\apache\syncope\core\provisioning\java"
+$script:GeneratedTestFile = Join-Path $script:GeneratedPackageDir "DefaultMappingManager_ESTest.java"
+$script:GeneratedScaffoldingFile = Join-Path $script:GeneratedPackageDir "DefaultMappingManager_ESTest_scaffolding.java"
+$script:GeneratedTestFqn = "org.apache.syncope.core.provisioning.java.DefaultMappingManager_ESTest"
 
-Copy-Item `
-    -LiteralPath $rawTest `
-    -Destination $script:GeneratedPackageDir `
-    -Force
+$script:CompatRoot = Join-Path $script:RepoRoot "target\evosuite-compat\dmm"
+$script:CompatClasses = Join-Path $script:CompatRoot "classes"
+$script:CompatSource = Join-Path $script:CompatRoot "src\DefaultMappingManager.java"
+$script:CompatRawLib = Join-Path $script:CompatRoot "lib-raw"
+$script:CompatLib = Join-Path $script:CompatRoot "lib"
+$script:CompatPom = Join-Path $script:CompatRoot "pom.xml"
 
-Copy-Item `
-    -LiteralPath $rawScaffolding `
-    -Destination $script:GeneratedPackageDir `
-    -Force
+$script:EvoGeneratedRoot = Join-Path $script:ModuleDir "target\evosuite-generated\dmm"
+$script:EvoGeneratedTests = Join-Path $script:EvoGeneratedRoot "evosuite-tests"
+$script:EvoReportDir = Join-Path $script:EvoGeneratedRoot "evosuite-report"
 
-if (-not (Test-Path -LiteralPath $script:GeneratedTestFile)) {
-    throw "Test generato non presente dopo la copia: $script:GeneratedTestFile"
-}
+$script:TemporaryRunPom = Join-Path $script:ModuleDir "pom-evosuite-dmm-temp.xml"
 
-if (-not (Test-Path -LiteralPath $script:GeneratedScaffoldingFile)) {
-    throw "Scaffolding non presente dopo la copia: $script:GeneratedScaffoldingFile"
-}
+# DMM: generation against the REAL Java 21 bytecode.
+# EvoSuite 1.2.0 embeds ASM 9.2, therefore an ASM overlay is built locally
+# and placed before evosuite-1.2.0.jar in the generator runtime classpath.
+$script:DmmGenerationRoot = Join-Path $script:RepoRoot "target\evosuite-dmm-generation"
+$script:DmmDependencyCpFile = Join-Path $script:DmmGenerationRoot "maven-classpath.txt"
 
-Write-Host "Test:"
-Write-Host "  $script:GeneratedTestFile"
-Write-Host "Scaffolding:"
-Write-Host "  $script:GeneratedScaffoldingFile"
-Write-Host ""
-Write-Host "CUT reale NON modificata."
-Write-Host "Test manuali NON modificati."
-Write-Host ""
-Write-Host "Prossimo comando:"
-Write-Host "  .\scripts\evosuite\evosuite_run_dmm.ps1 test"
+$script:AsmOverlayRoot = Join-Path $script:RepoRoot "target\evosuite-asm-java21-overlay"
+$script:AsmOverlayPom = Join-Path $script:AsmOverlayRoot "pom.xml"
+$script:AsmOverlayTarget = Join-Path $script:AsmOverlayRoot "target"
 
-if (-not $KeepCompatibilityFiles) {
+
+function Write-Section {
+    param([Parameter(Mandatory=$true)][string]$Text)
     Write-Host ""
-    Write-Host "L'area compatibility viene mantenuta per audit/debug."
-    Write-Host "Per rimuoverla successivamente:"
-    Write-Host "  .\scripts\evosuite\evosuite_run_dmm.ps1 clean-generated"
+    Write-Host ("=" * 78)
+    Write-Host $Text
+    Write-Host ("=" * 78)
+}
+
+function Get-JavaMajorFromHome {
+    param([Parameter(Mandatory=$true)][string]$JdkHome)
+
+    $javaExe = Join-Path $JdkHome "bin\java.exe"
+    if (-not (Test-Path $javaExe)) {
+        return $null
+    }
+
+    # java -version scrive normalmente su STDERR.
+    # Con $ErrorActionPreference = "Stop", Windows PowerShell può trasformare
+    # questo output legittimo in NativeCommandError. Usiamo ProcessStartInfo
+    # per catturare stdout/stderr senza coinvolgere la pipeline degli errori.
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $javaExe
+    $psi.Arguments = "-version"
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+
+    [void]$process.Start()
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    $out = "$stdout`n$stderr"
+
+    if ($process.ExitCode -ne 0) {
+        return $null
+    }
+
+    if ($out -match 'version\s+"(?:1\.)?(?<major>\d+)') {
+        return [int]$Matches["major"]
+    }
+
+    return $null
+}
+
+function Find-JdkHome {
+    param(
+        [Parameter(Mandatory=$true)][int]$Major,
+        [Parameter(Mandatory=$true)][string]$EnvironmentVariable
+    )
+
+    $explicit = [Environment]::GetEnvironmentVariable($EnvironmentVariable)
+    if (-not [string]::IsNullOrWhiteSpace($explicit)) {
+        $explicit = $explicit.Trim('"')
+        $foundMajor = Get-JavaMajorFromHome -JdkHome $explicit
+        if ($foundMajor -eq $Major) {
+            return (Resolve-Path $explicit).Path
+        }
+        throw "$EnvironmentVariable='$explicit' non punta a una JDK $Major valida."
+    }
+
+    $roots = @(
+        (Join-Path $env:USERPROFILE ".jdks"),
+        "C:\Program Files\Eclipse Adoptium",
+        "C:\Program Files\Microsoft",
+        "C:\Program Files\Java"
+    ) | Where-Object { Test-Path $_ }
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    foreach ($root in $roots) {
+        if (Test-Path (Join-Path $root "bin\java.exe")) {
+            $candidates.Add($root)
+        }
+
+        Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            if (Test-Path (Join-Path $_.FullName "bin\java.exe")) {
+                $candidates.Add($_.FullName)
+            }
+        }
+    }
+
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if ((Get-JavaMajorFromHome -JdkHome $candidate) -eq $Major) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+
+    throw @"
+JDK $Major non trovata automaticamente.
+Installa una JDK $Major oppure, nel terminale PowerShell di IntelliJ, imposta:
+
+    `$env:$EnvironmentVariable = "C:\percorso\alla\jdk-$Major"
+
+e rilancia lo script.
+"@
+}
+
+function Find-EvoSuiteJar {
+    $explicit = $env:EVOSUITE_JAR
+    if (-not [string]::IsNullOrWhiteSpace($explicit)) {
+        $explicit = $explicit.Trim('"')
+        if (-not (Test-Path $explicit)) {
+            throw "EVOSUITE_JAR punta a un file inesistente: $explicit"
+        }
+        return (Resolve-Path $explicit).Path
+    }
+
+    $tools = Join-Path $env:USERPROFILE "Tools"
+    if (-not (Test-Path $tools)) {
+        throw "Directory Tools non trovata: $tools"
+    }
+
+    $preferred = Get-ChildItem -Path $tools -Recurse -File -Filter "evosuite-1.2.0.jar" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    if ($null -ne $preferred) {
+        return $preferred.FullName
+    }
+
+    $fallback = Get-ChildItem -Path $tools -Recurse -File -Filter "*evosuite*.jar" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch "runtime" } |
+            Select-Object -First 1
+
+    if ($null -eq $fallback) {
+        throw @"
+Nessun JAR EvoSuite trovato sotto:
+    $tools
+
+Estrai evosuite.zip e assicurati che esista un file come:
+    C:\Users\micci\Tools\evosuite\evosuite-1.2.0.jar
+
+In alternativa:
+    `$env:EVOSUITE_JAR = "C:\percorso\evosuite-1.2.0.jar"
+"@
+    }
+
+    return $fallback.FullName
+}
+
+function Find-MavenExecutable {
+    foreach ($name in @("mvn.cmd", "mvn.exe", "mvn")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($null -ne $cmd) {
+            return $cmd.Source
+        }
+    }
+    throw "Maven non trovato nel PATH. Verifica che 'mvn -version' funzioni nel terminale PowerShell di IntelliJ."
+}
+
+$script:Jdk21Home = Find-JdkHome -Major 21 -EnvironmentVariable "JDK21_HOME"
+$script:EvoSuiteJar = Find-EvoSuiteJar
+$script:MavenExe = Find-MavenExecutable
+
+function Invoke-Maven {
+    param(
+        [Parameter(Mandatory=$true)][string]$JdkHome,
+        [Parameter(Mandatory=$true)][string[]]$Arguments,
+        [string]$WorkingDirectory = $script:RepoRoot
+    )
+
+    $oldJavaHome = $env:JAVA_HOME
+    $oldPath = $env:PATH
+
+    Push-Location $WorkingDirectory
+    try {
+        $env:JAVA_HOME = $JdkHome
+        $env:PATH = "$(Join-Path $JdkHome 'bin');$oldPath"
+
+        & $script:MavenExe @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Maven terminato con exit code $LASTEXITCODE."
+        }
+    }
+    finally {
+        $env:JAVA_HOME = $oldJavaHome
+        $env:PATH = $oldPath
+        Pop-Location
+    }
+}
+
+function Invoke-MavenCapture {
+    param(
+        [Parameter(Mandatory=$true)][string]$JdkHome,
+        [Parameter(Mandatory=$true)][string[]]$Arguments,
+        [string]$WorkingDirectory = $script:RepoRoot
+    )
+
+    $oldJavaHome = $env:JAVA_HOME
+    $oldPath = $env:PATH
+
+    Push-Location $WorkingDirectory
+    try {
+        $env:JAVA_HOME = $JdkHome
+        $env:PATH = "$(Join-Path $JdkHome 'bin');$oldPath"
+
+        $output = & $script:MavenExe @Arguments 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Maven terminato con exit code $LASTEXITCODE.`n$($output | Out-String)"
+        }
+        return ($output | Out-String).Trim()
+    }
+    finally {
+        $env:JAVA_HOME = $oldJavaHome
+        $env:PATH = $oldPath
+        Pop-Location
+    }
+}
+
+function Get-MavenProperty {
+    param([Parameter(Mandatory=$true)][string]$Name)
+
+    $rootPom = Join-Path $script:RepoRoot "pom.xml"
+
+    try {
+        [xml]$xml = Get-Content -Raw $rootPom
+        $node = $xml.SelectSingleNode("/*[local-name()='project']/*[local-name()='properties']/*[local-name()='$Name']")
+        if ($null -ne $node -and -not [string]::IsNullOrWhiteSpace($node.InnerText)) {
+            return $node.InnerText.Trim()
+        }
+    }
+    catch {
+        # Fallback Maven sotto.
+    }
+
+    $value = Invoke-MavenCapture -JdkHome $script:Jdk21Home -Arguments @(
+        "-q",
+        "help:evaluate",
+        "-Dexpression=$Name",
+        "-DforceStdout"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($value) -or
+            $value -match "null object" -or
+            $value -match "invalid expression" -or
+            $value -match "^\$\{") {
+        throw "Impossibile determinare la proprietà Maven '$Name'."
+    }
+
+    return (($value -split "`r?`n") | Where-Object {
+        $_ -and $_ -notmatch "^\[" -and $_ -notmatch "WARNING"
+    } | Select-Object -Last 1).Trim()
+}
+
+function Get-ClassMajorVersion {
+    param([Parameter(Mandatory=$true)][string]$ClassFile)
+
+    if (-not (Test-Path $ClassFile)) {
+        throw "Class file non trovato: $ClassFile"
+    }
+
+    $stream = [System.IO.File]::OpenRead($ClassFile)
+    try {
+        $bytes = New-Object byte[] 8
+        $read = $stream.Read($bytes, 0, 8)
+        if ($read -lt 8 -or
+                $bytes[0] -ne 0xCA -or
+                $bytes[1] -ne 0xFE -or
+                $bytes[2] -ne 0xBA -or
+                $bytes[3] -ne 0xBE) {
+            throw "File non valido come Java class: $ClassFile"
+        }
+        return (($bytes[6] -shl 8) -bor $bytes[7])
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Test-AndPrepareJarForJava11 {
+    param(
+        [Parameter(Mandatory=$true)][string]$InputJar,
+        [Parameter(Mandatory=$true)][string]$OutputDirectory
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $jarName = [System.IO.Path]::GetFileName($InputJar)
+    $needsStrip = $false
+    $badEntries = New-Object System.Collections.Generic.List[string]
+
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($InputJar)
+    try {
+        foreach ($entry in $zip.Entries) {
+            if (-not $entry.FullName.EndsWith(".class", [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $mrVersion = $null
+            if ($entry.FullName -match '^META-INF/versions/(?<v>\d+)/') {
+                $mrVersion = [int]$Matches["v"]
+                if ($mrVersion -gt 11) {
+                    $needsStrip = $true
+                    continue
+                }
+            }
+
+            $s = $entry.Open()
+            try {
+                $bytes = New-Object byte[] 8
+                $read = $s.Read($bytes, 0, 8)
+                if ($read -lt 8) { continue }
+
+                if ($bytes[0] -eq 0xCA -and $bytes[1] -eq 0xFE -and
+                        $bytes[2] -eq 0xBA -and $bytes[3] -eq 0xBE) {
+                    $major = (($bytes[6] -shl 8) -bor $bytes[7])
+                    if ($major -gt 55) {
+                        $badEntries.Add("$($entry.FullName) [major=$major]")
+                    }
+                }
+            }
+            finally {
+                $s.Dispose()
+            }
+        }
+    }
+    finally {
+        $zip.Dispose()
+    }
+
+    if ($badEntries.Count -gt 0) {
+        $details = ($badEntries | Select-Object -First 15) -join "`n    "
+        throw @"
+Dipendenza non compatibile con Java 11:
+    $InputJar
+
+Sono presenti classi necessarie con major version > 55:
+    $details
+
+La dipendenza non viene eliminata automaticamente: la generazione viene fermata
+per evitare un classpath EvoSuite semanticamente incompleto.
+"@
+    }
+
+    New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+    $outputJar = Join-Path $OutputDirectory $jarName
+
+    if (-not $needsStrip) {
+        Copy-Item -Force $InputJar $outputJar
+        return $outputJar
+    }
+
+    Write-Host "Sanitizzazione multi-release > Java 11: $jarName"
+
+    $work = Join-Path $script:CompatRoot ("jarwork-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+    try {
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($InputJar, $work)
+
+        $versionsDir = Join-Path $work "META-INF\versions"
+        if (Test-Path $versionsDir) {
+            Get-ChildItem $versionsDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                $n = 0
+                if ([int]::TryParse($_.Name, [ref]$n) -and $n -gt 11) {
+                    Remove-Item -Recurse -Force $_.FullName
+                }
+            }
+        }
+
+        # Se modifichiamo un JAR firmato, le firme non sono più valide.
+        $metaInf = Join-Path $work "META-INF"
+        if (Test-Path $metaInf) {
+            Get-ChildItem $metaInf -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Extension -in @(".SF", ".RSA", ".DSA", ".EC") } |
+                    Remove-Item -Force
+        }
+
+        if (Test-Path $outputJar) {
+            Remove-Item -Force $outputJar
+        }
+
+        [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                $work,
+                $outputJar,
+                [System.IO.Compression.CompressionLevel]::Optimal,
+                $false
+        )
+    }
+    finally {
+        if (Test-Path $work) {
+            Remove-Item -Recurse -Force $work
+        }
+    }
+
+    return $outputJar
+}
+
+function New-TemporaryEvoSuiteRunPom {
+    $originalPom = Join-Path $script:ModuleDir "pom.xml"
+    if (-not (Test-Path $originalPom)) {
+        throw "POM del modulo non trovato: $originalPom"
+    }
+
+    $doc = New-Object System.Xml.XmlDocument
+    $doc.PreserveWhitespace = $true
+    $doc.Load($originalPom)
+
+    $project = $doc.DocumentElement
+    $ns = $project.NamespaceURI
+
+    function New-Element([string]$Name, [string]$Text = $null) {
+        $node = $doc.CreateElement($Name, $ns)
+        if ($null -ne $Text) {
+            $node.InnerText = $Text
+        }
+        return $node
+    }
+
+    $profiles = $project.SelectSingleNode("*[local-name()='profiles']")
+    if ($null -eq $profiles) {
+        $profiles = New-Element "profiles"
+        [void]$project.AppendChild($profiles)
+    }
+
+    $profile = New-Element "profile"
+    [void]$profiles.AppendChild($profile)
+
+    [void]$profile.AppendChild((New-Element "id" "evosuite-dmm-temp"))
+
+    $dependencies = New-Element "dependencies"
+    [void]$profile.AppendChild($dependencies)
+
+    $dependency = New-Element "dependency"
+    [void]$dependencies.AppendChild($dependency)
+    [void]$dependency.AppendChild((New-Element "groupId" "org.evosuite"))
+    [void]$dependency.AppendChild((New-Element "artifactId" "evosuite-local-runtime"))
+    [void]$dependency.AppendChild((New-Element "version" "1.2.0"))
+    [void]$dependency.AppendChild((New-Element "scope" "test"))
+
+    # EvoSuite 1.2.0 genera normalmente test JUnit 4.
+    # Aggiungiamo JUnit 4 e il Vintage Engine affinché la suite possa essere
+    # eseguita anche nei moduli Syncope configurati con JUnit Platform/JUnit 5.
+    $junit4 = New-Element "dependency"
+    [void]$dependencies.AppendChild($junit4)
+    [void]$junit4.AppendChild((New-Element "groupId" "junit"))
+    [void]$junit4.AppendChild((New-Element "artifactId" "junit"))
+    [void]$junit4.AppendChild((New-Element "version" "4.13.2"))
+    [void]$junit4.AppendChild((New-Element "scope" "test"))
+
+    $vintageVersion = $null
+    foreach ($propertyName in @("junit.version", "junit5.version", "junit-jupiter.version")) {
+        try {
+            $candidate = Get-MavenProperty -Name $propertyName
+            if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                $vintageVersion = $candidate
+                break
+            }
+        }
+        catch {
+            # Prova la proprietà successiva.
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($vintageVersion)) {
+        $vintageVersion = "5.11.4"
+    }
+
+    $vintage = New-Element "dependency"
+    [void]$dependencies.AppendChild($vintage)
+    [void]$vintage.AppendChild((New-Element "groupId" "org.junit.vintage"))
+    [void]$vintage.AppendChild((New-Element "artifactId" "junit-vintage-engine"))
+    [void]$vintage.AppendChild((New-Element "version" $vintageVersion))
+    [void]$vintage.AppendChild((New-Element "scope" "test"))
+
+    $build = New-Element "build"
+    [void]$profile.AppendChild($build)
+    $plugins = New-Element "plugins"
+    [void]$build.AppendChild($plugins)
+
+    $plugin = New-Element "plugin"
+    [void]$plugins.AppendChild($plugin)
+    [void]$plugin.AppendChild((New-Element "groupId" "org.codehaus.mojo"))
+    [void]$plugin.AppendChild((New-Element "artifactId" "build-helper-maven-plugin"))
+    [void]$plugin.AppendChild((New-Element "version" "3.6.1"))
+
+    $executions = New-Element "executions"
+    [void]$plugin.AppendChild($executions)
+    $execution = New-Element "execution"
+    [void]$executions.AppendChild($execution)
+    [void]$execution.AppendChild((New-Element "id" "add-evosuite-test-source"))
+    [void]$execution.AppendChild((New-Element "phase" "generate-test-sources"))
+
+    $goals = New-Element "goals"
+    [void]$execution.AppendChild($goals)
+    [void]$goals.AppendChild((New-Element "goal" "add-test-source"))
+
+    $configuration = New-Element "configuration"
+    [void]$execution.AppendChild($configuration)
+    $sources = New-Element "sources"
+    [void]$configuration.AppendChild($sources)
+    [void]$sources.AppendChild((New-Element "source" '${project.basedir}/src/test/evosuite'))
+
+    $doc.Save($script:TemporaryRunPom)
+    return $script:TemporaryRunPom
+}
+
+function Install-EvoSuiteRuntimeIntoLocalMaven {
+    Write-Section "Installazione del JAR EvoSuite nel repository Maven locale (test runtime)"
+
+    Invoke-Maven -JdkHome $script:Jdk21Home -Arguments @(
+        "org.apache.maven.plugins:maven-install-plugin:3.1.3:install-file",
+        "-Dfile=$($script:EvoSuiteJar)",
+        "-DgroupId=org.evosuite",
+        "-DartifactId=evosuite-local-runtime",
+        "-Dversion=1.2.0",
+        "-Dpackaging=jar",
+        "-DgeneratePom=true"
+    )
+}
+
+function Show-Configuration {
+    Write-Host "Repository Syncope : $script:RepoRoot"
+    Write-Host "Modulo             : $script:ModuleRelative"
+    Write-Host "CUT                : $script:TargetClass"
+    Write-Host "Target relative    : $script:TargetClassRelative"
+    Write-Host "Sorgente CUT       : $script:TargetSource"
+    Write-Host "Class reale        : $script:RealClassFile"
+    Write-Host "Test package dir   : $script:GeneratedPackageDir"
+    Write-Host "JDK 21             : $script:Jdk21Home"
+    Write-Host "EvoSuite           : $script:EvoSuiteJar"
+    Write-Host "Maven              : $script:MavenExe"
 }
