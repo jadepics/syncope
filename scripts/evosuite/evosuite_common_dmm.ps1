@@ -1,5 +1,4 @@
-﻿
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
@@ -278,19 +277,58 @@ function Invoke-MavenCapture {
 
     $oldJavaHome = $env:JAVA_HOME
     $oldPath = $env:PATH
+    $oldErrorActionPreference = $ErrorActionPreference
 
     Push-Location $WorkingDirectory
     try {
         $env:JAVA_HOME = $JdkHome
         $env:PATH = "$(Join-Path $JdkHome 'bin');$oldPath"
 
-        $output = & $script:MavenExe @Arguments 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            throw "Maven terminato con exit code $LASTEXITCODE.`n$($output | Out-String)"
+        # CRITICO SU WINDOWS POWERSHELL:
+        # con $ErrorActionPreference = "Stop", l'output STDERR di un native
+        # command rediretto con 2>&1 può essere trasformato in NativeCommandError.
+        #
+        # Maven / java scrivono legittimamente su STDERR messaggi come:
+        #   NOTE: Picked up JDK_JAVA_OPTIONS: ...
+        #
+        # Non è un fallimento. Il criterio corretto per un native process è
+        # l'exit code. Rendiamo quindi non-terminante SOLO questa invocazione,
+        # catturiamo stdout+stderr, salviamo subito LASTEXITCODE e poi
+        # ripristiniamo il comportamento globale "Stop".
+        $ErrorActionPreference = "Continue"
+
+        $rawOutput = & $script:MavenExe @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+
+        $ErrorActionPreference = $oldErrorActionPreference
+
+        $outputLines = @(
+        foreach ($entry in $rawOutput) {
+            if ($entry -is [System.Management.Automation.ErrorRecord]) {
+                if ($null -ne $entry.Exception -and
+                        -not [string]::IsNullOrWhiteSpace($entry.Exception.Message)) {
+                    $entry.Exception.Message
+                }
+                else {
+                    $entry.ToString()
+                }
+            }
+            else {
+                $entry.ToString()
+            }
         }
-        return ($output | Out-String).Trim()
+        )
+
+        $outputText = ($outputLines -join [Environment]::NewLine).Trim()
+
+        if ($exitCode -ne 0) {
+            throw "Maven terminato con exit code $exitCode.`n$outputText"
+        }
+
+        return $outputText
     }
     finally {
+        $ErrorActionPreference = $oldErrorActionPreference
         $env:JAVA_HOME = $oldJavaHome
         $env:PATH = $oldPath
         Pop-Location

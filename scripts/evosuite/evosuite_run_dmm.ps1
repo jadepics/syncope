@@ -1150,8 +1150,10 @@ $fallbackReports = @(Get-ReportFiles $defaultPitDir)
 if ($fallbackReports.Count -gt 0) {
 Write-Warning "PIT ha scritto nel path Maven standard; copio il report nella directory stabile."
 
+# -LiteralPath NON espande wildcard. Qui serve -Path perché
+# vogliamo copiare il contenuto di target\pit-reports.
 Copy-Item `
-                -LiteralPath (Join-Path $defaultPitDir "*") `
+                -Path (Join-Path $defaultPitDir "*") `
                 -Destination $stablePitDir `
                 -Recurse `
                 -Force
@@ -1260,6 +1262,15 @@ $pitArgs = @(
 
 $pitLogFile = Join-Path $pitDir "pit-maven.log"
 $pitOutput = $null
+
+Write-Host ""
+Write-Host "Avvio Maven PIT reale..."
+Write-Host "Working directory:"
+Write-Host "  $script:RepoRoot"
+Write-Host "Log persistente:"
+Write-Host "  $pitLogFile"
+Write-Host "NOTA: eventuali righe STDERR di java/Maven non vengono trattate come"
+Write-Host "      fallimento; viene controllato esclusivamente l'exit code."
 
 try {
 $pitOutput = Invoke-MavenCapture `
