@@ -35,7 +35,9 @@ under the License.
   
   <properties>
     <rootpom.basedir>${basedir}/../..</rootpom.basedir>
+    <test.excludes></test.excludes>
   </properties>
+
 
   <dependencies>
     <dependency> 
@@ -127,6 +129,15 @@ under the License.
 
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <testExcludes>
+            <testExclude>${test.excludes}</testExclude>
+          </testExcludes>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
@@ -258,7 +269,6 @@ under the License.
 
       <build>
         <plugins>
-
           <plugin>
             <groupId>org.pitest</groupId>
             <artifactId>pitest-maven</artifactId>
