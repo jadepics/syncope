@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultGroupProvisioningManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultGroupProvisioningManager.java</span></div><h1>DefaultGroupProvisioningManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+import org.apache.syncope.common.lib.request.GroupCR;
+import org.apache.syncope.common.lib.request.GroupUR;
+import org.apache.syncope.common.lib.to.PropagationStatus;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.provisioning.api.GroupProvisioningManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.WorkflowResult;
+import org.apache.syncope.core.provisioning.api.data.GroupDataBinder;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.workflow.api.GroupWorkflowAdapter;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+public class DefaultGroupProvisioningManager implements GroupProvisioningManager {
+
+    protected final GroupWorkflowAdapter gwfAdapter;
+
+    protected final PropagationManager propagationManager;
+
+    protected final PropagationTaskExecutor taskExecutor;
+
+    protected final GroupDataBinder groupDataBinder;
+
+    protected final GroupDAO groupDAO;
+
+    public DefaultGroupProvisioningManager(
+            final GroupWorkflowAdapter gwfAdapter,
+            final PropagationManager propagationManager,
+            final PropagationTaskExecutor taskExecutor,
+            final GroupDataBinder groupDataBinder,
+<span class="nc" id="L60">            final GroupDAO groupDAO) {</span>
+
+<span class="nc" id="L62">        this.gwfAdapter = gwfAdapter;</span>
+<span class="nc" id="L63">        this.propagationManager = propagationManager;</span>
+<span class="nc" id="L64">        this.taskExecutor = taskExecutor;</span>
+<span class="nc" id="L65">        this.groupDataBinder = groupDataBinder;</span>
+<span class="nc" id="L66">        this.groupDAO = groupDAO;</span>
+<span class="nc" id="L67">    }</span>
+
+    @Override
+    public ProvisioningResult&lt;String&gt; create(
+            final GroupCR groupCR, final boolean nullPriorityAsync, final String creator, final String context) {
+
+<span class="nc" id="L73">        return create(groupCR, Set.of(), nullPriorityAsync, creator, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public ProvisioningResult&lt;String&gt; create(
+            final GroupCR groupCR,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String creator,
+            final String context) {
+
+<span class="nc" id="L85">        WorkflowResult&lt;String&gt; created = gwfAdapter.create(groupCR, creator, context);</span>
+
+<span class="nc" id="L87">        List&lt;PropagationTaskInfo&gt; tasks = propagationManager.getCreateTasks(</span>
+                AnyTypeKind.GROUP,
+<span class="nc" id="L89">                created.getResult(),</span>
+                null,
+<span class="nc" id="L91">                created.getPropByRes(),</span>
+                excludedResources);
+<span class="nc" id="L93">        PropagationReporter propagationReporter = taskExecutor.execute(tasks, nullPriorityAsync, creator);</span>
+
+<span class="nc" id="L95">        return new ProvisioningResult&lt;&gt;(created.getResult(), propagationReporter.getStatuses());</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public ProvisioningResult&lt;GroupUR&gt; update(
+            final GroupUR groupUR,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String updater,
+            final String context) {
+
+<span class="nc" id="L107">        List&lt;PropagationManager.PropagationAttrs&gt; beforeAttrs = propagationManager.prepareAttrs(</span>
+                AnyTypeKind.GROUP,
+<span class="nc" id="L109">                groupUR.getKey(),</span>
+                null,
+<span class="nc" id="L111">                List.of(),</span>
+                null,
+                excludedResources);
+
+<span class="nc" id="L115">        WorkflowResult&lt;GroupUR&gt; updated = gwfAdapter.update(groupUR, updater, context);</span>
+
+<span class="nc" id="L117">        List&lt;PropagationTaskInfo&gt; tasks = propagationManager.setAttributeDeltas(</span>
+<span class="nc" id="L118">                propagationManager.getUpdateTasks(</span>
+<span class="nc" id="L119">                        updated.getResult(),</span>
+                        AnyTypeKind.GROUP,
+<span class="nc" id="L121">                        updated.getResult().getKey(),</span>
+<span class="nc" id="L122">                        List.of(),</span>
+                        null,
+<span class="nc" id="L124">                        updated.getPropByRes(),</span>
+                        null,
+                        excludedResources),
+                beforeAttrs);
+<span class="nc" id="L128">        PropagationReporter propagationReporter = taskExecutor.execute(tasks, nullPriorityAsync, updater);</span>
+
+<span class="nc" id="L130">        return new ProvisioningResult&lt;&gt;(updated.getResult(), propagationReporter.getStatuses());</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; delete(
+            final String key, final boolean nullPriorityAsync, final String eraser, final String context) {
+
+<span class="nc" id="L137">        return delete(key, Set.of(), nullPriorityAsync, eraser, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public List&lt;PropagationStatus&gt; delete(
+            final String key,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String eraser,
+            final String context) {
+
+<span class="nc" id="L149">        List&lt;PropagationTaskInfo&gt; taskInfos = new ArrayList&lt;&gt;();</span>
+
+        // Generate propagation tasks for deleting users and any objects from group resources, 
+        // if they are on those resources only because of the reason being deleted (see SYNCOPE-357)
+<span class="nc" id="L153">        groupDataBinder.findUsersWithTransitiveResources(key).forEach((anyKey, propByRes) -&gt; taskInfos.addAll(</span>
+<span class="nc" id="L154">                propagationManager.getDeleteTasks(</span>
+                        AnyTypeKind.USER,
+                        anyKey,
+                        propByRes,
+                        null,
+                        excludedResources)));
+<span class="nc" id="L160">        groupDataBinder.findAnyObjectsWithTransitiveResources(key).forEach((anyKey, propByRes) -&gt; taskInfos.addAll(</span>
+<span class="nc" id="L161">                propagationManager.getDeleteTasks(</span>
+                        AnyTypeKind.ANY_OBJECT,
+                        anyKey,
+                        propByRes,
+                        null,
+                        excludedResources)));
+
+        // Generate propagation tasks for deleting this group from resources
+<span class="nc" id="L169">        taskInfos.addAll(propagationManager.getDeleteTasks(</span>
+                AnyTypeKind.GROUP,
+                key,
+                null,
+                null,
+                null));
+
+<span class="nc" id="L176">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, eraser);</span>
+
+<span class="nc" id="L178">        gwfAdapter.delete(key, eraser, context);</span>
+
+<span class="nc" id="L180">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public String link(final GroupUR groupUR, final String updater, final String context) {
+<span class="nc" id="L185">        return gwfAdapter.update(groupUR, updater, context).getResult().getKey();</span>
+    }
+
+    @Override
+    public String unlink(final GroupUR groupUR, final String updater, final String context) {
+<span class="nc" id="L190">        return gwfAdapter.update(groupUR, updater, context).getResult().getKey();</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; provision(
+            final String key,
+            final Collection&lt;String&gt; resources,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L200">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L201">        propByRes.addAll(ResourceOperation.UPDATE, resources);</span>
+
+<span class="nc" id="L203">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUpdateTasks(</span>
+                null,
+                AnyTypeKind.GROUP,
+                key,
+<span class="nc" id="L207">                List.of(),</span>
+                null,
+                propByRes,
+                null,
+                null);
+<span class="nc" id="L212">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, executor);</span>
+
+<span class="nc" id="L214">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; deprovision(
+            final String key,
+            final Collection&lt;String&gt; resources,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L224">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L225">        propByRes.addAll(ResourceOperation.DELETE, resources);</span>
+
+<span class="nc" id="L227">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+                AnyTypeKind.GROUP,
+                key,
+                propByRes,
+                null,
+<span class="nc" id="L232">                groupDAO.findAllResourceKeys(key).stream().</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">                        filter(resource -&gt; !resources.contains(resource)).</span>
+<span class="nc" id="L234">                        toList());</span>
+<span class="nc" id="L235">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, executor);</span>
+
+<span class="nc" id="L237">        return propagationReporter.getStatuses();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

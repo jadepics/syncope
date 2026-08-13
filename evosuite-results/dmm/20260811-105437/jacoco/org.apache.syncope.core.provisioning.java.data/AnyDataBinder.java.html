@@ -1,0 +1,910 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AnyDataBinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">AnyDataBinder.java</span></div><h1>AnyDataBinder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.Attr;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.request.AnyCR;
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.request.AttrPatch;
+import org.apache.syncope.common.lib.request.MembershipUR;
+import org.apache.syncope.common.lib.request.RelationshipUR;
+import org.apache.syncope.common.lib.request.StringPatchItem;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.to.MembershipTO;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.RelationshipTO;
+import org.apache.syncope.common.lib.types.AttrSchemaType;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.AllowedSchemas;
+import org.apache.syncope.core.persistence.api.dao.AnyChecker;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.Membership;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.persistence.api.entity.Relatable;
+import org.apache.syncope.core.persistence.api.entity.Relationship;
+import org.apache.syncope.core.persistence.api.entity.RelationshipType;
+import org.apache.syncope.core.persistence.api.entity.anyobject.AnyObject;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.AccountGetter;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrName;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PlainAttrGetter;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder;
+import org.identityconnectors.framework.common.objects.Uid;
+
+abstract class AnyDataBinder extends AttributableDataBinder {
+
+    protected static void fillTO(
+            final Any any,
+            final AnyTO anyTO,
+            final Map&lt;String, String&gt; derAttrs,
+            final Collection&lt;? extends ExternalResource&gt; resources) {
+
+<span class="nc" id="L104">        anyTO.setRealm(any.getRealm().getFullPath());</span>
+
+<span class="nc" id="L106">        Optional.ofNullable(any.getUManager()).map(User::getKey).ifPresent(anyTO::setUManager);</span>
+<span class="nc" id="L107">        Optional.ofNullable(any.getGManager()).map(Group::getKey).ifPresent(anyTO::setGManager);</span>
+
+<span class="nc" id="L109">        anyTO.getAuxClasses().addAll(any.getAuxClasses().stream().map(AnyTypeClass::getKey).toList());</span>
+
+<span class="nc" id="L111">        any.getPlainAttrs().forEach(plainAttr -&gt; anyTO.getPlainAttrs().</span>
+<span class="nc" id="L112">                add(new Attr.Builder(plainAttr.getSchema()).values(plainAttr.getValuesAsStrings()).build()));</span>
+
+<span class="nc" id="L114">        derAttrs.forEach((schema, value) -&gt; anyTO.getDerAttrs().</span>
+<span class="nc" id="L115">                add(new Attr.Builder(schema).value(value).build()));</span>
+
+<span class="nc" id="L117">        anyTO.getResources().addAll(resources.stream().map(ExternalResource::getKey).collect(Collectors.toSet()));</span>
+<span class="nc" id="L118">    }</span>
+
+    protected static RelationshipTO getRelationshipTO(
+            final Collection&lt;PlainAttr&gt; plainAttrs,
+            final Map&lt;String, String&gt; derAttrs,
+            final String relationshipType,
+            final RelationshipTO.End end,
+            final Any otherEnd) {
+
+<span class="nc" id="L127">        RelationshipTO relationshipTO = new RelationshipTO.Builder(relationshipType, end).otherEnd(</span>
+<span class="nc" id="L128">                otherEnd.getType().getKey(),</span>
+<span class="nc" id="L129">                otherEnd.getKey(),</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">                otherEnd instanceof User user</span>
+<span class="nc" id="L131">                        ? user.getUsername()</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">                        : otherEnd instanceof Group group</span>
+<span class="nc" id="L133">                                ? group.getName()</span>
+<span class="nc" id="L134">                                : ((AnyObject) otherEnd).getName()).</span>
+<span class="nc" id="L135">                build();</span>
+
+<span class="nc" id="L137">        plainAttrs.forEach(plainAttr -&gt; relationshipTO.getPlainAttrs().</span>
+<span class="nc" id="L138">                add(new Attr.Builder(plainAttr.getSchema()).values(plainAttr.getValuesAsStrings()).build()));</span>
+
+<span class="nc" id="L140">        derAttrs.forEach((schema, value) -&gt; relationshipTO.getDerAttrs().</span>
+<span class="nc" id="L141">                add(new Attr.Builder(schema).value(value).build()));</span>
+
+<span class="nc" id="L143">        return relationshipTO;</span>
+    }
+
+    protected static MembershipTO getMembershipTO(
+            final Collection&lt;PlainAttr&gt; plainAttrs,
+            final Map&lt;String, String&gt; derAttrs,
+            final Membership&lt;? extends Any&gt; membership) {
+
+<span class="nc" id="L151">        MembershipTO membershipTO = new MembershipTO.Builder(membership.getRightEnd().getKey()).</span>
+<span class="nc" id="L152">                groupName(membership.getRightEnd().getName()).build();</span>
+
+<span class="nc" id="L154">        plainAttrs.forEach(plainAttr -&gt; membershipTO.getPlainAttrs().</span>
+<span class="nc" id="L155">                add(new Attr.Builder(plainAttr.getSchema()).values(plainAttr.getValuesAsStrings()).build()));</span>
+
+<span class="nc" id="L157">        derAttrs.forEach((schema, value) -&gt; membershipTO.getDerAttrs().</span>
+<span class="nc" id="L158">                add(new Attr.Builder(schema).value(value).build()));</span>
+
+<span class="nc" id="L160">        return membershipTO;</span>
+    }
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final AnyTypeClassDAO anyTypeClassDAO;
+
+    protected final AnyObjectDAO anyObjectDAO;
+
+    protected final UserDAO userDAO;
+
+    protected final GroupDAO groupDAO;
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final RelationshipTypeDAO relationshipTypeDAO;
+
+    protected final AnyChecker anyChecker;
+
+    protected final EntityFactory entityFactory;
+
+    protected final AnyUtilsFactory anyUtilsFactory;
+
+    protected final OutboundMatcher outboundMatcher;
+
+    protected AnyDataBinder(
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L207">        super(plainSchemaDAO, validator, derAttrHandler, mappingManager, intAttrNameParser, jexlTools);</span>
+<span class="nc" id="L208">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L209">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L210">        this.anyTypeClassDAO = anyTypeClassDAO;</span>
+<span class="nc" id="L211">        this.anyObjectDAO = anyObjectDAO;</span>
+<span class="nc" id="L212">        this.userDAO = userDAO;</span>
+<span class="nc" id="L213">        this.groupDAO = groupDAO;</span>
+<span class="nc" id="L214">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L215">        this.relationshipTypeDAO = relationshipTypeDAO;</span>
+<span class="nc" id="L216">        this.anyChecker = anyChecker;</span>
+<span class="nc" id="L217">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L218">        this.anyUtilsFactory = anyUtilsFactory;</span>
+<span class="nc" id="L219">        this.outboundMatcher = outboundMatcher;</span>
+<span class="nc" id="L220">    }</span>
+
+    protected void setRealm(final Any any, final AnyUR anyUR) {
+<span class="nc bnc" id="L223" title="All 4 branches missed.">        if (anyUR.getRealm() != null &amp;&amp; StringUtils.isNotBlank(anyUR.getRealm().getValue())) {</span>
+<span class="nc" id="L224">            realmSearchDAO.findByFullPath(anyUR.getRealm().getValue()).ifPresentOrElse(</span>
+<span class="nc" id="L225">                    any::setRealm,</span>
+<span class="nc" id="L226">                    () -&gt; LOG.debug(&quot;Invalid realm specified: {}, ignoring&quot;, anyUR.getRealm().getValue()));</span>
+        }
+<span class="nc" id="L228">    }</span>
+
+    protected Map&lt;String, ConnObject&gt; onResources(
+            final Any any,
+            final Collection&lt;String&gt; resources,
+            final String password,
+            final Set&lt;String&gt; changePwdRes) {
+
+<span class="nc" id="L236">        Map&lt;String, ConnObject&gt; onResources = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L238">        resources.stream().map(resourceDAO::findById).flatMap(Optional::stream).</span>
+<span class="nc" id="L239">                forEach(resource -&gt; resource.getProvisionByAnyType(any.getType().getKey()).</span>
+<span class="nc" id="L240">                ifPresent(provision -&gt; MappingUtils.getConnObjectKeyItem(provision).ifPresent(keyItem -&gt; {</span>
+
+<span class="nc" id="L242">            MappingManager.PreparedAttrs prepared = mappingManager.prepareAttrsFromAny(</span>
+<span class="nc" id="L243">                    any, password, changePwdRes.contains(resource.getKey()), true, resource, provision);</span>
+
+            ConnObject connObjectTO;
+<span class="nc bnc" id="L246" title="All 2 branches missed.">            if (StringUtils.isBlank(prepared.connObjectLink())) {</span>
+<span class="nc" id="L247">                connObjectTO = ConnObjectUtils.getConnObjectTO(null, prepared.attributes());</span>
+            } else {
+<span class="nc" id="L249">                ConnectorObject connectorObject = new ConnectorObjectBuilder().</span>
+<span class="nc" id="L250">                        addAttributes(prepared.attributes()).</span>
+<span class="nc" id="L251">                        addAttribute(new Uid(prepared.connObjectLink())).</span>
+<span class="nc" id="L252">                        addAttribute(AttributeBuilder.build(keyItem.getExtAttrName(), prepared.connObjectLink())).</span>
+<span class="nc" id="L253">                        build();</span>
+
+<span class="nc" id="L255">                connObjectTO = ConnObjectUtils.getConnObjectTO(</span>
+<span class="nc" id="L256">                        outboundMatcher.getFIQL(connectorObject, resource, provision),</span>
+<span class="nc" id="L257">                        connectorObject.getAttributes());</span>
+            }
+
+<span class="nc" id="L260">            onResources.put(resource.getKey(), connObjectTO);</span>
+<span class="nc" id="L261">        })));</span>
+
+<span class="nc" id="L263">        return onResources;</span>
+    }
+
+    protected List&lt;String&gt; evaluateMandatoryCondition(
+            final ExternalResource resource, final Provision provision, final Any any) {
+
+<span class="nc" id="L269">        List&lt;String&gt; missingAttrNames = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L271">        MappingUtils.getPropagationItems(provision.getMapping().getItems().stream()).forEach(item -&gt; {</span>
+<span class="nc" id="L272">            IntAttrName intAttrName = null;</span>
+            try {
+<span class="nc" id="L274">                intAttrName = intAttrNameParser.parse(item.getIntAttrName(), any.getType().getKind());</span>
+<span class="nc" id="L275">            } catch (ParseException e) {</span>
+<span class="nc" id="L276">                LOG.error(&quot;Invalid intAttrName '{}', ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L277">            }</span>
+<span class="nc bnc" id="L278" title="All 4 branches missed.">            if (intAttrName != null &amp;&amp; intAttrName.getSchemaInfo() != null) {</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                AttrSchemaType schemaType = intAttrName.getSchemaInfo().schema() instanceof PlainSchema</span>
+<span class="nc" id="L280">                        ? intAttrName.getSchemaInfo().schema().getType()</span>
+<span class="nc" id="L281">                        : AttrSchemaType.String;</span>
+
+<span class="nc" id="L283">                MappingManager.IntValues intValues = mappingManager.getIntValues(</span>
+                        resource,
+                        provision,
+                        item,
+                        intAttrName,
+                        schemaType,
+                        any,
+                        AccountGetter.DEFAULT,
+                        PlainAttrGetter.DEFAULT);
+<span class="nc bnc" id="L292" title="All 2 branches missed.">                if (intValues.values().isEmpty()</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">                        &amp;&amp; jexlTools.evaluateMandatoryCondition(item.getMandatoryCondition(), any, derAttrHandler)) {</span>
+
+<span class="nc" id="L295">                    missingAttrNames.add(item.getIntAttrName());</span>
+                }
+            }
+<span class="nc" id="L298">        });</span>
+
+<span class="nc" id="L300">        return missingAttrNames;</span>
+    }
+
+    protected SyncopeClientException checkMandatoryOnResources(
+            final Any any, final Collection&lt;? extends ExternalResource&gt; resources) {
+
+<span class="nc" id="L306">        SyncopeClientException reqValMissing = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+<span class="nc" id="L308">        resources.stream().filter(ExternalResource::isEnforceMandatoryCondition).</span>
+<span class="nc" id="L309">                forEach(resource -&gt; resource.getProvisionByAnyType(any.getType().getKey()).</span>
+<span class="nc" id="L310">                ifPresent(provision -&gt; {</span>
+<span class="nc" id="L311">                    List&lt;String&gt; missingAttrNames = evaluateMandatoryCondition(resource, provision, any);</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                    if (!missingAttrNames.isEmpty()) {</span>
+<span class="nc" id="L313">                        LOG.error(&quot;Mandatory schemas {} not provided with values&quot;, missingAttrNames);</span>
+
+<span class="nc" id="L315">                        reqValMissing.getElements().addAll(missingAttrNames);</span>
+                    }
+<span class="nc" id="L317">                }));</span>
+
+<span class="nc" id="L319">        return reqValMissing;</span>
+    }
+
+    protected SyncopeClientException checkMandatory(final Any any) {
+<span class="nc" id="L323">        SyncopeClientException reqValMissing = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+        // Check if there is some mandatory schema defined for which no value has been provided
+<span class="nc" id="L326">        AllowedSchemas&lt;PlainSchema&gt; allowedPlainSchemas = anyChecker.findAllowedSchemas(any, PlainSchema.class);</span>
+<span class="nc" id="L327">        allowedPlainSchemas.self().forEach(schema -&gt; checkMandatory(</span>
+<span class="nc" id="L328">                schema, any.getPlainAttr(schema.getKey()).orElse(null), any, reqValMissing));</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (any instanceof Groupable&lt;?, ?, ?&gt; groupable) {</span>
+<span class="nc" id="L330">            allowedPlainSchemas.memberships().forEach((group, schemas) -&gt; {</span>
+<span class="nc" id="L331">                Membership&lt;?&gt; membership = groupable.getMembership(group.getKey()).orElse(null);</span>
+<span class="nc" id="L332">                schemas.forEach(schema -&gt; checkMandatory(</span>
+                        schema,
+<span class="nc" id="L334">                        groupable.getPlainAttr(schema.getKey(), membership).orElse(null),</span>
+                        any,
+                        reqValMissing));
+<span class="nc" id="L337">            });</span>
+        }
+<span class="nc bnc" id="L339" title="All 2 branches missed.">        if (any instanceof Relatable&lt;?, ?&gt; relatable) {</span>
+<span class="nc" id="L340">            allowedPlainSchemas.relationshipTypes().forEach((relationshipType, schemas) -&gt; {</span>
+<span class="nc" id="L341">                List&lt;? extends Relationship&lt;?, ?&gt;&gt; rels = relatable.getRelationships(relationshipType.getKey());</span>
+<span class="nc" id="L342">                rels.forEach(rel -&gt; schemas.forEach(schema -&gt; checkMandatory(</span>
+                        schema,
+<span class="nc" id="L344">                        relatable.getPlainAttr(schema.getKey(), rel).orElse(null),</span>
+                        any,
+                        reqValMissing)));
+<span class="nc" id="L347">            });</span>
+        }
+
+<span class="nc" id="L350">        return reqValMissing;</span>
+    }
+
+    @SuppressWarnings({ &quot;unchecked&quot;, &quot;rawtypes&quot; })
+    protected void processAttrPatch(
+            final AnyTO anyTO,
+            final Any any,
+            final AttrPatch patch,
+            final PlainSchema schema,
+            final PlainAttr attr,
+            final SyncopeClientException invalidValues) {
+
+<span class="nc bnc" id="L362" title="All 2 branches missed.">        switch (patch.getOperation()) {</span>
+            case ADD_REPLACE:
+                // 1.1 remove values
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                if (schema.isUniqueConstraint()) {</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                    if (attr.getUniqueValue() != null</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">                            &amp;&amp; !patch.getAttr().getValues().isEmpty()</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">                            &amp;&amp; !patch.getAttr().getValues().getFirst().equals(</span>
+<span class="nc" id="L369">                                    attr.getUniqueValue().getValueAsString())) {</span>
+
+<span class="nc" id="L371">                        attr.setUniqueValue(null);</span>
+                    }
+                } else {
+<span class="nc" id="L374">                    attr.getValues().clear();</span>
+                }
+
+                // 1.2 add values
+<span class="nc" id="L378">                List&lt;String&gt; valuesToBeAdded = patch.getAttr().getValues();</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">                if (!valuesToBeAdded.isEmpty()</span>
+<span class="nc bnc" id="L380" title="All 4 branches missed.">                        &amp;&amp; (!schema.isUniqueConstraint() || attr.getUniqueValue() == null</span>
+<span class="nc bnc" id="L381" title="All 2 branches missed.">                        || !valuesToBeAdded.getFirst().equals(attr.getUniqueValue().getValueAsString()))) {</span>
+
+<span class="nc" id="L383">                    fillAttr(anyTO, valuesToBeAdded, schema, attr, invalidValues);</span>
+                }
+
+                // if no values are in, the attribute can be safely removed
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                if (attr.getValuesAsStrings().isEmpty()) {</span>
+<span class="nc" id="L388">                    any.remove(attr);</span>
+                }
+                break;
+
+            case DELETE:
+            default:
+<span class="nc" id="L394">                any.remove(attr);</span>
+        }
+<span class="nc" id="L396">    }</span>
+
+    protected void processAuxClasses(final Relatable&lt;?, ?&gt; any, final AnyUR anyUR) {
+<span class="nc" id="L399">        anyUR.getAuxClasses().forEach(patch -&gt; anyTypeClassDAO.findById(patch.getValue()).ifPresentOrElse(</span>
+                auxClass -&gt; {
+<span class="nc bnc" id="L401" title="All 2 branches missed.">                    switch (patch.getOperation()) {</span>
+                        case ADD_REPLACE:
+<span class="nc" id="L403">                            any.add(auxClass);</span>
+<span class="nc" id="L404">                            break;</span>
+
+                        case DELETE:
+                        default:
+<span class="nc bnc" id="L408" title="All 2 branches missed.">                            if (any.getAuxClasses().remove(auxClass)) {</span>
+<span class="nc" id="L409">                                auxClass.getPlainSchemas().</span>
+<span class="nc" id="L410">                                        forEach(schema -&gt; any.getPlainAttr(schema.getKey()).ifPresent(any::remove));</span>
+                            }
+                    }
+<span class="nc" id="L413">                },</span>
+<span class="nc" id="L414">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L415">                        AnyTypeClass.class.getSimpleName(), patch.getValue())));</span>
+<span class="nc" id="L416">    }</span>
+
+    protected void fill(
+            final AnyTO anyTO,
+            final Relatable&lt;?, ?&gt; any,
+            final AnyUR anyUR,
+            final PropagationByResource&lt;String&gt; propByRes,
+            final AnyUtils anyUtils,
+            final SyncopeClientCompositeException scce) {
+
+        // 0. manager
+<span class="nc" id="L427">        PropagationByResource&lt;String&gt; managerPropByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (anyUR.getUManager() != null) {</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">            if (anyUR.getUManager().getValue() == null) {</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">                if (any.getUManager() != null) {</span>
+<span class="nc" id="L431">                    any.setUManager(null);</span>
+<span class="nc" id="L432">                    managerPropByRes.addAll(ResourceOperation.UPDATE, anyUtils.dao().findAllResourceKeys(any.getKey()));</span>
+                }
+            } else {
+<span class="nc" id="L435">                User manager = userDAO.findById(anyUR.getUManager().getValue()).orElse(null);</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">                if (manager == null) {</span>
+<span class="nc" id="L437">                    LOG.debug(&quot;Unable to find user manager for {} {} by key {}&quot;,</span>
+<span class="nc" id="L438">                            any.getKey(), anyUtils.anyTypeKind(), anyUR.getUManager().getValue());</span>
+<span class="nc" id="L439">                    any.setUManager(null);</span>
+                } else {
+<span class="nc" id="L441">                    any.setUManager(manager);</span>
+<span class="nc" id="L442">                    managerPropByRes.addAll(ResourceOperation.UPDATE, anyUtils.dao().findAllResourceKeys(any.getKey()));</span>
+                }
+            }
+        }
+<span class="nc bnc" id="L446" title="All 2 branches missed.">        if (anyUR.getGManager() != null) {</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">            if (anyUR.getGManager().getValue() == null) {</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">                if (any.getGManager() != null) {</span>
+<span class="nc" id="L449">                    any.setGManager(null);</span>
+<span class="nc" id="L450">                    managerPropByRes.addAll(ResourceOperation.UPDATE, anyUtils.dao().findAllResourceKeys(any.getKey()));</span>
+                }
+            } else {
+<span class="nc" id="L453">                Group manager = groupDAO.findById(anyUR.getGManager().getValue()).orElse(null);</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                if (manager == null) {</span>
+<span class="nc" id="L455">                    LOG.debug(&quot;Unable to find group manager for {} {} by key {}&quot;,</span>
+<span class="nc" id="L456">                            any.getKey(), anyUtils.anyTypeKind(), anyUR.getGManager().getValue());</span>
+<span class="nc" id="L457">                    any.setGManager(null);</span>
+                } else {
+<span class="nc" id="L459">                    any.setGManager(manager);</span>
+<span class="nc" id="L460">                    managerPropByRes.addAll(ResourceOperation.UPDATE, anyUtils.dao().findAllResourceKeys(any.getKey()));</span>
+                }
+            }
+        }
+<span class="nc" id="L464">        propByRes.merge(managerPropByRes);</span>
+
+        // 1. relationships
+<span class="nc" id="L467">        Set&lt;Pair&lt;String, String&gt;&gt; relationships = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L468" title="All 2 branches missed.">        for (RelationshipUR patch : anyUR.getRelationships().stream().</span>
+<span class="nc bnc" id="L469" title="All 4 branches missed.">                filter(patch -&gt; patch.getType() != null &amp;&amp; patch.getOtherEndKey() != null).toList()) {</span>
+
+<span class="nc" id="L471">            RelationshipType relationshipType = relationshipTypeDAO.findById(patch.getType()).orElse(null);</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">            if (relationshipType == null) {</span>
+<span class="nc" id="L473">                LOG.debug(&quot;Ignoring invalid relationship type {}&quot;, patch.getType());</span>
+            } else {
+<span class="nc bnc" id="L475" title="All 3 branches missed.">                switch (patch.getOperation()) {</span>
+                    case DELETE -&gt; {
+<span class="nc" id="L477">                        any.getRelationship(relationshipType, patch.getOtherEndKey()).ifPresentOrElse(</span>
+                                relationship -&gt; {
+<span class="nc" id="L479">                                    anyUtils.remove(any, relationship);</span>
+
+<span class="nc" id="L481">                                    propByRes.addAll(</span>
+                                            ResourceOperation.UPDATE,
+<span class="nc" id="L483">                                            anyObjectDAO.findAllResourceKeys(relationship.getRightEnd().getKey()));</span>
+<span class="nc" id="L484">                                },</span>
+<span class="nc" id="L485">                                () -&gt; LOG.debug(&quot;No relationship ({},{},{}) was found, nothing to delete&quot;,</span>
+<span class="nc" id="L486">                                        anyTO.getKey(), relationshipType.getKey(), patch.getOtherEndKey()));</span>
+<span class="nc" id="L487">                    }</span>
+
+                    case ADD_REPLACE -&gt; {
+<span class="nc" id="L490">                        AnyObject otherEnd = anyObjectDAO.findById(patch.getOtherEndKey()).orElse(null);</span>
+<span class="nc bnc" id="L491" title="All 2 branches missed.">                        if (otherEnd == null) {</span>
+<span class="nc" id="L492">                            LOG.debug(&quot;Ignoring invalid any object {}&quot;, patch.getOtherEndKey());</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">                        } else if (!relationshipType.getRightEndAnyType().equals(otherEnd.getType())) {</span>
+<span class="nc" id="L494">                            LOG.debug(&quot;Ignoring mismatching anyType {}&quot;, otherEnd.getType().getKey());</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">                        } else if (relationships.contains(Pair.of(relationshipType.getKey(), otherEnd.getKey()))) {</span>
+<span class="nc" id="L496">                            SyncopeClientException assigned =</span>
+<span class="nc" id="L497">                                    SyncopeClientException.build(ClientExceptionType.InvalidRelationship);</span>
+<span class="nc" id="L498">                            assigned.getElements().add(otherEnd.getType().getKey() + &quot; &quot; + otherEnd.getName()</span>
+<span class="nc" id="L499">                                    + &quot; in relationship &quot; + relationshipType.getKey());</span>
+<span class="nc" id="L500">                            scce.addException(assigned);</span>
+<span class="nc" id="L501">                        } else {</span>
+<span class="nc" id="L502">                            relationships.add(Pair.of(relationshipType.getKey(), otherEnd.getKey()));</span>
+
+<span class="nc" id="L504">                            Relationship&lt;?, ?&gt; relationship = any.getRelationship(</span>
+<span class="nc" id="L505">                                    relationshipType, patch.getOtherEndKey()).orElse(null);</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">                            if (relationship == null) {</span>
+<span class="nc" id="L507">                                relationship = anyUtils.add(any, relationshipType, otherEnd);</span>
+                            } else {
+<span class="nc" id="L509">                                any.getPlainAttrs(relationship).forEach(any::remove);</span>
+                            }
+
+                            // relationship attributes
+<span class="nc" id="L513">                            relationshipPlainAttrsOnUpdate(patch.getPlainAttrs(), anyTO, any, relationship, scce);</span>
+
+<span class="nc" id="L515">                            propByRes.addAll(</span>
+<span class="nc" id="L516">                                    ResourceOperation.UPDATE, anyObjectDAO.findAllResourceKeys(otherEnd.getKey()));</span>
+                        }
+<span class="nc" id="L518">                    }</span>
+
+                    default -&gt; {
+                    }
+                }
+            }
+<span class="nc" id="L524">        }</span>
+
+        // 2. resources
+<span class="nc bnc" id="L527" title="All 2 branches missed.">        for (StringPatchItem patch : anyUR.getResources()) {</span>
+<span class="nc" id="L528">            resourceDAO.findById(patch.getValue()).ifPresentOrElse(</span>
+                    resource -&gt; {
+<span class="nc bnc" id="L530" title="All 2 branches missed.">                        switch (patch.getOperation()) {</span>
+                            case ADD_REPLACE:
+<span class="nc" id="L532">                                any.add(resource);</span>
+<span class="nc" id="L533">                                break;</span>
+
+                            case DELETE:
+                            default:
+<span class="nc" id="L537">                                any.getResources().remove(resource);</span>
+                        }
+<span class="nc" id="L539">                    },</span>
+<span class="nc" id="L540">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L541">                            ExternalResource.class.getSimpleName(), patch.getValue()));</span>
+<span class="nc" id="L542">        }</span>
+
+<span class="nc" id="L544">        Set&lt;ExternalResource&gt; resources = anyUtils.getAllResources(any);</span>
+<span class="nc" id="L545">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+        // 3. attributes
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        anyUR.getPlainAttrs().stream().filter(patch -&gt; patch.getAttr() != null).</span>
+<span class="nc" id="L549">                forEach(patch -&gt; getPlainSchema(patch.getAttr().getSchema()).ifPresentOrElse(</span>
+                schema -&gt; {
+<span class="nc" id="L551">                    PlainAttr attr = any.getPlainAttr(schema.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L552" title="All 2 branches missed.">                    if (attr == null) {</span>
+<span class="nc" id="L553">                        LOG.debug(&quot;No plain attribute found for schema {}&quot;, schema);</span>
+
+<span class="nc bnc" id="L555" title="All 2 branches missed.">                        if (patch.getOperation() == PatchOperation.ADD_REPLACE) {</span>
+<span class="nc" id="L556">                            attr = new PlainAttr();</span>
+<span class="nc" id="L557">                            attr.setPlainSchema(schema);</span>
+<span class="nc" id="L558">                            any.add(attr);</span>
+                        }
+                    }
+<span class="nc bnc" id="L561" title="All 2 branches missed.">                    if (attr != null) {</span>
+<span class="nc" id="L562">                        processAttrPatch(anyTO, any, patch, schema, attr, invalidValues);</span>
+                    }
+<span class="nc" id="L564">                },</span>
+<span class="nc" id="L565">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L566">                        PlainSchema.class.getSimpleName(), patch.getAttr().getSchema())));</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L568">            scce.addException(invalidValues);</span>
+        }
+
+<span class="nc" id="L571">        SyncopeClientException reqValMissing = checkMandatory(any);</span>
+<span class="nc bnc" id="L572" title="All 2 branches missed.">        if (!reqValMissing.isEmpty()) {</span>
+<span class="nc" id="L573">            scce.addException(reqValMissing);</span>
+        }
+<span class="nc" id="L575">        reqValMissing = checkMandatoryOnResources(any, resources);</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">        if (!reqValMissing.isEmpty()) {</span>
+<span class="nc" id="L577">            scce.addException(reqValMissing);</span>
+        }
+<span class="nc" id="L579">    }</span>
+
+    protected void memberships(
+            final Set&lt;MembershipUR&gt; memberships,
+            final AnyTO anyTO,
+            final Groupable&lt;?, ?, ?&gt; any,
+            final Consumer&lt;Group&gt; groupProcessor,
+            final PropagationByResource&lt;String&gt; propByRes,
+            final AnyUtils anyUtils,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L590">        Set&lt;String&gt; groups = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">        memberships.stream().filter(patch -&gt; patch.getGroup() != null).forEach(patch -&gt; {</span>
+<span class="nc bnc" id="L592" title="All 3 branches missed.">            switch (patch.getOperation()) {</span>
+                case DELETE -&gt; {
+<span class="nc" id="L594">                    any.getMembership(patch.getGroup()).ifPresentOrElse(</span>
+                            membership -&gt; {
+<span class="nc" id="L596">                                anyUtils.remove(any, membership);</span>
+
+<span class="nc" id="L598">                                propByRes.addAll(</span>
+                                        ResourceOperation.UPDATE,
+<span class="nc" id="L600">                                        groupDAO.findAllResourceKeys(membership.getRightEnd().getKey()));</span>
+<span class="nc" id="L601">                            },</span>
+<span class="nc" id="L602">                            () -&gt; LOG.debug(&quot;No membership ({},{}) was found, nothing to delete&quot;,</span>
+<span class="nc" id="L603">                                    anyTO.getKey(), patch.getGroup()));</span>
+<span class="nc" id="L604">                }</span>
+
+                case ADD_REPLACE -&gt; {
+<span class="nc" id="L607">                    Group group = groupDAO.findById(patch.getGroup()).orElse(null);</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">                    if (group == null) {</span>
+<span class="nc" id="L609">                        LOG.debug(&quot;Ignoring invalid group {}&quot;, patch.getGroup());</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">                    } else if (groups.contains(group.getKey())) {</span>
+<span class="nc" id="L611">                        LOG.error(&quot;Multiple patches for group {} of {} were found&quot;, group, any);</span>
+
+<span class="nc" id="L613">                        SyncopeClientException assigned =</span>
+<span class="nc" id="L614">                                SyncopeClientException.build(ClientExceptionType.InvalidMembership);</span>
+<span class="nc" id="L615">                        assigned.getElements().add(&quot;Multiple patches for group &quot; + group.getName() + &quot; were found&quot;);</span>
+<span class="nc" id="L616">                        scce.addException(assigned);</span>
+<span class="nc" id="L617">                    } else {</span>
+<span class="nc" id="L618">                        groups.add(group.getKey());</span>
+
+<span class="nc" id="L620">                        Membership&lt;?&gt; membership = any.getMembership(patch.getGroup()).orElse(null);</span>
+<span class="nc bnc" id="L621" title="All 2 branches missed.">                        if (membership == null) {</span>
+<span class="nc" id="L622">                            membership = anyUtils.add(any, group);</span>
+                        } else {
+<span class="nc" id="L624">                            any.getPlainAttrs(membership).forEach(any::remove);</span>
+                        }
+
+                        // membership attributes
+<span class="nc" id="L628">                        membershipPlainAttrsOnUpdate(patch.getPlainAttrs(), anyTO, any, membership, scce);</span>
+
+<span class="nc" id="L630">                        propByRes.addAll(ResourceOperation.UPDATE, groupDAO.findAllResourceKeys(group.getKey()));</span>
+
+<span class="nc" id="L632">                        groupProcessor.accept(group);</span>
+                    }
+<span class="nc" id="L634">                }</span>
+
+                default -&gt; {
+                }
+            }
+<span class="nc" id="L639">        });</span>
+<span class="nc" id="L640">    }</span>
+
+    protected void fill(
+            final AnyTO anyTO,
+            final Relatable&lt;?, ?&gt; any,
+            final AnyCR anyCR,
+            final AnyUtils anyUtils,
+            final SyncopeClientCompositeException scce) {
+
+        // 0. manager
+        // owner
+<span class="nc bnc" id="L651" title="All 2 branches missed.">        if (anyCR.getUManager() != null) {</span>
+<span class="nc" id="L652">            userDAO.findById(anyCR.getUManager()).ifPresentOrElse(</span>
+<span class="nc" id="L653">                    any::setUManager,</span>
+<span class="nc" id="L654">                    () -&gt; LOG.warn(&quot;Ignoring invalid user specified as manager: {}&quot;, anyCR.getUManager()));</span>
+        }
+<span class="nc bnc" id="L656" title="All 2 branches missed.">        if (anyCR.getGManager() != null) {</span>
+<span class="nc" id="L657">            groupDAO.findById(anyCR.getGManager()).ifPresentOrElse(</span>
+<span class="nc" id="L658">                    any::setGManager,</span>
+<span class="nc" id="L659">                    () -&gt; LOG.warn(&quot;Ignoring invalid group specified as manager: {}&quot;, anyCR.getGManager()));</span>
+        }
+
+        // 1. aux classes
+<span class="nc" id="L663">        any.getAuxClasses().clear();</span>
+<span class="nc" id="L664">        anyCR.getAuxClasses().stream().</span>
+<span class="nc" id="L665">                map(anyTypeClassDAO::findById).</span>
+<span class="nc" id="L666">                flatMap(Optional::stream).</span>
+<span class="nc" id="L667">                forEach(any::add);</span>
+
+        // 2. relationships
+<span class="nc" id="L670">        Set&lt;Pair&lt;String, String&gt;&gt; relationships = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L671">        anyCR.getRelationships().forEach(relationshipTO -&gt; {</span>
+<span class="nc" id="L672">            RelationshipType relationshipType = relationshipTypeDAO.findById(relationshipTO.getType()).orElse(null);</span>
+<span class="nc" id="L673">            AnyObject otherEnd = anyObjectDAO.findById(relationshipTO.getOtherEndKey()).orElse(null);</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">            if (relationshipType == null) {</span>
+<span class="nc" id="L675">                LOG.debug(&quot;Ignoring invalid relationship type {}&quot;, relationshipTO.getType());</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">            } else if (otherEnd == null) {</span>
+<span class="nc" id="L677">                LOG.debug(&quot;Ignoring invalid anyObject {}&quot;, relationshipTO.getOtherEndKey());</span>
+<span class="nc bnc" id="L678" title="All 2 branches missed.">            } else if (!relationshipType.getRightEndAnyType().equals(otherEnd.getType())) {</span>
+<span class="nc" id="L679">                LOG.debug(&quot;Ignoring mismatching anyType {}&quot;, relationshipTO.getOtherEndType());</span>
+<span class="nc bnc" id="L680" title="All 2 branches missed.">            } else if (relationshipTO.getEnd() == RelationshipTO.End.RIGHT) {</span>
+<span class="nc" id="L681">                SyncopeClientException noRight =</span>
+<span class="nc" id="L682">                        SyncopeClientException.build(ClientExceptionType.InvalidRelationship);</span>
+<span class="nc" id="L683">                noRight.getElements().add(</span>
+                        &quot;Relationships shall be created or updated only from their left end&quot;);
+<span class="nc" id="L685">                scce.addException(noRight);</span>
+<span class="nc bnc" id="L686" title="All 2 branches missed.">            } else if (relationships.contains(Pair.of(otherEnd.getKey(), relationshipType.getKey()))) {</span>
+<span class="nc" id="L687">                SyncopeClientException assigned =</span>
+<span class="nc" id="L688">                        SyncopeClientException.build(ClientExceptionType.InvalidRelationship);</span>
+<span class="nc" id="L689">                assigned.getElements().add(otherEnd.getType().getKey() + &quot; &quot; + otherEnd.getName()</span>
+<span class="nc" id="L690">                        + &quot; in relationship &quot; + relationshipTO.getType());</span>
+<span class="nc" id="L691">                scce.addException(assigned);</span>
+<span class="nc" id="L692">            } else {</span>
+<span class="nc" id="L693">                relationships.add(Pair.of(otherEnd.getKey(), relationshipType.getKey()));</span>
+
+<span class="nc" id="L695">                Relationship&lt;?, ?&gt; relationship = anyUtils.add(any, relationshipType, otherEnd);</span>
+
+                // relationship attributes
+<span class="nc" id="L698">                relationshipPlainAttrsOnCreate(anyTO, any, relationship, relationshipTO, scce);</span>
+            }
+<span class="nc" id="L700">        });</span>
+
+        // 3. attributes
+<span class="nc" id="L703">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+<span class="nc" id="L705">        anyCR.getPlainAttrs().stream().</span>
+<span class="nc bnc" id="L706" title="All 2 branches missed.">                filter(attrTO -&gt; !attrTO.getValues().isEmpty()).</span>
+<span class="nc" id="L707">                forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresent(schema -&gt; {</span>
+
+<span class="nc" id="L709">            PlainAttr attr = any.getPlainAttr(schema.getKey()).orElseGet(() -&gt; {</span>
+<span class="nc" id="L710">                PlainAttr newAttr = new PlainAttr();</span>
+<span class="nc" id="L711">                newAttr.setPlainSchema(schema);</span>
+<span class="nc" id="L712">                return newAttr;</span>
+            });
+<span class="nc" id="L714">            fillAttr(anyTO, attrTO.getValues(), schema, attr, invalidValues);</span>
+
+<span class="nc bnc" id="L716" title="All 2 branches missed.">            if (!attr.getValuesAsStrings().isEmpty()) {</span>
+<span class="nc" id="L717">                any.add(attr);</span>
+            }
+<span class="nc" id="L719">        }));</span>
+
+<span class="nc bnc" id="L721" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L722">            scce.addException(invalidValues);</span>
+        }
+
+<span class="nc" id="L725">        SyncopeClientException requiredValuesMissing = checkMandatory(any);</span>
+<span class="nc bnc" id="L726" title="All 2 branches missed.">        if (!requiredValuesMissing.isEmpty()) {</span>
+<span class="nc" id="L727">            scce.addException(requiredValuesMissing);</span>
+        }
+
+        // 4. resources
+<span class="nc" id="L731">        anyCR.getResources().forEach(resource -&gt; resourceDAO.findById(resource).ifPresentOrElse(</span>
+<span class="nc" id="L732">                any::add,</span>
+<span class="nc" id="L733">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, ExternalResource.class.getSimpleName(), resource)));</span>
+
+<span class="nc" id="L735">        requiredValuesMissing = checkMandatoryOnResources(any, anyUtils.getAllResources(any));</span>
+<span class="nc bnc" id="L736" title="All 2 branches missed.">        if (!requiredValuesMissing.isEmpty()) {</span>
+<span class="nc" id="L737">            scce.addException(requiredValuesMissing);</span>
+        }
+<span class="nc" id="L739">    }</span>
+
+    protected void memberships(
+            final List&lt;MembershipTO&gt; memberships,
+            final AnyTO anyTO,
+            final Groupable&lt;?, ?, ?&gt; any,
+            final AnyUtils anyUtils,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L748">        Set&lt;String&gt; groups = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L749">        memberships.forEach(membershipTO -&gt; {</span>
+<span class="nc bnc" id="L750" title="All 2 branches missed.">            Group group = membershipTO.getGroupKey() == null</span>
+<span class="nc" id="L751">                    ? groupDAO.findByName(membershipTO.getGroupName()).orElse(null)</span>
+<span class="nc" id="L752">                    : groupDAO.findById(membershipTO.getGroupKey()).orElse(null);</span>
+<span class="nc bnc" id="L753" title="All 2 branches missed.">            if (group == null) {</span>
+<span class="nc" id="L754">                LOG.debug(&quot;Ignoring invalid group {}&quot;,</span>
+<span class="nc" id="L755">                        membershipTO.getGroupKey() + &quot; / &quot; + membershipTO.getGroupName());</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">            } else if (groups.contains(group.getKey())) {</span>
+<span class="nc" id="L757">                LOG.error(&quot;{} was already assigned to {}&quot;, group, any);</span>
+
+<span class="nc" id="L759">                SyncopeClientException assigned =</span>
+<span class="nc" id="L760">                        SyncopeClientException.build(ClientExceptionType.InvalidMembership);</span>
+<span class="nc" id="L761">                assigned.getElements().add(&quot;Group &quot; + group.getName() + &quot; was already assigned&quot;);</span>
+<span class="nc" id="L762">                scce.addException(assigned);</span>
+<span class="nc" id="L763">            } else {</span>
+<span class="nc" id="L764">                groups.add(group.getKey());</span>
+
+<span class="nc" id="L766">                Membership&lt;?&gt; newMembership = anyUtils.add(any, group);</span>
+
+                // membership attributes
+<span class="nc" id="L769">                membershipPlainAttrsOnCreate(anyTO, any, newMembership, membershipTO, scce);</span>
+            }
+<span class="nc" id="L771">        });</span>
+<span class="nc" id="L772">    }</span>
+
+    protected void relationshipPlainAttrsOnCreate(
+            final AnyTO anyTO,
+            final Relatable&lt;?, ?&gt; any,
+            final Relationship&lt;?, ?&gt; relationship,
+            final RelationshipTO relationshipTO,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L781">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+<span class="nc" id="L783">        relationshipTO.getPlainAttrs().stream().</span>
+<span class="nc bnc" id="L784" title="All 2 branches missed.">                filter(attrTO -&gt; !attrTO.getValues().isEmpty()).</span>
+<span class="nc" id="L785">                forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresent(schema -&gt; {</span>
+
+<span class="nc" id="L787">            PlainAttr attr = any.getPlainAttr(schema.getKey(), relationship).orElseGet(() -&gt; {</span>
+<span class="nc" id="L788">                PlainAttr gpa = new PlainAttr();</span>
+<span class="nc" id="L789">                gpa.setRelationship(relationship.getKey());</span>
+<span class="nc" id="L790">                gpa.setPlainSchema(schema);</span>
+<span class="nc" id="L791">                return gpa;</span>
+            });
+<span class="nc" id="L793">            fillAttr(anyTO, attrTO.getValues(), schema, attr, invalidValues);</span>
+
+<span class="nc bnc" id="L795" title="All 2 branches missed.">            if (!attr.getValuesAsStrings().isEmpty()) {</span>
+<span class="nc" id="L796">                any.add(attr);</span>
+            }
+<span class="nc" id="L798">        }));</span>
+
+<span class="nc bnc" id="L800" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L801">            scce.addException(invalidValues);</span>
+        }
+<span class="nc" id="L803">    }</span>
+
+    protected void membershipPlainAttrsOnCreate(
+            final AnyTO anyTO,
+            final Groupable&lt;?, ?, ?&gt; any,
+            final Membership&lt;?&gt; membership,
+            final MembershipTO membershipTO,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L812">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+<span class="nc" id="L814">        membershipTO.getPlainAttrs().stream().</span>
+<span class="nc bnc" id="L815" title="All 2 branches missed.">                filter(attrTO -&gt; !attrTO.getValues().isEmpty()).</span>
+<span class="nc" id="L816">                forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresent(schema -&gt; {</span>
+
+<span class="nc" id="L818">            PlainAttr attr = any.getPlainAttr(schema.getKey(), membership).orElseGet(() -&gt; {</span>
+<span class="nc" id="L819">                PlainAttr gpa = new PlainAttr();</span>
+<span class="nc" id="L820">                gpa.setMembership(membership.getKey());</span>
+<span class="nc" id="L821">                gpa.setPlainSchema(schema);</span>
+<span class="nc" id="L822">                return gpa;</span>
+            });
+<span class="nc" id="L824">            fillAttr(anyTO, attrTO.getValues(), schema, attr, invalidValues);</span>
+
+<span class="nc bnc" id="L826" title="All 2 branches missed.">            if (!attr.getValuesAsStrings().isEmpty()) {</span>
+<span class="nc" id="L827">                any.add(attr);</span>
+            }
+<span class="nc" id="L829">        }));</span>
+
+<span class="nc bnc" id="L831" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L832">            scce.addException(invalidValues);</span>
+        }
+<span class="nc" id="L834">    }</span>
+
+    protected void relationshipPlainAttrsOnUpdate(
+            final Set&lt;Attr&gt; plainAttrs,
+            final AnyTO anyTO,
+            final Relatable&lt;?, ?&gt; any,
+            final Relationship&lt;?, ?&gt; relationship,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L843">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+<span class="nc" id="L845">        plainAttrs.forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresentOrElse(</span>
+<span class="nc" id="L846">                schema -&gt; any.getPlainAttr(schema.getKey(), relationship).ifPresentOrElse(</span>
+<span class="nc" id="L847">                        attr -&gt; LOG.debug(</span>
+                                &quot;Plain attribute found for {} and relationship {} with {}, nothing to do&quot;,
+<span class="nc" id="L849">                                schema, relationship.getType().getKey(), relationship.getRightEnd()),</span>
+                        () -&gt; {
+<span class="nc" id="L851">                            LOG.debug(&quot;No plain attribute found for {} and relationship {} with {}&quot;,</span>
+<span class="nc" id="L852">                                    schema, relationship.getType().getKey(), relationship.getRightEnd());</span>
+
+<span class="nc" id="L854">                            PlainAttr newAttr = new PlainAttr();</span>
+<span class="nc" id="L855">                            newAttr.setRelationship(relationship.getKey());</span>
+<span class="nc" id="L856">                            newAttr.setPlainSchema(schema);</span>
+<span class="nc" id="L857">                            any.add(newAttr);</span>
+
+<span class="nc" id="L859">                            processAttrPatch(</span>
+                                    anyTO,
+                                    any,
+<span class="nc" id="L862">                                    new AttrPatch.Builder(attrTO).build(),</span>
+                                    schema,
+                                    newAttr,
+                                    invalidValues);
+<span class="nc" id="L866">                        }),</span>
+<span class="nc" id="L867">                () -&gt; LOG.debug(&quot;Invalid {}{}, ignoring...&quot;, PlainSchema.class.getSimpleName(), attrTO.getSchema())));</span>
+<span class="nc bnc" id="L868" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L869">            scce.addException(invalidValues);</span>
+        }
+<span class="nc" id="L871">    }</span>
+
+    protected void membershipPlainAttrsOnUpdate(
+            final Set&lt;Attr&gt; plainAttrs,
+            final AnyTO anyTO,
+            final Groupable&lt;?, ?, ?&gt; any,
+            final Membership&lt;?&gt; membership,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L880">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+<span class="nc" id="L882">        plainAttrs.forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresentOrElse(</span>
+<span class="nc" id="L883">                schema -&gt; any.getPlainAttr(schema.getKey(), membership).ifPresentOrElse(</span>
+<span class="nc" id="L884">                        attr -&gt; LOG.debug(</span>
+                                &quot;Plain attribute found for {} and membership of {}, nothing to do&quot;,
+<span class="nc" id="L886">                                schema, membership.getRightEnd()),</span>
+                        () -&gt; {
+<span class="nc" id="L888">                            LOG.debug(&quot;No plain attribute found for {} and membership of {}&quot;,</span>
+<span class="nc" id="L889">                                    schema, membership.getRightEnd());</span>
+
+<span class="nc" id="L891">                            PlainAttr newAttr = new PlainAttr();</span>
+<span class="nc" id="L892">                            newAttr.setMembership(membership.getKey());</span>
+<span class="nc" id="L893">                            newAttr.setPlainSchema(schema);</span>
+<span class="nc" id="L894">                            any.add(newAttr);</span>
+
+<span class="nc" id="L896">                            processAttrPatch(</span>
+                                    anyTO,
+                                    any,
+<span class="nc" id="L899">                                    new AttrPatch.Builder(attrTO).build(),</span>
+                                    schema,
+                                    newAttr,
+                                    invalidValues);
+<span class="nc" id="L903">                        }),</span>
+<span class="nc" id="L904">                () -&gt; LOG.debug(&quot;Invalid {}{}, ignoring...&quot;, PlainSchema.class.getSimpleName(), attrTO.getSchema())));</span>
+<span class="nc bnc" id="L905" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L906">            scce.addException(invalidValues);</span>
+        }
+<span class="nc" id="L908">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

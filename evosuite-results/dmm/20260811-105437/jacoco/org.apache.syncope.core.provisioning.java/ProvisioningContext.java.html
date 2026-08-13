@@ -1,0 +1,1197 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProvisioningContext.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">ProvisioningContext.java</span></div><h1>ProvisioningContext.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.apache.commons.jexl3.JexlBuilder;
+import org.apache.commons.jexl3.JexlEngine;
+import org.apache.commons.jexl3.introspection.JexlPermissions;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.core.persistence.api.DomainHolder;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyChecker;
+import org.apache.syncope.core.persistence.api.dao.AnyMatchDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnySearchDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.AuditConfDAO;
+import org.apache.syncope.core.persistence.api.dao.AuditEventDAO;
+import org.apache.syncope.core.persistence.api.dao.AuthModuleDAO;
+import org.apache.syncope.core.persistence.api.dao.ConnInstanceDAO;
+import org.apache.syncope.core.persistence.api.dao.DelegationDAO;
+import org.apache.syncope.core.persistence.api.dao.DerSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.JobStatusDAO;
+import org.apache.syncope.core.persistence.api.dao.MailTemplateDAO;
+import org.apache.syncope.core.persistence.api.dao.NotificationDAO;
+import org.apache.syncope.core.persistence.api.dao.OIDCOpEntityDAO;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.PolicyDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ReportDAO;
+import org.apache.syncope.core.persistence.api.dao.ReportExecDAO;
+import org.apache.syncope.core.persistence.api.dao.RoleDAO;
+import org.apache.syncope.core.persistence.api.dao.SecurityQuestionDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskExecDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.dao.WAConfigDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.persistence.api.search.AnySearchCondVisitor;
+import org.apache.syncope.core.persistence.api.utils.RealmUtils;
+import org.apache.syncope.core.provisioning.api.AnyObjectProvisioningManager;
+import org.apache.syncope.core.provisioning.api.AuditEventProcessor;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.ConnIdBundleManager;
+import org.apache.syncope.core.provisioning.api.ConnectorManager;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.GroupProvisioningManager;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.UserProvisioningManager;
+import org.apache.syncope.core.provisioning.api.data.AccessTokenDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AnyObjectDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AnyTypeClassDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AnyTypeDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AttrRepoDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AuditDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AuthModuleDataBinder;
+import org.apache.syncope.core.provisioning.api.data.AuthProfileDataBinder;
+import org.apache.syncope.core.provisioning.api.data.ClientAppDataBinder;
+import org.apache.syncope.core.provisioning.api.data.ConnInstanceDataBinder;
+import org.apache.syncope.core.provisioning.api.data.DelegationDataBinder;
+import org.apache.syncope.core.provisioning.api.data.FIQLQueryDataBinder;
+import org.apache.syncope.core.provisioning.api.data.GroupDataBinder;
+import org.apache.syncope.core.provisioning.api.data.ImplementationDataBinder;
+import org.apache.syncope.core.provisioning.api.data.NotificationDataBinder;
+import org.apache.syncope.core.provisioning.api.data.OIDCOpEntityDataBinder;
+import org.apache.syncope.core.provisioning.api.data.PasswordManagementDataBinder;
+import org.apache.syncope.core.provisioning.api.data.PolicyDataBinder;
+import org.apache.syncope.core.provisioning.api.data.RealmDataBinder;
+import org.apache.syncope.core.provisioning.api.data.RelationshipTypeDataBinder;
+import org.apache.syncope.core.provisioning.api.data.RemediationDataBinder;
+import org.apache.syncope.core.provisioning.api.data.ReportDataBinder;
+import org.apache.syncope.core.provisioning.api.data.ResourceDataBinder;
+import org.apache.syncope.core.provisioning.api.data.RoleDataBinder;
+import org.apache.syncope.core.provisioning.api.data.SAML2IdPEntityDataBinder;
+import org.apache.syncope.core.provisioning.api.data.SRARouteDataBinder;
+import org.apache.syncope.core.provisioning.api.data.SchemaDataBinder;
+import org.apache.syncope.core.provisioning.api.data.SecurityQuestionDataBinder;
+import org.apache.syncope.core.provisioning.api.data.TaskDataBinder;
+import org.apache.syncope.core.provisioning.api.data.UserDataBinder;
+import org.apache.syncope.core.provisioning.api.data.WAConfigDataBinder;
+import org.apache.syncope.core.provisioning.api.data.wa.WAClientAppDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.EmptyClassLoader;
+import org.apache.syncope.core.provisioning.api.jexl.JexlFunctions;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.api.jexl.SyncopeJexlFunctions;
+import org.apache.syncope.core.provisioning.api.jexl.TemplateUtils;
+import org.apache.syncope.core.provisioning.api.job.JobManager;
+import org.apache.syncope.core.provisioning.api.notification.NotificationJobDelegate;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.java.data.AccessTokenDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AnyObjectDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AnyTypeClassDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AnyTypeDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AttrRepoDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AuditDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AuthModuleDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.AuthProfileDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.ClientAppDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.ConnInstanceDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.DelegationDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.FIQLQueryDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.GroupDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.ImplementationDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.NotificationDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.OIDCOpEntityDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.PasswordManagementDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.PolicyDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.RealmDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.RelationshipTypeDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.RemediationDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.ReportDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.ResourceDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.RoleDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.SAML2IdPEntityDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.SRARouteDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.SchemaDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.SecurityQuestionDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.TaskDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.UserDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.WAConfigDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.data.wa.WAClientAppDataBinderImpl;
+import org.apache.syncope.core.provisioning.java.job.DefaultJobManager;
+import org.apache.syncope.core.provisioning.java.job.JobStatusUpdater;
+import org.apache.syncope.core.provisioning.java.job.SyncopeTaskScheduler;
+import org.apache.syncope.core.provisioning.java.job.notification.MailNotificationJobDelegate;
+import org.apache.syncope.core.provisioning.java.job.notification.NotificationJob;
+import org.apache.syncope.core.provisioning.java.notification.DefaultNotificationManager;
+import org.apache.syncope.core.provisioning.java.propagation.DefaultPropagationManager;
+import org.apache.syncope.core.provisioning.java.propagation.PriorityPropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.java.pushpull.InboundMatcher;
+import org.apache.syncope.core.provisioning.java.pushpull.LiveSyncTaskSaver;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.spring.security.DefaultCredentialChecker;
+import org.apache.syncope.core.spring.security.PasswordGenerator;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.apache.syncope.core.spring.security.jws.AccessTokenJWSSigner;
+import org.apache.syncope.core.spring.task.VirtualThreadPoolTaskExecutor;
+import org.apache.syncope.core.workflow.api.AnyObjectWorkflowAdapter;
+import org.apache.syncope.core.workflow.api.GroupWorkflowAdapter;
+import org.apache.syncope.core.workflow.api.UserWorkflowAdapter;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.AsyncConfigurer;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
+
+@EnableAsync
+@EnableConfigurationProperties(ProvisioningProperties.class)
+@Configuration(proxyBeanMethods = false)
+<span class="nc" id="L191">public class ProvisioningContext {</span>
+
+    @ConditionalOnMissingBean
+    @Bean
+    public SyncopeJexlFunctions syncopeJexlFunctions() {
+<span class="nc" id="L196">        return new SyncopeJexlFunctions();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public JexlTools jexlTools(final List&lt;JexlFunctions&gt; jexlFunctions) {
+<span class="nc" id="L202">        JexlEngine jexlEngine = new JexlBuilder().</span>
+<span class="nc" id="L203">                loader(new EmptyClassLoader()).</span>
+<span class="nc" id="L204">                permissions(JexlPermissions.RESTRICTED.compose(&quot;java.time.*&quot;, &quot;org.apache.syncope.*&quot;)).</span>
+<span class="nc" id="L205">                namespaces(jexlFunctions.stream().</span>
+<span class="nc" id="L206">                        collect(Collectors.toMap(JexlFunctions::getNamespace, Function.identity()))).</span>
+<span class="nc" id="L207">                cache(512).</span>
+<span class="nc" id="L208">                silent(false).</span>
+<span class="nc" id="L209">                strict(false).</span>
+<span class="nc" id="L210">                create();</span>
+<span class="nc" id="L211">        return new JexlTools(jexlEngine);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AsyncConnectorFacade asyncConnectorFacade() {
+<span class="nc" id="L217">        return new AsyncConnectorFacade();</span>
+    }
+
+    /**
+     * Annotated as {@code @Primary} because it will be used by {@code @Async} in {@link AsyncConnectorFacade}.
+     *
+     * @param props configuration properties
+     * @return executor
+     */
+    @Bean
+    @Primary
+    public AsyncTaskExecutor asyncConnectorFacadeExecutor(final ProvisioningProperties props) {
+<span class="nc" id="L229">        VirtualThreadPoolTaskExecutor executor = new VirtualThreadPoolTaskExecutor();</span>
+<span class="nc" id="L230">        executor.setPoolSize(props.getAsyncConnectorFacadeExecutor().getPoolSize());</span>
+<span class="nc" id="L231">        executor.setAwaitTerminationSeconds(props.getAsyncConnectorFacadeExecutor().getAwaitTerminationSeconds());</span>
+<span class="nc" id="L232">        executor.setWaitForTasksToCompleteOnShutdown(true);</span>
+<span class="nc" id="L233">        executor.setThreadNamePrefix(&quot;AsyncConnectorFacadeExecutor-&quot;);</span>
+<span class="nc" id="L234">        executor.initialize();</span>
+<span class="nc" id="L235">        return executor;</span>
+    }
+
+    @Bean
+    public AsyncConfigurer asyncConfigurer(
+            @Qualifier(&quot;asyncConnectorFacadeExecutor&quot;)
+            final AsyncTaskExecutor asyncConnectorFacadeExecutor) {
+
+<span class="nc" id="L243">        return new AsyncConfigurer() {</span>
+
+            @Override
+            public Executor getAsyncExecutor() {
+<span class="nc" id="L247">                return asyncConnectorFacadeExecutor;</span>
+            }
+        };
+    }
+
+    /**
+     * Used by {@link org.apache.syncope.core.provisioning.java.propagation.PriorityPropagationTaskExecutor}.
+     *
+     * @param props the provisioning properties
+     * @return executor thread pool task executor
+     */
+    @Bean
+    public AsyncTaskExecutor propagationTaskExecutorAsyncExecutor(final ProvisioningProperties props) {
+<span class="nc" id="L260">        VirtualThreadPoolTaskExecutor executor = new VirtualThreadPoolTaskExecutor();</span>
+<span class="nc" id="L261">        executor.setPoolSize(props.getPropagationTaskExecutorAsyncExecutor().getPoolSize());</span>
+<span class="nc" id="L262">        executor.setWaitForTasksToCompleteOnShutdown(true);</span>
+<span class="nc" id="L263">        executor.setAwaitTerminationSeconds(</span>
+<span class="nc" id="L264">                props.getPropagationTaskExecutorAsyncExecutor().getAwaitTerminationSeconds());</span>
+<span class="nc" id="L265">        executor.setThreadNamePrefix(&quot;PropagationTaskExecutor-&quot;);</span>
+<span class="nc" id="L266">        executor.initialize();</span>
+<span class="nc" id="L267">        return executor;</span>
+    }
+
+    @Bean
+    public SyncopeTaskScheduler taskScheduler(final ProvisioningProperties props, final JobStatusDAO jobStatusDAO) {
+<span class="nc" id="L272">        SimpleAsyncTaskScheduler taskScheduler = new SimpleAsyncTaskScheduler();</span>
+<span class="nc" id="L273">        taskScheduler.setVirtualThreads(true);</span>
+<span class="nc" id="L274">        taskScheduler.setConcurrencyLimit(props.getScheduling().getPoolSize());</span>
+<span class="nc" id="L275">        taskScheduler.setTaskTerminationTimeout(props.getScheduling().getAwaitTerminationSeconds() * 1000);</span>
+<span class="nc" id="L276">        taskScheduler.setThreadNamePrefix(&quot;TaskScheduler-&quot;);</span>
+
+<span class="nc" id="L278">        return new SyncopeTaskScheduler(taskScheduler, jobStatusDAO);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public JobManager jobManager(
+            final DomainHolder&lt;?&gt; domainHolder,
+            final SecurityProperties securityProperties,
+            final SyncopeTaskScheduler scheduler,
+            final JobStatusDAO jobStatusDAO,
+            final TaskDAO taskDAO,
+            final ReportDAO reportDAO,
+            final ImplementationDAO implementationDAO,
+            final TaskUtilsFactory taskUtilsFactory,
+            final ConfParamOps confParamOps,
+            final ConfigurableApplicationContext ctx) {
+
+<span class="nc" id="L295">        return new DefaultJobManager(</span>
+                domainHolder,
+                scheduler,
+                jobStatusDAO,
+                taskDAO,
+                reportDAO,
+                implementationDAO,
+                taskUtilsFactory,
+                confParamOps,
+                securityProperties,
+                ctx);
+    }
+
+    /**
+     * This is a special thread executor that only created a single worker thread.
+     * This is necessary to allow job status update operations to queue up serially
+     * and not via multiple threads to avoid the &quot;lost update&quot; problem.
+     *
+     * @return the async task executor
+     */
+    @Bean
+    public AsyncTaskExecutor jobStatusUpdaterThreadExecutor() {
+<span class="nc" id="L317">        VirtualThreadPoolTaskExecutor executor = new VirtualThreadPoolTaskExecutor();</span>
+<span class="nc" id="L318">        executor.setPoolSize(1);</span>
+<span class="nc" id="L319">        executor.setThreadNamePrefix(&quot;JobStatusUpdaterThreadExecutor-&quot;);</span>
+<span class="nc" id="L320">        executor.initialize();</span>
+<span class="nc" id="L321">        return executor;</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public JobStatusUpdater jobStatusUpdater(final JobStatusDAO jobStatusDAO) {
+<span class="nc" id="L327">        return new JobStatusUpdater(jobStatusDAO);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ConnectorManager connectorManager(
+            final EntityFactory entityFactory,
+            final ConnIdBundleManager connIdBundleManager,
+            final RealmDAO realmDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final ExternalResourceDAO resourceDAO,
+            final ConnInstanceDataBinder connInstanceDataBinder,
+            final AsyncConnectorFacade asyncConnectorFacade,
+            final ConfigurableApplicationContext ctx) {
+
+<span class="nc" id="L342">        return new DefaultConnectorManager(</span>
+                connIdBundleManager,
+                realmDAO,
+                realmSearchDAO,
+                resourceDAO,
+                connInstanceDataBinder,
+                asyncConnectorFacade,
+                entityFactory,
+                ctx);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ConnectorLoader connectorLoader(final ConnectorManager connectorManager) {
+<span class="nc" id="L356">        return new ConnectorLoader(connectorManager);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public InboundMatcher inboundMatcher(
+            final AnyUtilsFactory anyUtilsFactory,
+            final UserDAO userDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final GroupDAO groupDAO,
+            final AnySearchDAO anySearchDAO,
+            final RealmDAO realmDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final ImplementationDAO implementationDAO,
+            final IntAttrNameParser intAttrNameParser) {
+
+<span class="nc" id="L372">        return new InboundMatcher(</span>
+                userDAO,
+                anyObjectDAO,
+                groupDAO,
+                anySearchDAO,
+                realmDAO,
+                realmSearchDAO,
+                implementationDAO,
+                intAttrNameParser,
+                anyUtilsFactory);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public OutboundMatcher outboundMatcher(
+            final AnyUtilsFactory anyUtilsFactory,
+            final MappingManager mappingManager,
+            final UserDAO userDAO) {
+
+<span class="nc" id="L391">        return new OutboundMatcher(mappingManager, userDAO, anyUtilsFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public DerAttrHandler derAttrHandler(final AnyChecker anyChecker, final JexlTools jexlTools) {
+<span class="nc" id="L397">        return new DefaultDerAttrHandler(anyChecker, jexlTools);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public MappingManager mappingManager(
+            final UserDAO userDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final GroupDAO groupDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final ImplementationDAO implementationDAO,
+            final DerAttrHandler derAttrHandler,
+            final IntAttrNameParser intAttrNameParser,
+            final EncryptorManager encryptorManager,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L414">        return new DefaultMappingManager(</span>
+                userDAO,
+                anyObjectDAO,
+                groupDAO,
+                relationshipTypeDAO,
+                realmSearchDAO,
+                implementationDAO,
+                derAttrHandler,
+                intAttrNameParser,
+                encryptorManager,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public TemplateUtils templateUtils(final UserDAO userDAO, final GroupDAO groupDAO, final JexlTools jexlTools) {
+<span class="nc" id="L430">        return new TemplateUtils(userDAO, groupDAO, jexlTools);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ConnObjectUtils connObjectUtils(
+            final PasswordGenerator passwordGenerator,
+            final AnyUtilsFactory anyUtilsFactory,
+            final MappingManager mappingManager,
+            final TemplateUtils templateUtils,
+            final RealmSearchDAO realmSearchDAO,
+            final UserDAO userDAO,
+            final ExternalResourceDAO resourceDAO,
+            final EncryptorManager encryptorManager) {
+
+<span class="nc" id="L445">        return new ConnObjectUtils(</span>
+                templateUtils,
+                realmSearchDAO,
+                userDAO,
+                resourceDAO,
+                passwordGenerator,
+                mappingManager,
+                anyUtilsFactory,
+                encryptorManager);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public PropagationManager propagationManager(
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final ExternalResourceDAO resourceDAO,
+            final ConnObjectUtils connObjectUtils,
+            final MappingManager mappingManager,
+            final DerAttrHandler derAttrHandler,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L467">        return new DefaultPropagationManager(</span>
+                resourceDAO,
+                entityFactory,
+                connObjectUtils,
+                mappingManager,
+                derAttrHandler,
+                anyUtilsFactory,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ConnIdBundleManager connIdBundleManager(final ProvisioningProperties props) {
+<span class="nc" id="L480">        return new DefaultConnIdBundleManager(props.getConnIdLocation());</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public IntAttrNameParser intAttrNameParser(
+            final AnyUtilsFactory anyUtilsFactory,
+            final RealmUtils realmUtils,
+            final PlainSchemaDAO plainSchemaDAO,
+            final DerSchemaDAO derSchemaDAO) {
+
+<span class="nc" id="L491">        return new IntAttrNameParser(plainSchemaDAO, derSchemaDAO, anyUtilsFactory, realmUtils);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public PropagationTaskExecutor propagationTaskExecutor(
+            @Qualifier(&quot;propagationTaskExecutorAsyncExecutor&quot;)
+            final AsyncTaskExecutor propagationTaskExecutorAsyncExecutor,
+            final TaskUtilsFactory taskUtilsFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final ConnectorManager connectorManager,
+            final ConnObjectUtils connObjectUtils,
+            final TaskDAO taskDAO,
+            final ExternalResourceDAO resourceDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final NotificationManager notificationManager,
+            final AuditManager auditManager,
+            final TaskDataBinder taskDataBinder,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final ApplicationEventPublisher publisher) {
+
+<span class="nc" id="L513">        return new PriorityPropagationTaskExecutor(</span>
+                connectorManager,
+                connObjectUtils,
+                taskDAO,
+                resourceDAO,
+                plainSchemaDAO,
+                notificationManager,
+                auditManager,
+                taskDataBinder,
+                anyUtilsFactory,
+                taskUtilsFactory,
+                outboundMatcher,
+                validator,
+                publisher,
+                propagationTaskExecutorAsyncExecutor);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public UserProvisioningManager userProvisioningManager(
+            final UserWorkflowAdapter uwfAdapter,
+            final PropagationManager propagationManager,
+            final PropagationTaskExecutor taskExecutor,
+            final UserDAO userDAO,
+            final EncryptorManager encryptorManager) {
+
+<span class="nc" id="L539">        return new DefaultUserProvisioningManager(</span>
+                uwfAdapter,
+                propagationManager,
+                taskExecutor,
+                userDAO,
+                encryptorManager);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public GroupProvisioningManager groupProvisioningManager(
+            final GroupWorkflowAdapter gwfAdapter,
+            final PropagationManager propagationManager,
+            final PropagationTaskExecutor taskExecutor,
+            final GroupDataBinder groupDataBinder,
+            final GroupDAO groupDAO) {
+
+<span class="nc" id="L556">        return new DefaultGroupProvisioningManager(</span>
+                gwfAdapter,
+                propagationManager,
+                taskExecutor,
+                groupDataBinder,
+                groupDAO);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AnyObjectProvisioningManager anyObjectProvisioningManager(
+            final AnyObjectWorkflowAdapter awfAdapter,
+            final PropagationManager propagationManager,
+            final PropagationTaskExecutor taskExecutor,
+            final AnyObjectDAO anyObjectDAO) {
+
+<span class="nc" id="L572">        return new DefaultAnyObjectProvisioningManager(</span>
+                awfAdapter,
+                propagationManager,
+                taskExecutor,
+                anyObjectDAO);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public NotificationManager notificationManager(
+            final EntityFactory entityFactory,
+            final AnySearchCondVisitor searchCondVisitor,
+            final DerSchemaDAO derSchemaDAO,
+            final NotificationDAO notificationDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final AnySearchDAO anySearchDAO,
+            final AnyMatchDAO anyMatchDAO,
+            final TaskDAO taskDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final UserDataBinder userDataBinder,
+            final GroupDataBinder groupDataBinder,
+            final AnyObjectDataBinder anyObjectDataBinder,
+            final ConfParamOps confParamOps,
+            final DerAttrHandler derAttrHandler,
+            final IntAttrNameParser intAttrNameParser,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L601">        return new DefaultNotificationManager(</span>
+                derSchemaDAO,
+                notificationDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                anySearchDAO,
+                anyMatchDAO,
+                taskDAO,
+                relationshipTypeDAO,
+                derAttrHandler,
+                userDataBinder,
+                groupDataBinder,
+                anyObjectDataBinder,
+                confParamOps,
+                entityFactory,
+                intAttrNameParser,
+                searchCondVisitor,
+                jexlTools);
+    }
+
+    /**
+     * This is a special thread executor to allow audit event reports.
+     *
+     * @return the async task executor
+     */
+    @Bean
+    public AsyncTaskExecutor auditManagerThreadExecutor() {
+<span class="nc" id="L629">        VirtualThreadPoolTaskExecutor executor = new VirtualThreadPoolTaskExecutor();</span>
+<span class="nc" id="L630">        executor.setThreadNamePrefix(&quot;AuditManagerThreadExecutor-&quot;);</span>
+<span class="nc" id="L631">        executor.initialize();</span>
+<span class="nc" id="L632">        return executor;</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AuditManager auditManager(
+            final AuditConfDAO auditConfDAO,
+            final AuditEventDAO auditEventDAO,
+            final EntityFactory entityFactory,
+            final List&lt;AuditEventProcessor&gt; auditEventProcessors,
+            @Qualifier(&quot;auditManagerThreadExecutor&quot;)
+            final AsyncTaskExecutor taskExecutor) {
+
+<span class="nc" id="L645">        return new DefaultAuditManager(auditConfDAO, auditEventDAO, entityFactory, auditEventProcessors, taskExecutor);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public NotificationJobDelegate notificationJobDelegate(
+            final ConfParamOps confParamOps,
+            final TaskDAO taskDAO,
+            final TaskUtilsFactory taskUtilsFactory,
+            final AuditManager auditManager,
+            final NotificationManager notificationManager,
+            final ApplicationEventPublisher publisher,
+            final JavaMailSender mailSender) {
+
+<span class="nc" id="L659">        return new MailNotificationJobDelegate(</span>
+                confParamOps,
+                taskDAO,
+                taskUtilsFactory,
+                auditManager,
+                notificationManager,
+                publisher,
+                mailSender);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public NotificationJob notificationJob(
+            final NotificationJobDelegate delegate,
+            final DomainHolder&lt;?&gt; domainHolder,
+            final SecurityProperties securityProperties) {
+
+<span class="nc" id="L676">        return new NotificationJob(securityProperties, domainHolder, delegate);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public LiveSyncTaskSaver liveSyncTaskExecSaver(
+            final ExternalResourceDAO resourceDAO,
+            final TaskDAO taskDAO,
+            final TaskUtilsFactory taskUtilsFactory,
+            final NotificationManager notificationManager,
+            final AuditManager auditManager) {
+
+<span class="nc" id="L688">        return new LiveSyncTaskSaver(</span>
+                resourceDAO,
+                taskDAO,
+                taskUtilsFactory,
+                notificationManager,
+                auditManager);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AccessTokenDataBinder accessTokenDataBinder(
+            final EntityFactory entityFactory,
+            final SecurityProperties securityProperties,
+            final AccessTokenJWSSigner jwsSigner,
+            final AccessTokenDAO accessTokenDAO,
+            final ConfParamOps confParamOps,
+            final DefaultCredentialChecker credentialChecker) {
+
+<span class="nc" id="L706">        return new AccessTokenDataBinderImpl(</span>
+                securityProperties,
+                jwsSigner,
+                accessTokenDAO,
+                confParamOps,
+                entityFactory,
+                credentialChecker);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AnyObjectDataBinder anyObjectDataBinder(
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L737">        return new AnyObjectDataBinderImpl(</span>
+                anyTypeDAO,
+                realmSearchDAO,
+                anyTypeClassDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                plainSchemaDAO,
+                resourceDAO,
+                relationshipTypeDAO,
+                anyChecker,
+                entityFactory,
+                anyUtilsFactory,
+                derAttrHandler,
+                mappingManager,
+                intAttrNameParser,
+                outboundMatcher,
+                validator,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AnyTypeClassDataBinder anyTypeClassDataBinder(
+            final EntityFactory entityFactory,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final DerSchemaDAO derSchemaDAO,
+            final AnyTypeDAO anyTypeDAO) {
+
+<span class="nc" id="L767">        return new AnyTypeClassDataBinderImpl(anyTypeClassDAO, plainSchemaDAO, derSchemaDAO, anyTypeDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AnyTypeDataBinder anyTypeDataBinder(
+            final EntityFactory entityFactory,
+            final SecurityProperties securityProperties,
+            final EncryptorManager encryptorManager,
+            final AnyTypeDAO anyTypeDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AccessTokenDAO accessTokenDAO) {
+
+<span class="nc" id="L780">        return new AnyTypeDataBinderImpl(</span>
+                securityProperties,
+                encryptorManager,
+                anyTypeDAO,
+                anyTypeClassDAO,
+                accessTokenDAO,
+                entityFactory);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AuditDataBinder auditDataBinder() {
+<span class="nc" id="L792">        return new AuditDataBinderImpl();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AuthModuleDataBinder authModuleDataBinder(final EntityFactory entityFactory, final JexlTools jexlTools) {
+<span class="nc" id="L798">        return new AuthModuleDataBinderImpl(entityFactory, jexlTools);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AttrRepoDataBinder attrRepoDataBinder(final EntityFactory entityFactory, final JexlTools jexlTools) {
+<span class="nc" id="L804">        return new AttrRepoDataBinderImpl(entityFactory, jexlTools);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public PasswordManagementDataBinder passwordManagementDataBinder(final EntityFactory entityFactory) {
+<span class="nc" id="L810">        return new PasswordManagementDataBinderImpl(entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AuthProfileDataBinder authProfileDataBinder(final EntityFactory entityFactory) {
+<span class="nc" id="L816">        return new AuthProfileDataBinderImpl(entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ClientAppDataBinder clientAppDataBinder(
+            final PolicyDAO policyDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final OIDCOpEntityDAO oidcOEntityDAO,
+            final EntityFactory entityFactory) {
+
+<span class="nc" id="L827">        return new ClientAppDataBinderImpl(policyDAO, realmSearchDAO, oidcOEntityDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ConnInstanceDataBinder connInstanceDataBinder(
+            final EntityFactory entityFactory,
+            final ConnIdBundleManager connIdBundleManager,
+            final ConnInstanceDAO connInstanceDAO,
+            final RealmSearchDAO realmSearchDAO) {
+
+<span class="nc" id="L838">        return new ConnInstanceDataBinderImpl(connIdBundleManager, connInstanceDAO, realmSearchDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public DelegationDataBinder delegationDataBinder(
+            final UserDAO userDAO,
+            final RoleDAO roleDAO,
+            final EntityFactory entityFactory) {
+
+<span class="nc" id="L848">        return new DelegationDataBinderImpl(userDAO, roleDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public FIQLQueryDataBinder fiqlQueryDataBinder(
+            final AnySearchCondVisitor searchCondVisitor,
+            final UserDAO userDAO,
+            final EntityFactory entityFactory) {
+
+<span class="nc" id="L858">        return new FIQLQueryDataBinderImpl(searchCondVisitor, userDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public GroupDataBinder groupDataBinder(
+            final EntityFactory entityFactory,
+            final AnySearchCondVisitor searchCondVisitor,
+            final AnyUtilsFactory anyUtilsFactory,
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L884">        return new GroupDataBinderImpl(</span>
+                anyTypeDAO,
+                realmSearchDAO,
+                anyTypeClassDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                plainSchemaDAO,
+                resourceDAO,
+                relationshipTypeDAO,
+                anyChecker,
+                entityFactory,
+                anyUtilsFactory,
+                derAttrHandler,
+                mappingManager,
+                intAttrNameParser,
+                outboundMatcher,
+                searchCondVisitor,
+                validator,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ImplementationDataBinder implementationDataBinder(final EntityFactory entityFactory) {
+<span class="nc" id="L909">        return new ImplementationDataBinderImpl(entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public NotificationDataBinder notificationDataBinder(
+            final EntityFactory entityFactory,
+            final MailTemplateDAO mailTemplateDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+            final IntAttrNameParser intAttrNameParser) {
+
+<span class="nc" id="L921">        return new NotificationDataBinderImpl(</span>
+                mailTemplateDAO,
+                anyTypeDAO,
+                implementationDAO,
+                entityFactory,
+                intAttrNameParser);
+
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public OIDCOpEntityDataBinder oidcOpEntityDataBinder(
+            final WAConfigDAO waConfigDAO,
+            final EntityFactory entityFactory) {
+
+<span class="nc" id="L936">        return new OIDCOpEntityDataBinderImpl(waConfigDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public PolicyDataBinder policyDataBinder(
+            final EntityFactory entityFactory,
+            final ExternalResourceDAO resourceDAO,
+            final RealmDAO realmDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO) {
+
+<span class="nc" id="L948">        return new PolicyDataBinderImpl(resourceDAO, realmDAO, anyTypeDAO, implementationDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public RealmDataBinder realmDataBinder(
+            final AnyTypeDAO anyTypeDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final ImplementationDAO implementationDAO,
+            final RealmDAO realmDAO,
+            final PolicyDAO policyDAO,
+            final ExternalResourceDAO resourceDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final EntityFactory entityFactory,
+            final DerAttrHandler derAttrHandler,
+            final PlainAttrValidationManager validator,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final JexlTools jexlTools,
+            final TemplateUtils templateUtils) {
+
+<span class="nc" id="L969">        return new RealmDataBinderImpl(</span>
+                anyTypeDAO,
+                anyTypeClassDAO,
+                implementationDAO,
+                realmDAO,
+                policyDAO,
+                resourceDAO,
+                plainSchemaDAO,
+                entityFactory,
+                derAttrHandler,
+                validator,
+                mappingManager,
+                intAttrNameParser,
+                jexlTools,
+                templateUtils);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public RelationshipTypeDataBinder relationshipTypeDataBinder(
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final EntityFactory entityFactory) {
+
+<span class="nc" id="L994">        return new RelationshipTypeDataBinderImpl(relationshipTypeDAO, anyTypeDAO, anyTypeClassDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public RemediationDataBinder remediationDataBinder() {
+<span class="nc" id="L1000">        return new RemediationDataBinderImpl();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ReportDataBinder reportDataBinder(
+            final ReportExecDAO reportExecDAO,
+            final ImplementationDAO implementationDAO,
+            final SyncopeTaskScheduler scheduler) {
+
+<span class="nc" id="L1010">        return new ReportDataBinderImpl(reportExecDAO, implementationDAO, scheduler);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public ResourceDataBinder resourceDataBinder(
+            final EntityFactory entityFactory,
+            final AnyTypeDAO anyTypeDAO,
+            final ConnInstanceDAO connInstanceDAO,
+            final PolicyDAO policyDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final ImplementationDAO implementationDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final IntAttrNameParser intAttrNameParser,
+            final PropagationTaskExecutor propagationTaskExecutor,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L1027">        return new ResourceDataBinderImpl(</span>
+                anyTypeDAO,
+                connInstanceDAO,
+                policyDAO,
+                anyTypeClassDAO,
+                implementationDAO,
+                plainSchemaDAO,
+                entityFactory,
+                intAttrNameParser,
+                propagationTaskExecutor,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public RoleDataBinder roleDataBinder(
+            final EntityFactory entityFactory,
+            final RealmSearchDAO realmSearchDAO,
+            final RoleDAO roleDAO) {
+
+<span class="nc" id="L1047">        return new RoleDataBinderImpl(realmSearchDAO, roleDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public SAML2IdPEntityDataBinder saml2IdPEntityDataBinder(final EntityFactory entityFactory) {
+<span class="nc" id="L1053">        return new SAML2IdPEntityDataBinderImpl(entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public SRARouteDataBinder sraRouteDataBinder() {
+<span class="nc" id="L1059">        return new SRARouteDataBinderImpl();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public SchemaDataBinder schemaDataBinder(
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final DerSchemaDAO derSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L1075">        return new SchemaDataBinderImpl(</span>
+                anyTypeClassDAO,
+                plainSchemaDAO,
+                derSchemaDAO,
+                resourceDAO,
+                anyTypeDAO,
+                implementationDAO,
+                entityFactory,
+                anyUtilsFactory,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public SecurityQuestionDataBinder securityQuestionDataBinder(final EntityFactory entityFactory) {
+<span class="nc" id="L1090">        return new SecurityQuestionDataBinderImpl(entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public TaskDataBinder taskDataBinder(
+            final EntityFactory entityFactory,
+            final TaskUtilsFactory taskUtilsFactory,
+            final RealmSearchDAO realmSearchDAO,
+            final ExternalResourceDAO resourceDAO,
+            final TaskExecDAO taskExecDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+            final SyncopeTaskScheduler scheduler,
+            final TemplateUtils templateUtils) {
+
+<span class="nc" id="L1106">        return new TaskDataBinderImpl(</span>
+                realmSearchDAO,
+                resourceDAO,
+                taskExecDAO,
+                anyTypeDAO,
+                implementationDAO,
+                entityFactory,
+                scheduler,
+                taskUtilsFactory,
+                templateUtils);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public UserDataBinder userDataBinder(
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final SecurityProperties securityProperties,
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final RoleDAO roleDAO,
+            final SecurityQuestionDAO securityQuestionDAO,
+            final AccessTokenDAO accessTokenDAO,
+            final DelegationDAO delegationDAO,
+            final ConfParamOps confParamOps,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L1146">        return new UserDataBinderImpl(</span>
+                anyTypeDAO,
+                realmSearchDAO,
+                anyTypeClassDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                plainSchemaDAO,
+                resourceDAO,
+                relationshipTypeDAO,
+                anyChecker,
+                entityFactory,
+                anyUtilsFactory,
+                derAttrHandler,
+                mappingManager,
+                intAttrNameParser,
+                outboundMatcher,
+                validator,
+                roleDAO,
+                securityQuestionDAO,
+                accessTokenDAO,
+                delegationDAO,
+                confParamOps,
+                securityProperties,
+                jexlTools);
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public WAConfigDataBinder waConfigDataBinder(
+            final WAConfigDAO waConfigDAO,
+            final EntityFactory entityFactory) {
+
+<span class="nc" id="L1179">        return new WAConfigDataBinderImpl(waConfigDAO, entityFactory);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public WAClientAppDataBinder waClientAppDataBinder(
+            final ClientAppDataBinder clientAppDataBinder,
+            final PolicyDataBinder policyDataBinder,
+            final AuthModuleDataBinder authModuleDataBinder,
+            final AuthModuleDAO authModuleDAO) {
+
+<span class="nc" id="L1190">        return new WAClientAppDataBinderImpl(</span>
+                clientAppDataBinder,
+                policyDataBinder,
+                authModuleDataBinder,
+                authModuleDAO);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

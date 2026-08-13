@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultPushCorrelationRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">DefaultPushCorrelationRule.java</span></div><h1>DefaultPushCorrelationRule.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import org.apache.cxf.jaxrs.ext.search.client.CompleteCondition;
+import org.apache.syncope.common.lib.policy.DefaultPushCorrelationRuleConf;
+import org.apache.syncope.common.lib.policy.PushCorrelationRuleConf;
+import org.apache.syncope.common.lib.search.ConnObjectTOFiqlSearchConditionBuilder;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.MappingPurpose;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.provisioning.api.AccountGetter;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PlainAttrGetter;
+import org.apache.syncope.core.provisioning.api.rules.PushCorrelationRule;
+import org.apache.syncope.core.provisioning.api.rules.PushCorrelationRuleConfClass;
+import org.identityconnectors.common.security.GuardedByteArray;
+import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.common.security.SecurityUtil;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.filter.Filter;
+import org.identityconnectors.framework.common.objects.filter.FilterBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.CollectionUtils;
+
+@PushCorrelationRuleConfClass(DefaultPushCorrelationRuleConf.class)
+<span class="nc" id="L51">public class DefaultPushCorrelationRule implements PushCorrelationRule {</span>
+
+<span class="nc" id="L53">    protected static final ConnObjectTOFiqlSearchConditionBuilder FIQL_BUILDER =</span>
+            new ConnObjectTOFiqlSearchConditionBuilder();
+
+    @Autowired
+    protected MappingManager mappingManager;
+
+    protected DefaultPushCorrelationRuleConf conf;
+
+    @Override
+    public void setConf(final PushCorrelationRuleConf conf) {
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (conf instanceof final DefaultPushCorrelationRuleConf defaultPushCorrelationRuleConf) {</span>
+<span class="nc" id="L64">            this.conf = defaultPushCorrelationRuleConf;</span>
+        } else {
+<span class="nc" id="L66">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L67">                    DefaultPushCorrelationRuleConf.class.getName() + &quot; expected, got &quot; + conf.getClass().getName());</span>
+        }
+<span class="nc" id="L69">    }</span>
+
+    @Override
+    public Filter getFilter(final Any any, final ExternalResource resource, final Provision provision) {
+<span class="nc" id="L73">        List&lt;Filter&gt; filters = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L75">        provision.getMapping().getItems().stream().filter(</span>
+<span class="nc bnc" id="L76" title="All 4 branches missed.">                item -&gt; conf.getSchemas().contains(item.getIntAttrName()) &amp;&amp; item.getPurpose() != MappingPurpose.NONE).</span>
+<span class="nc" id="L77">                forEach(item -&gt; {</span>
+<span class="nc" id="L78">                    MappingManager.PreparedAttr attr = mappingManager.prepareAttr(</span>
+                            resource,
+                            provision,
+                            item,
+                            any,
+                            null,
+                            AccountGetter.DEFAULT,
+                            AccountGetter.DEFAULT,
+                            PlainAttrGetter.DEFAULT);
+<span class="nc bnc" id="L87" title="All 2 branches missed.">                    if (attr != null) {</span>
+<span class="nc" id="L88">                        Attribute toFilter = null;</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">                        if (attr.connObjectLink() != null) {</span>
+<span class="nc" id="L90">                            toFilter = AttributeBuilder.build(item.getExtAttrName(), attr.connObjectLink());</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">                        } else if (attr.attribute() != null) {</span>
+<span class="nc" id="L92">                            toFilter = attr.attribute();</span>
+                        }
+<span class="nc bnc" id="L94" title="All 2 branches missed.">                        if (toFilter != null) {</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">                            filters.add(provision.isIgnoreCaseMatch()</span>
+<span class="nc" id="L96">                                    ? FilterBuilder.equalsIgnoreCase(toFilter)</span>
+<span class="nc" id="L97">                                    : FilterBuilder.equalTo(toFilter));</span>
+                        }
+                    }
+<span class="nc" id="L100">                });</span>
+
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        return conf.isOrSchemas()</span>
+<span class="nc" id="L103">                ? FilterBuilder.or(filters)</span>
+<span class="nc" id="L104">                : FilterBuilder.and(filters);</span>
+    }
+
+    @Override
+    public String getFIQL(final ConnectorObject connectorObject, final Provision provision) {
+<span class="nc" id="L109">        List&lt;CompleteCondition&gt; conditions = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L111">        provision.getMapping().getItems().stream().filter(</span>
+<span class="nc bnc" id="L112" title="All 4 branches missed.">                item -&gt; conf.getSchemas().contains(item.getIntAttrName()) &amp;&amp; item.getPurpose() != MappingPurpose.NONE).</span>
+<span class="nc" id="L113">                forEach(item -&gt; Optional.ofNullable(connectorObject.getAttributeByName(item.getExtAttrName())).</span>
+<span class="nc" id="L114">                ifPresent(attr -&gt; {</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">                    if (CollectionUtils.isEmpty(attr.getValue())) {</span>
+<span class="nc" id="L116">                        conditions.add(FIQL_BUILDER.isNull(attr.getName()));</span>
+                    } else {
+<span class="nc" id="L118">                        List&lt;CompleteCondition&gt; valueConditions = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L120">                        attr.getValue().stream().filter(Objects::nonNull).forEach(value -&gt; {</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                            if (value instanceof final GuardedString guardedString) {</span>
+<span class="nc" id="L122">                                valueConditions.add(FIQL_BUILDER.is(attr.getName()).</span>
+<span class="nc" id="L123">                                        equalTo(SecurityUtil.decrypt(guardedString)));</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                            } else if (value instanceof final GuardedByteArray guardedByteArray) {</span>
+<span class="nc" id="L125">                                valueConditions.add(FIQL_BUILDER.is(attr.getName()).</span>
+<span class="nc" id="L126">                                        equalTo(new String(SecurityUtil.decrypt(guardedByteArray))));</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                            } else if (value instanceof final byte[] bytes) {</span>
+<span class="nc" id="L128">                                valueConditions.add(FIQL_BUILDER.is(attr.getName()).</span>
+<span class="nc" id="L129">                                        equalTo(Base64.getEncoder().encodeToString(bytes)));</span>
+                            } else {
+<span class="nc" id="L131">                                valueConditions.add(FIQL_BUILDER.is(attr.getName()).equalTo(value.toString()));</span>
+                            }
+<span class="nc" id="L133">                        });</span>
+
+<span class="nc bnc" id="L135" title="All 2 branches missed.">                        if (!valueConditions.isEmpty()) {</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">                            conditions.add(valueConditions.size() == 1</span>
+<span class="nc" id="L137">                                    ? valueConditions.getFirst()</span>
+<span class="nc" id="L138">                                    : FIQL_BUILDER.and(valueConditions));</span>
+                        }
+                    }
+<span class="nc" id="L141">                }));</span>
+
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        return conf.isOrSchemas()</span>
+<span class="nc" id="L144">                ? FIQL_BUILDER.or(conditions).query()</span>
+<span class="nc" id="L145">                : FIQL_BUILDER.and(conditions).query();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

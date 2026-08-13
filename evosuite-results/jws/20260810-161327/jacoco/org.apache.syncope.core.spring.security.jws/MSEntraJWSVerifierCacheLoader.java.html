@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MSEntraJWSVerifierCacheLoader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security.jws</a> &gt; <span class="el_source">MSEntraJWSVerifierCacheLoader.java</span></div><h1>MSEntraJWSVerifierCacheLoader.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security.jws;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSVerifier;
+import com.nimbusds.jose.crypto.ECDSAVerifier;
+import com.nimbusds.jose.crypto.RSASSAVerifier;
+import com.nimbusds.jose.jwk.AsymmetricJWK;
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.JWKSet;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.security.PublicKey;
+import java.security.interfaces.ECPublicKey;
+import java.security.interfaces.RSAPublicKey;
+import java.text.ParseException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import javax.cache.integration.CacheLoader;
+import javax.cache.integration.CacheLoaderException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
+
+public class MSEntraJWSVerifierCacheLoader implements CacheLoader&lt;String, JWSVerifier&gt; {
+
+<span class="nc" id="L51">    protected static final Logger LOG = LoggerFactory.getLogger(MSEntraJWSVerifierCacheLoader.class);</span>
+
+<span class="nc" id="L53">    protected static final JsonMapper MAPPER = JsonMapper.builder().findAndAddModules().build();</span>
+
+    protected final String tenantId;
+
+    protected final String appId;
+
+<span class="nc" id="L59">    public MSEntraJWSVerifierCacheLoader(final String tenantId, final String appId) {</span>
+<span class="nc" id="L60">        this.tenantId = tenantId;</span>
+<span class="nc" id="L61">        this.appId = appId;</span>
+<span class="nc" id="L62">    }</span>
+
+    protected String getOpenIDMetadataDocumentUrl() {
+<span class="nc" id="L65">        return &quot;https://login.microsoftonline.com/%s/.well-known/openid-configuration%s&quot;.formatted(</span>
+<span class="nc" id="L66">                Optional.ofNullable(tenantId).orElse(&quot;common&quot;),</span>
+<span class="nc" id="L67">                Optional.ofNullable(appId).map(i -&gt; &quot;?appid=%s&quot;.formatted(i)).orElse(&quot;&quot;));</span>
+    }
+
+    protected String extractJwksUri(final String openIdMetadataDocument) {
+        try {
+<span class="nc" id="L72">            return MAPPER.readTree(openIdMetadataDocument).get(&quot;jwks_uri&quot;).asString();</span>
+<span class="nc" id="L73">        } catch (JacksonException e) {</span>
+<span class="nc" id="L74">            throw new IllegalArgumentException(&quot;Extracting value of 'jwks_url' key from OpenID Metadata JSON &quot;</span>
+                    + &quot;document for Microsoft Entra failed:&quot;, e);
+        }
+    }
+
+    protected String fetchDocument(final String url) {
+        HttpResponse&lt;String&gt; response;
+        try {
+<span class="nc" id="L82">            response = HttpClient.newHttpClient().send(</span>
+<span class="nc" id="L83">                    HttpRequest.newBuilder().uri(URI.create(url)).build(),</span>
+<span class="nc" id="L84">                    HttpResponse.BodyHandlers.ofString());</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">            if (response.statusCode() &gt;= 400) {</span>
+<span class="nc" id="L86">                throw new IllegalStateException(&quot;Received HTTP status code %d&quot;.formatted(response.statusCode()));</span>
+            }
+<span class="nc" id="L88">            return response.body();</span>
+<span class="nc" id="L89">        } catch (IOException | InterruptedException | IllegalStateException e) {</span>
+<span class="nc" id="L90">            throw new IllegalStateException(</span>
+<span class="nc" id="L91">                    &quot;Fetching JSON document for Microsoft Entra from '%s' failed:&quot;.formatted(url), e);</span>
+        }
+    }
+
+    protected Map&lt;String, JWSVerifier&gt; parseJsonWebKeySet(final String jsonWebKeySet) {
+        List&lt;JWK&gt; fetchedKeys;
+        try {
+<span class="nc" id="L98">            fetchedKeys = JWKSet.parse(jsonWebKeySet).getKeys();</span>
+<span class="nc" id="L99">        } catch (ParseException e) {</span>
+<span class="nc" id="L100">            throw new IllegalArgumentException(&quot;Parsing JSON Web Key Set for MS Entra failed:&quot;, e);</span>
+<span class="nc" id="L101">        }</span>
+
+<span class="nc" id="L103">        Map&lt;String, JWSVerifier&gt; verifiers = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        for (JWK key : fetchedKeys) {</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">            if (!(key instanceof AsymmetricJWK)) {</span>
+<span class="nc" id="L106">                LOG.warn(&quot;Skipped non-asymmetric JSON Web Key with key id '{}' from retrieved JSON Web Key Set &quot;</span>
+<span class="nc" id="L107">                        + &quot;for Microsoft Entra&quot;, key.getKeyID());</span>
+<span class="nc" id="L108">                continue;</span>
+            }
+
+            try {
+<span class="nc" id="L112">                PublicKey pubKey = ((AsymmetricJWK) key).toPublicKey();</span>
+<span class="nc bnc" id="L113" title="All 3 branches missed.">                switch (pubKey) {</span>
+<span class="nc" id="L114">                    case RSAPublicKey rsaPublicKey -&gt;</span>
+<span class="nc" id="L115">                        verifiers.put(key.getKeyID(), new RSASSAVerifier(rsaPublicKey));</span>
+<span class="nc" id="L116">                    case ECPublicKey ecPublicKey -&gt;</span>
+<span class="nc" id="L117">                        verifiers.put(key.getKeyID(), new ECDSAVerifier(ecPublicKey));</span>
+                    default -&gt; {
+                    }
+                }
+<span class="nc" id="L121">            } catch (JOSEException e) {</span>
+<span class="nc" id="L122">                throw new IllegalArgumentException(</span>
+                        &quot;Extracting public key from asymmetric JSON Web Key from retrieved JSON Web Key Set &quot;
+                        + &quot;for Microsoft Entra failed:&quot;, e);
+<span class="nc" id="L125">            }</span>
+<span class="nc" id="L126">        }</span>
+
+<span class="nc" id="L128">        return verifiers;</span>
+    }
+
+    @Override
+    public JWSVerifier load(final String key) throws CacheLoaderException {
+<span class="nc" id="L133">        return loadAll(Set.of(key)).get(key);</span>
+    }
+
+    @Override
+    public Map&lt;String, JWSVerifier&gt; loadAll(final Iterable&lt;? extends String&gt; keys) throws CacheLoaderException {
+        // Ignore keys argument, as we have to fetch the full JSON Web Key Set
+<span class="nc" id="L139">        String openIdDocUrl = getOpenIDMetadataDocumentUrl();</span>
+<span class="nc" id="L140">        String openIdDoc = fetchDocument(openIdDocUrl);</span>
+<span class="nc" id="L141">        String jwksUri = extractJwksUri(openIdDoc);</span>
+<span class="nc" id="L142">        String jwks = fetchDocument(jwksUri);</span>
+
+<span class="nc" id="L144">        return parseJsonWebKeySet(jwks);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

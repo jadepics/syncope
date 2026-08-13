@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AttrRepoDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">AttrRepoDataBinderImpl.java</span></div><h1>AttrRepoDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.AttrRepoTO;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.MappingPurpose;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.am.AttrRepo;
+import org.apache.syncope.core.provisioning.api.data.AttrRepoDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class AttrRepoDataBinderImpl implements AttrRepoDataBinder {
+
+<span class="nc" id="L36">    protected static final Logger LOG = LoggerFactory.getLogger(AttrRepoDataBinder.class);</span>
+
+    protected final EntityFactory entityFactory;
+
+    protected final JexlTools jexlTools;
+
+<span class="nc" id="L42">    public AttrRepoDataBinderImpl(final EntityFactory entityFactory, final JexlTools jexlTools) {</span>
+<span class="nc" id="L43">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L44">        this.jexlTools = jexlTools;</span>
+<span class="nc" id="L45">    }</span>
+
+    protected void populateItems(final AttrRepoTO attrRepoTO, final AttrRepo attrRepo) {
+<span class="nc" id="L48">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+<span class="nc" id="L49">        SyncopeClientException invalidMapping =</span>
+<span class="nc" id="L50">                SyncopeClientException.build(ClientExceptionType.InvalidMapping);</span>
+<span class="nc" id="L51">        SyncopeClientException requiredValuesMissing =</span>
+<span class="nc" id="L52">                SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+<span class="nc" id="L54">        attrRepoTO.getItems().forEach(itemTO -&gt; {</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">            if (itemTO == null) {</span>
+<span class="nc" id="L56">                LOG.error(&quot;Null {}&quot;, Item.class.getSimpleName());</span>
+<span class="nc" id="L57">                invalidMapping.getElements().add(&quot;Null &quot; + Item.class.getSimpleName());</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">            } else if (itemTO.getIntAttrName() == null) {</span>
+<span class="nc" id="L59">                requiredValuesMissing.getElements().add(&quot;intAttrName&quot;);</span>
+<span class="nc" id="L60">                scce.addException(requiredValuesMissing);</span>
+            } else {
+<span class="nc bnc" id="L62" title="All 2 branches missed.">                if (itemTO.getMandatoryCondition() != null</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">                        &amp;&amp; !jexlTools.isExpressionValid(itemTO.getMandatoryCondition())) {</span>
+
+<span class="nc" id="L65">                    SyncopeClientException invalidMandatoryCondition =</span>
+<span class="nc" id="L66">                            SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+<span class="nc" id="L67">                    invalidMandatoryCondition.getElements().add(itemTO.getMandatoryCondition());</span>
+<span class="nc" id="L68">                    scce.addException(invalidMandatoryCondition);</span>
+                }
+
+<span class="nc" id="L71">                Item item = new Item();</span>
+<span class="nc" id="L72">                item.setIntAttrName(itemTO.getIntAttrName());</span>
+<span class="nc" id="L73">                item.setExtAttrName(itemTO.getExtAttrName());</span>
+<span class="nc" id="L74">                item.setMandatoryCondition(itemTO.getMandatoryCondition());</span>
+<span class="nc" id="L75">                item.setConnObjectKey(itemTO.isConnObjectKey());</span>
+<span class="nc" id="L76">                item.setPassword(itemTO.isPassword());</span>
+<span class="nc" id="L77">                item.setPropagationJEXLTransformer(itemTO.getPropagationJEXLTransformer());</span>
+<span class="nc" id="L78">                item.setPullJEXLTransformer(itemTO.getPullJEXLTransformer());</span>
+<span class="nc" id="L79">                attrRepo.getItems().add(item);</span>
+            }
+<span class="nc" id="L81">        });</span>
+
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (!invalidMapping.getElements().isEmpty()) {</span>
+<span class="nc" id="L84">            scce.addException(invalidMapping);</span>
+        }
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L87">            throw scce;</span>
+        }
+<span class="nc" id="L89">    }</span>
+
+    @Override
+    public AttrRepo create(final AttrRepoTO attrRepoTO) {
+<span class="nc" id="L93">        AttrRepo attrRepo = entityFactory.newEntity(AttrRepo.class);</span>
+<span class="nc" id="L94">        attrRepo.setKey(attrRepoTO.getKey());</span>
+<span class="nc" id="L95">        return update(attrRepo, attrRepoTO);</span>
+    }
+
+    @Override
+    public AttrRepo update(final AttrRepo attrRepo, final AttrRepoTO attrRepoTO) {
+<span class="nc" id="L100">        attrRepo.setDescription(attrRepoTO.getDescription());</span>
+<span class="nc" id="L101">        attrRepo.setState(attrRepoTO.getState());</span>
+<span class="nc" id="L102">        attrRepo.setOrder(attrRepoTO.getOrder());</span>
+<span class="nc" id="L103">        attrRepo.setConf(attrRepoTO.getConf());</span>
+
+<span class="nc" id="L105">        attrRepo.getItems().clear();</span>
+<span class="nc" id="L106">        populateItems(attrRepoTO, attrRepo);</span>
+
+<span class="nc" id="L108">        return attrRepo;</span>
+    }
+
+    protected void populateItems(final AttrRepo attrRepo, final AttrRepoTO attrRepoTO) {
+<span class="nc" id="L112">        attrRepo.getItems().forEach(item -&gt; {</span>
+<span class="nc" id="L113">            Item itemTO = new Item();</span>
+<span class="nc" id="L114">            itemTO.setIntAttrName(item.getIntAttrName());</span>
+<span class="nc" id="L115">            itemTO.setExtAttrName(item.getExtAttrName());</span>
+<span class="nc" id="L116">            itemTO.setMandatoryCondition(item.getMandatoryCondition());</span>
+<span class="nc" id="L117">            itemTO.setConnObjectKey(item.isConnObjectKey());</span>
+<span class="nc" id="L118">            itemTO.setPassword(item.isPassword());</span>
+<span class="nc" id="L119">            itemTO.setPropagationJEXLTransformer(item.getPropagationJEXLTransformer());</span>
+<span class="nc" id="L120">            itemTO.setPullJEXLTransformer(item.getPullJEXLTransformer());</span>
+<span class="nc" id="L121">            itemTO.setPurpose(MappingPurpose.NONE);</span>
+
+<span class="nc" id="L123">            attrRepoTO.getItems().add(itemTO);</span>
+<span class="nc" id="L124">        });</span>
+<span class="nc" id="L125">    }</span>
+
+    @Override
+    public AttrRepoTO getAttrRepoTO(final AttrRepo attrRepo) {
+<span class="nc" id="L129">        AttrRepoTO attrRepoTO = new AttrRepoTO();</span>
+
+<span class="nc" id="L131">        attrRepoTO.setKey(attrRepo.getKey());</span>
+<span class="nc" id="L132">        attrRepoTO.setDescription(attrRepo.getDescription());</span>
+<span class="nc" id="L133">        attrRepoTO.setState(attrRepo.getState());</span>
+<span class="nc" id="L134">        attrRepoTO.setOrder(attrRepo.getOrder());</span>
+<span class="nc" id="L135">        attrRepoTO.setConf(attrRepo.getConf());</span>
+
+<span class="nc" id="L137">        populateItems(attrRepo, attrRepoTO);</span>
+
+<span class="nc" id="L139">        return attrRepoTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>JWTAuthentication.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">JWTAuthentication.java</span></div><h1>JWTAuthentication.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import com.nimbusds.jwt.JWTClaimsSet;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.springframework.security.core.Authentication;
+
+/**
+ * Represents the token for an authentication request or for an authenticated principal as JSON Web Token,
+ * once the request has been processed by the
+ * {@link org.springframework.security.authentication.AuthenticationManager#authenticate(Authentication)} method.
+ */
+public class JWTAuthentication implements Authentication {
+
+    private static final long serialVersionUID = -2013733709281305394L;
+
+    private final JWTClaimsSet claims;
+
+    private final SyncopeAuthenticationDetails details;
+
+    private String username;
+
+<span class="nc" id="L47">    private final Set&lt;SyncopeGrantedAuthority&gt; authorities = new HashSet&lt;&gt;();</span>
+
+<span class="nc" id="L49">    private boolean authenticated = false;</span>
+
+<span class="nc" id="L51">    public JWTAuthentication(final JWTClaimsSet claims, final SyncopeAuthenticationDetails details) {</span>
+<span class="nc" id="L52">        this.claims = claims;</span>
+<span class="nc" id="L53">        this.details = details;</span>
+<span class="nc" id="L54">    }</span>
+
+    public JWTClaimsSet getClaims() {
+<span class="nc" id="L57">        return claims;</span>
+    }
+
+    @Override
+    public Collection&lt;SyncopeGrantedAuthority&gt; getAuthorities() {
+<span class="nc" id="L62">        return authorities;</span>
+    }
+
+    @Override
+    public Object getCredentials() {
+<span class="nc" id="L67">        return StringUtils.EMPTY;</span>
+    }
+
+    @Override
+    public SyncopeAuthenticationDetails getDetails() {
+<span class="nc" id="L72">        return details;</span>
+    }
+
+    @Override
+    public Object getPrincipal() {
+<span class="nc" id="L77">        return Optional.ofNullable(username).orElseGet(claims::getSubject);</span>
+    }
+
+    public void setUsername(final String username) {
+<span class="nc" id="L81">        this.username = username;</span>
+<span class="nc" id="L82">    }</span>
+
+    @Override
+    public boolean isAuthenticated() {
+<span class="nc" id="L86">        return authenticated;</span>
+    }
+
+    @Override
+    public void setAuthenticated(final boolean authenticated) throws IllegalArgumentException {
+<span class="nc" id="L91">        this.authenticated = authenticated;</span>
+<span class="nc" id="L92">    }</span>
+
+    @Override
+    public String getName() {
+<span class="nc" id="L96">        return Optional.ofNullable(username).orElseGet(claims::getSubject);</span>
+    }
+
+    @Override
+    public int hashCode() {
+<span class="nc" id="L101">        return new HashCodeBuilder().</span>
+<span class="nc" id="L102">                append(claims).</span>
+<span class="nc" id="L103">                append(details).</span>
+<span class="nc" id="L104">                append(username).</span>
+<span class="nc" id="L105">                append(authorities).</span>
+<span class="nc" id="L106">                append(authenticated).</span>
+<span class="nc" id="L107">                build();</span>
+    }
+
+    @Override
+    public boolean equals(final Object obj) {
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (this == obj) {</span>
+<span class="nc" id="L113">            return true;</span>
+        }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (obj == null) {</span>
+<span class="nc" id="L116">            return false;</span>
+        }
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (getClass() != obj.getClass()) {</span>
+<span class="nc" id="L119">            return false;</span>
+        }
+<span class="nc" id="L121">        final JWTAuthentication other = (JWTAuthentication) obj;</span>
+<span class="nc" id="L122">        return new EqualsBuilder().</span>
+<span class="nc" id="L123">                append(claims, other.claims).</span>
+<span class="nc" id="L124">                append(details, other.details).</span>
+<span class="nc" id="L125">                append(username, other.username).</span>
+<span class="nc" id="L126">                append(authorities, other.authorities).</span>
+<span class="nc" id="L127">                append(authenticated, other.authenticated).</span>
+<span class="nc" id="L128">                build();</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L133">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc" id="L134">        sb.append(super.toString()).append(&quot;: &quot;);</span>
+<span class="nc" id="L135">        sb.append(&quot;Principal: &quot;).append(this.getPrincipal()).append(&quot;; &quot;);</span>
+<span class="nc" id="L136">        sb.append(&quot;Authenticated: &quot;).append(this.isAuthenticated()).append(&quot;; &quot;);</span>
+<span class="nc" id="L137">        sb.append(&quot;Details: &quot;).append(this.getDetails()).append(&quot;; &quot;);</span>
+
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (!authorities.isEmpty()) {</span>
+<span class="nc" id="L140">            sb.append(&quot;Granted Authorities: &quot;);</span>
+<span class="nc" id="L141">            sb.append(authorities.stream().map(SyncopeGrantedAuthority::toString).collect(Collectors.joining(&quot;, &quot;)));</span>
+        } else {
+<span class="nc" id="L143">            sb.append(&quot;Not granted any authorities&quot;);</span>
+        }
+
+<span class="nc" id="L146">        return sb.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

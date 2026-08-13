@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PolicyDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">PolicyDataBinderImpl.java</span></div><h1>PolicyDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import org.apache.syncope.common.lib.policy.AccessPolicyTO;
+import org.apache.syncope.common.lib.policy.AccountPolicyTO;
+import org.apache.syncope.common.lib.policy.AttrReleasePolicyTO;
+import org.apache.syncope.common.lib.policy.AuthPolicyTO;
+import org.apache.syncope.common.lib.policy.InboundPolicyTO;
+import org.apache.syncope.common.lib.policy.PasswordPolicyTO;
+import org.apache.syncope.common.lib.policy.PolicyTO;
+import org.apache.syncope.common.lib.policy.PropagationPolicyTO;
+import org.apache.syncope.common.lib.policy.PushPolicyTO;
+import org.apache.syncope.common.lib.policy.TicketExpirationPolicyTO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RealmDAO;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.policy.AccessPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AccountPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AttrReleasePolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AuthPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundCorrelationRuleEntity;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PasswordPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.Policy;
+import org.apache.syncope.core.persistence.api.entity.policy.PropagationPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PushCorrelationRuleEntity;
+import org.apache.syncope.core.persistence.api.entity.policy.PushPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.TicketExpirationPolicy;
+import org.apache.syncope.core.provisioning.api.data.PolicyDataBinder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class PolicyDataBinderImpl implements PolicyDataBinder {
+
+<span class="nc" id="L58">    protected static final Logger LOG = LoggerFactory.getLogger(PolicyDataBinder.class);</span>
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final RealmDAO realmDAO;
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final EntityFactory entityFactory;
+
+    public PolicyDataBinderImpl(
+            final ExternalResourceDAO resourceDAO,
+            final RealmDAO realmDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+<span class="nc" id="L75">            final EntityFactory entityFactory) {</span>
+
+<span class="nc" id="L77">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L78">        this.realmDAO = realmDAO;</span>
+<span class="nc" id="L79">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L80">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L81">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L82">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected &lt;T extends Policy&gt; T getPolicy(final T policy, final PolicyTO policyTO) {
+<span class="nc" id="L86">        T result = policy;</span>
+
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (policyTO instanceof PasswordPolicyTO passwordPolicyTO) {</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L90">                result = (T) entityFactory.newEntity(PasswordPolicy.class);</span>
+            }
+
+<span class="nc" id="L93">            PasswordPolicy passwordPolicy = PasswordPolicy.class.cast(result);</span>
+
+<span class="nc" id="L95">            passwordPolicy.setAllowNullPassword(passwordPolicyTO.isAllowNullPassword());</span>
+<span class="nc" id="L96">            passwordPolicy.setHistoryLength(passwordPolicyTO.getHistoryLength());</span>
+
+<span class="nc" id="L98">            passwordPolicyTO.getRules().forEach(ruleKey -&gt; implementationDAO.findById(ruleKey).ifPresentOrElse(</span>
+<span class="nc" id="L99">                    passwordPolicy::add,</span>
+<span class="nc" id="L100">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, Implementation.class.getSimpleName(), ruleKey)));</span>
+            // remove all implementations not contained in the TO
+<span class="nc" id="L102">            passwordPolicy.getRules().</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">                    removeIf(implementation -&gt; !passwordPolicyTO.getRules().contains(implementation.getKey()));</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        } else if (policyTO instanceof AccountPolicyTO accountPolicyTO) {</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L106">                result = (T) entityFactory.newEntity(AccountPolicy.class);</span>
+            }
+
+<span class="nc" id="L109">            AccountPolicy accountPolicy = AccountPolicy.class.cast(result);</span>
+
+<span class="nc" id="L111">            accountPolicy.setMaxAuthenticationAttempts(accountPolicyTO.getMaxAuthenticationAttempts());</span>
+<span class="nc" id="L112">            accountPolicy.setPropagateSuspension(accountPolicyTO.isPropagateSuspension());</span>
+
+<span class="nc" id="L114">            accountPolicyTO.getRules().forEach(ruleKey -&gt; implementationDAO.findById(ruleKey).ifPresentOrElse(</span>
+<span class="nc" id="L115">                    accountPolicy::add,</span>
+<span class="nc" id="L116">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, Implementation.class.getSimpleName(), ruleKey)));</span>
+            // remove all implementations not contained in the TO
+<span class="nc" id="L118">            accountPolicy.getRules().</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                    removeIf(implementation -&gt; !accountPolicyTO.getRules().contains(implementation.getKey()));</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        } else if (policyTO instanceof PropagationPolicyTO propagationPolicyTO) {</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L122">                result = (T) entityFactory.newEntity(PropagationPolicy.class);</span>
+            }
+
+<span class="nc" id="L125">            PropagationPolicy propagationPolicy = PropagationPolicy.class.cast(result);</span>
+
+<span class="nc" id="L127">            propagationPolicy.setFetchAroundProvisioning(propagationPolicyTO.isFetchAroundProvisioning());</span>
+<span class="nc" id="L128">            propagationPolicy.setUpdateDelta(propagationPolicyTO.isUpdateDelta());</span>
+<span class="nc" id="L129">            propagationPolicy.setBackOffStrategy(propagationPolicyTO.getBackOffStrategy());</span>
+<span class="nc" id="L130">            propagationPolicy.setBackOffParams(propagationPolicyTO.getBackOffParams());</span>
+<span class="nc" id="L131">            propagationPolicy.setMaxAttempts(propagationPolicyTO.getMaxAttempts());</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        } else if (policyTO instanceof InboundPolicyTO inboundPolicyTO) {</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L134">                result = (T) entityFactory.newEntity(InboundPolicy.class);</span>
+            }
+
+<span class="nc" id="L137">            InboundPolicy inboundPolicy = InboundPolicy.class.cast(result);</span>
+
+<span class="nc" id="L139">            inboundPolicy.setConflictResolutionAction(inboundPolicyTO.getConflictResolutionAction());</span>
+
+<span class="nc" id="L141">            inboundPolicyTO.getCorrelationRules().forEach((type, impl) -&gt; anyTypeDAO.findById(type).ifPresentOrElse(</span>
+                    anyType -&gt; {
+<span class="nc" id="L143">                        InboundCorrelationRuleEntity correlationRule = inboundPolicy.</span>
+<span class="nc" id="L144">                                getCorrelationRule(anyType.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">                        if (correlationRule == null) {</span>
+<span class="nc" id="L146">                            correlationRule = entityFactory.newEntity(InboundCorrelationRuleEntity.class);</span>
+<span class="nc" id="L147">                            correlationRule.setAnyType(anyType);</span>
+<span class="nc" id="L148">                            correlationRule.setInboundPolicy(inboundPolicy);</span>
+<span class="nc" id="L149">                            inboundPolicy.add(correlationRule);</span>
+                        }
+
+<span class="nc" id="L152">                        Implementation rule = implementationDAO.findById(impl).</span>
+<span class="nc" id="L153">                                orElseThrow(() -&gt; new NotFoundException(&quot;Implementation &quot; + type + ' ' + impl));</span>
+<span class="nc" id="L154">                        correlationRule.setImplementation(rule);</span>
+<span class="nc" id="L155">                    },</span>
+<span class="nc" id="L156">                    () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, type)));</span>
+            // remove all rules not contained in the TO
+<span class="nc" id="L158">            inboundPolicy.getCorrelationRules().removeIf(anyFilter -&gt; !inboundPolicyTO.getCorrelationRules().</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                    containsKey(anyFilter.getAnyType().getKey()));</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        } else if (policyTO instanceof PushPolicyTO pushPolicyTO) {</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L162">                result = (T) entityFactory.newEntity(PushPolicy.class);</span>
+            }
+
+<span class="nc" id="L165">            PushPolicy pushPolicy = PushPolicy.class.cast(result);</span>
+
+<span class="nc" id="L167">            pushPolicy.setConflictResolutionAction(pushPolicyTO.getConflictResolutionAction());</span>
+
+<span class="nc" id="L169">            pushPolicyTO.getCorrelationRules().forEach((type, impl) -&gt; anyTypeDAO.findById(type).ifPresentOrElse(</span>
+                    anyType -&gt; {
+<span class="nc" id="L171">                        PushCorrelationRuleEntity correlationRule = pushPolicy.</span>
+<span class="nc" id="L172">                                getCorrelationRule(anyType.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">                        if (correlationRule == null) {</span>
+<span class="nc" id="L174">                            correlationRule = entityFactory.newEntity(PushCorrelationRuleEntity.class);</span>
+<span class="nc" id="L175">                            correlationRule.setAnyType(anyType);</span>
+<span class="nc" id="L176">                            correlationRule.setPushPolicy(pushPolicy);</span>
+<span class="nc" id="L177">                            pushPolicy.add(correlationRule);</span>
+                        }
+
+<span class="nc" id="L180">                        Implementation rule = implementationDAO.findById(impl).</span>
+<span class="nc" id="L181">                                orElseThrow(() -&gt; new NotFoundException(&quot;Implementation &quot; + type + ' ' + impl));</span>
+<span class="nc" id="L182">                        correlationRule.setImplementation(rule);</span>
+<span class="nc" id="L183">                    },</span>
+<span class="nc" id="L184">                    () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, type)));</span>
+            // remove all rules not contained in the TO
+<span class="nc" id="L186">            pushPolicy.getCorrelationRules().</span>
+<span class="nc" id="L187">                    removeIf(anyFilter -&gt; !pushPolicyTO.getCorrelationRules().</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">                    containsKey(anyFilter.getAnyType().getKey()));</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        } else if (policyTO instanceof AuthPolicyTO authPolicyTO) {</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L191">                result = (T) entityFactory.newEntity(AuthPolicy.class);</span>
+            }
+
+<span class="nc" id="L194">            AuthPolicy authPolicy = AuthPolicy.class.cast(result);</span>
+
+<span class="nc" id="L196">            authPolicy.setName(authPolicyTO.getKey());</span>
+<span class="nc" id="L197">            authPolicy.setConf(authPolicyTO.getConf());</span>
+<span class="nc bnc" id="L198" title="All 2 branches missed.">        } else if (policyTO instanceof AccessPolicyTO accessPolicyTO) {</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L200">                result = (T) entityFactory.newEntity(AccessPolicy.class);</span>
+            }
+
+<span class="nc" id="L203">            AccessPolicy accessPolicy = AccessPolicy.class.cast(result);</span>
+
+<span class="nc" id="L205">            accessPolicy.setName(accessPolicyTO.getKey());</span>
+<span class="nc" id="L206">            accessPolicy.setConf(accessPolicyTO.getConf());</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        } else if (policyTO instanceof AttrReleasePolicyTO attrReleasePolicyTO) {</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L209">                result = (T) entityFactory.newEntity(AttrReleasePolicy.class);</span>
+            }
+
+<span class="nc" id="L212">            AttrReleasePolicy attrReleasePolicy = AttrReleasePolicy.class.cast(result);</span>
+
+<span class="nc" id="L214">            attrReleasePolicy.setName(attrReleasePolicyTO.getKey());</span>
+<span class="nc" id="L215">            attrReleasePolicy.setOrder(attrReleasePolicyTO.getOrder());</span>
+<span class="nc" id="L216">            attrReleasePolicy.setStatus(attrReleasePolicyTO.getStatus());</span>
+<span class="nc" id="L217">            attrReleasePolicy.setConf(attrReleasePolicyTO.getConf());</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        } else if (policyTO instanceof TicketExpirationPolicyTO ticketExpirationPolicyTO) {</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">            if (result == null) {</span>
+<span class="nc" id="L220">                result = (T) entityFactory.newEntity(TicketExpirationPolicy.class);</span>
+            }
+
+<span class="nc" id="L223">            TicketExpirationPolicy ticketExpirationPolicy = TicketExpirationPolicy.class.cast(result);</span>
+
+<span class="nc" id="L225">            ticketExpirationPolicy.setConf(ticketExpirationPolicyTO.getConf());</span>
+        }
+
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L229">            result.setName(policyTO.getName());</span>
+        }
+
+<span class="nc" id="L232">        return result;</span>
+    }
+
+    @Override
+    public &lt;T extends Policy&gt; T create(final PolicyTO policyTO) {
+<span class="nc" id="L237">        return getPolicy(null, policyTO);</span>
+    }
+
+    @Override
+    public &lt;T extends Policy&gt; T update(final T policy, final PolicyTO policyTO) {
+<span class="nc" id="L242">        return getPolicy(policy, policyTO);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    @Override
+    public &lt;T extends PolicyTO&gt; T getPolicyTO(final Policy policy) {
+<span class="nc" id="L248">        T policyTO = null;</span>
+
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        if (policy instanceof PasswordPolicy) {</span>
+<span class="nc" id="L251">            PasswordPolicy passwordPolicy = PasswordPolicy.class.cast(policy);</span>
+<span class="nc" id="L252">            PasswordPolicyTO passwordPolicyTO = new PasswordPolicyTO();</span>
+<span class="nc" id="L253">            policyTO = (T) passwordPolicyTO;</span>
+
+<span class="nc" id="L255">            passwordPolicyTO.setAllowNullPassword(passwordPolicy.isAllowNullPassword());</span>
+<span class="nc" id="L256">            passwordPolicyTO.setHistoryLength(passwordPolicy.getHistoryLength());</span>
+
+<span class="nc" id="L258">            passwordPolicyTO.getRules().addAll(</span>
+<span class="nc" id="L259">                    passwordPolicy.getRules().stream().map(Implementation::getKey).toList());</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">        } else if (policy instanceof AccountPolicy) {</span>
+<span class="nc" id="L261">            AccountPolicy accountPolicy = AccountPolicy.class.cast(policy);</span>
+<span class="nc" id="L262">            AccountPolicyTO accountPolicyTO = new AccountPolicyTO();</span>
+<span class="nc" id="L263">            policyTO = (T) accountPolicyTO;</span>
+
+<span class="nc" id="L265">            accountPolicyTO.setMaxAuthenticationAttempts(accountPolicy.getMaxAuthenticationAttempts());</span>
+<span class="nc" id="L266">            accountPolicyTO.setPropagateSuspension(accountPolicy.isPropagateSuspension());</span>
+
+<span class="nc" id="L268">            accountPolicyTO.getRules().addAll(</span>
+<span class="nc" id="L269">                    accountPolicy.getRules().stream().map(Implementation::getKey).toList());</span>
+
+<span class="nc" id="L271">            accountPolicyTO.getPassthroughResources().addAll(</span>
+<span class="nc" id="L272">                    resourceDAO.findByPolicy(accountPolicy).stream().map(ExternalResource::getKey).toList());</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        } else if (policy instanceof PropagationPolicy) {</span>
+<span class="nc" id="L274">            PropagationPolicy propagationPolicy = PropagationPolicy.class.cast(policy);</span>
+<span class="nc" id="L275">            PropagationPolicyTO propagationPolicyTO = new PropagationPolicyTO();</span>
+<span class="nc" id="L276">            policyTO = (T) propagationPolicyTO;</span>
+
+<span class="nc" id="L278">            propagationPolicyTO.setFetchAroundProvisioning(propagationPolicy.isFetchAroundProvisioning());</span>
+<span class="nc" id="L279">            propagationPolicyTO.setUpdateDelta(propagationPolicy.isUpdateDelta());</span>
+<span class="nc" id="L280">            propagationPolicyTO.setBackOffStrategy(propagationPolicy.getBackOffStrategy());</span>
+<span class="nc" id="L281">            propagationPolicyTO.setBackOffParams(propagationPolicy.getBackOffParams());</span>
+<span class="nc" id="L282">            propagationPolicyTO.setMaxAttempts(propagationPolicy.getMaxAttempts());</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">        } else if (policy instanceof InboundPolicy inboundPolicy) {</span>
+<span class="nc" id="L284">            InboundPolicyTO inboundPolicyTO = new InboundPolicyTO();</span>
+<span class="nc" id="L285">            policyTO = (T) inboundPolicyTO;</span>
+
+<span class="nc" id="L287">            inboundPolicyTO.setConflictResolutionAction(inboundPolicy.getConflictResolutionAction());</span>
+<span class="nc" id="L288">            inboundPolicy.getCorrelationRules().</span>
+<span class="nc" id="L289">                    forEach(rule -&gt; inboundPolicyTO.getCorrelationRules().</span>
+<span class="nc" id="L290">                    put(rule.getAnyType().getKey(), rule.getImplementation().getKey()));</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        } else if (policy instanceof PushPolicy pushPolicy) {</span>
+<span class="nc" id="L292">            PushPolicyTO pushPolicyTO = new PushPolicyTO();</span>
+<span class="nc" id="L293">            policyTO = (T) pushPolicyTO;</span>
+
+<span class="nc" id="L295">            pushPolicyTO.setConflictResolutionAction(pushPolicy.getConflictResolutionAction());</span>
+<span class="nc" id="L296">            pushPolicy.getCorrelationRules().</span>
+<span class="nc" id="L297">                    forEach(rule -&gt; pushPolicyTO.getCorrelationRules().</span>
+<span class="nc" id="L298">                    put(rule.getAnyType().getKey(), rule.getImplementation().getKey()));</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        } else if (policy instanceof AuthPolicy authPolicy) {</span>
+<span class="nc" id="L300">            AuthPolicyTO authPolicyTO = new AuthPolicyTO();</span>
+<span class="nc" id="L301">            policyTO = (T) authPolicyTO;</span>
+
+<span class="nc" id="L303">            authPolicyTO.setConf(authPolicy.getConf());</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        } else if (policy instanceof AccessPolicy accessPolicy) {</span>
+<span class="nc" id="L305">            AccessPolicyTO accessPolicyTO = new AccessPolicyTO();</span>
+<span class="nc" id="L306">            policyTO = (T) accessPolicyTO;</span>
+
+<span class="nc" id="L308">            accessPolicyTO.setConf(accessPolicy.getConf());</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        } else if (policy instanceof AttrReleasePolicy) {</span>
+<span class="nc" id="L310">            AttrReleasePolicy attrReleasePolicy = AttrReleasePolicy.class.cast(policy);</span>
+<span class="nc" id="L311">            AttrReleasePolicyTO attrReleasePolicyTO = new AttrReleasePolicyTO();</span>
+<span class="nc" id="L312">            policyTO = (T) attrReleasePolicyTO;</span>
+
+<span class="nc" id="L314">            attrReleasePolicyTO.setOrder(attrReleasePolicy.getOrder());</span>
+<span class="nc" id="L315">            attrReleasePolicyTO.setStatus(attrReleasePolicy.getStatus());</span>
+<span class="nc" id="L316">            attrReleasePolicyTO.setConf(attrReleasePolicy.getConf());</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">        } else if (policy instanceof TicketExpirationPolicy) {</span>
+<span class="nc" id="L318">            TicketExpirationPolicy ticketExpirationPolicy = TicketExpirationPolicy.class.cast(policy);</span>
+<span class="nc" id="L319">            TicketExpirationPolicyTO ticketExpirationPolicyTO = new TicketExpirationPolicyTO();</span>
+<span class="nc" id="L320">            policyTO = (T) ticketExpirationPolicyTO;</span>
+
+<span class="nc" id="L322">            ticketExpirationPolicyTO.setConf(ticketExpirationPolicy.getConf());</span>
+        }
+
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        if (policyTO != null) {</span>
+<span class="nc" id="L326">            policyTO.setKey(policy.getKey());</span>
+<span class="nc" id="L327">            policyTO.setName(policy.getName());</span>
+
+<span class="nc bnc" id="L329" title="All 8 branches missed.">            if (!(policy instanceof AuthPolicy)</span>
+                    &amp;&amp; !(policy instanceof AccessPolicy)
+                    &amp;&amp; !(policy instanceof AttrReleasePolicy)
+                    &amp;&amp; !(policy instanceof TicketExpirationPolicy)) {
+
+<span class="nc" id="L334">                policyTO.getUsedByResources().addAll(</span>
+<span class="nc" id="L335">                        resourceDAO.findByPolicy(policy).stream().map(ExternalResource::getKey).toList());</span>
+            }
+
+<span class="nc" id="L338">            policyTO.getUsedByRealms().addAll(realmDAO.findByPolicy(policy).stream().map(Realm::getFullPath).toList());</span>
+        }
+
+<span class="nc" id="L341">        return policyTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

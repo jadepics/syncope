@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MappingUtils.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.utils</a> &gt; <span class="el_source">MappingUtils.java</span></div><h1>MappingUtils.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.utils;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.ItemContainer;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.MappingPurpose;
+import org.apache.syncope.core.persistence.api.ApplicationContextProvider;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.provisioning.api.data.ItemTransformer;
+import org.apache.syncope.core.provisioning.api.data.JEXLItemTransformer;
+import org.apache.syncope.core.provisioning.java.data.JEXLItemTransformerImpl;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.identityconnectors.framework.common.objects.Name;
+import org.identityconnectors.framework.common.objects.OperationOptions;
+import org.identityconnectors.framework.common.objects.OperationOptionsBuilder;
+import org.identityconnectors.framework.common.objects.OperationalAttributes;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public final class MappingUtils {
+
+<span class="fc" id="L51">    private static final Logger LOG = LoggerFactory.getLogger(MappingUtils.class);</span>
+
+<span class="fc" id="L53">    private static final Map&lt;String, ItemTransformer&gt; PER_CONTEXT_ITEM_TRANSFORMERS = new ConcurrentHashMap&lt;&gt;();</span>
+
+    public static Optional&lt;Item&gt; getConnObjectKeyItem(final Provision provision) {
+<span class="fc" id="L56">        return Optional.ofNullable(provision).</span>
+<span class="fc" id="L57">                flatMap(p -&gt; Optional.ofNullable(p.getMapping())).</span>
+<span class="fc" id="L58">                map(ItemContainer::getConnObjectKeyItem).</span>
+<span class="fc" id="L59">                orElseGet(Optional::empty);</span>
+    }
+
+    public static Stream&lt;Item&gt; getPropagationItems(final Stream&lt;Item&gt; items) {
+<span class="pc bnc" id="L63" title="All 4 branches missed.">        return items.filter(i -&gt; i.getPurpose() == MappingPurpose.PROPAGATION || i.getPurpose() == MappingPurpose.BOTH);</span>
+    }
+
+    public static Stream&lt;Item&gt; getInboundItems(final Stream&lt;Item&gt; items) {
+<span class="nc bnc" id="L67" title="All 4 branches missed.">        return items.filter(i -&gt; i.getPurpose() == MappingPurpose.PULL || i.getPurpose() == MappingPurpose.BOTH);</span>
+    }
+
+    public static List&lt;ItemTransformer&gt; getItemTransformers(
+            final String domain,
+            final Item item,
+            final List&lt;Implementation&gt; transformers) {
+
+<span class="fc" id="L75">        List&lt;ItemTransformer&gt; result = new ArrayList&lt;&gt;();</span>
+
+        // First consider the JEXL transformation expressions
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">        if (StringUtils.isNotBlank(item.getPropagationJEXLTransformer())</span>
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">                || StringUtils.isNotBlank(item.getPullJEXLTransformer())) {</span>
+
+<span class="nc" id="L81">            JEXLItemTransformer jexlTransformer = ApplicationContextProvider.getBeanFactory().</span>
+<span class="nc" id="L82">                    createBean(JEXLItemTransformerImpl.class);</span>
+
+<span class="nc" id="L84">            jexlTransformer.setPropagationJEXL(item.getPropagationJEXLTransformer());</span>
+<span class="nc" id="L85">            jexlTransformer.setPullJEXL(item.getPullJEXLTransformer());</span>
+<span class="nc" id="L86">            result.add(jexlTransformer);</span>
+        }
+
+        // Then other custom transformers
+<span class="fc" id="L90">        transformers.forEach(impl -&gt; {</span>
+            try {
+<span class="nc" id="L92">                result.add(ImplementationManager.build(</span>
+                        domain,
+                        impl,
+<span class="nc" id="L95">                        () -&gt; PER_CONTEXT_ITEM_TRANSFORMERS.get(impl.getKey()),</span>
+<span class="nc" id="L96">                        instance -&gt; PER_CONTEXT_ITEM_TRANSFORMERS.put(impl.getKey(), instance)));</span>
+<span class="nc" id="L97">            } catch (Exception e) {</span>
+<span class="nc" id="L98">                LOG.error(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L99">            }</span>
+<span class="nc" id="L100">        });</span>
+
+<span class="fc" id="L102">        return result;</span>
+    }
+
+    /**
+     * Build options for requesting all mapped connector attributes.
+     *
+     * @param items items
+     * @param moreAttrsToGet additional attributes to get
+     * @return options for requesting all mapped connector attributes
+     * @see OperationOptions
+     */
+    public static OperationOptions buildOperationOptions(
+            final Stream&lt;Item&gt; items,
+            final String... moreAttrsToGet) {
+
+<span class="nc" id="L117">        OperationOptionsBuilder builder = new OperationOptionsBuilder();</span>
+
+<span class="nc" id="L119">        Set&lt;String&gt; attrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L120">        attrsToGet.add(Name.NAME);</span>
+<span class="nc" id="L121">        attrsToGet.add(Uid.NAME);</span>
+<span class="nc" id="L122">        attrsToGet.add(OperationalAttributes.ENABLE_NAME);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">        if (!ArrayUtils.isEmpty(moreAttrsToGet)) {</span>
+<span class="nc" id="L124">            attrsToGet.addAll(List.of(moreAttrsToGet));</span>
+        }
+
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        items.filter(item -&gt; item.getPurpose() != MappingPurpose.NONE).</span>
+<span class="nc" id="L128">                forEach(item -&gt; attrsToGet.add(item.getExtAttrName()));</span>
+
+<span class="nc" id="L130">        builder.setAttributesToGet(attrsToGet);</span>
+        // -------------------------------------
+
+<span class="nc" id="L133">        return builder.build();</span>
+    }
+
+    /**
+     * Private default constructor, for static-only classes.
+     */
+    private MappingUtils() {
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

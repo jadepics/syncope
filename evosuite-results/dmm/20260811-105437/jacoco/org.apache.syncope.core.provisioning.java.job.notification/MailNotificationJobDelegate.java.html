@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MailNotificationJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job.notification</a> &gt; <span class="el_source">MailNotificationJobDelegate.java</span></div><h1>MailNotificationJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job.notification;
+
+import jakarta.mail.internet.MimeMessage;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.task.NotificationTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+
+public class MailNotificationJobDelegate extends AbstractNotificationJobDelegate {
+
+    protected final JavaMailSender mailSender;
+
+    public MailNotificationJobDelegate(
+            final ConfParamOps confParamOps,
+            final TaskDAO taskDAO,
+            final TaskUtilsFactory taskUtilsFactory,
+            final AuditManager auditManager,
+            final NotificationManager notificationManager,
+            final ApplicationEventPublisher publisher,
+            final JavaMailSender mailSender) {
+
+<span class="nc" id="L46">        super(confParamOps, taskDAO, taskUtilsFactory, auditManager, notificationManager, publisher);</span>
+<span class="nc" id="L47">        this.mailSender = mailSender;</span>
+<span class="nc" id="L48">    }</span>
+
+    @Override
+    protected void notify(
+            final String to,
+            final NotificationTask task,
+            final TaskExec&lt;NotificationTask&gt; execution) throws Exception {
+
+<span class="nc" id="L56">        MimeMessage message = mailSender.createMimeMessage();</span>
+<span class="nc" id="L57">        MimeMessageHelper helper = new MimeMessageHelper(message, true);</span>
+<span class="nc" id="L58">        helper.setTo(to);</span>
+<span class="nc" id="L59">        helper.setFrom(task.getSender());</span>
+<span class="nc" id="L60">        helper.setSubject(task.getSubject());</span>
+<span class="nc" id="L61">        helper.setText(task.getTextBody(), task.getHtmlBody());</span>
+
+<span class="nc" id="L63">        mailSender.send(message);</span>
+
+<span class="nc" id="L65">        execution.setStatus(NotificationJob.Status.SENT.name());</span>
+
+<span class="nc" id="L67">        StringBuilder report = new StringBuilder();</span>
+<span class="nc bnc" id="L68" title="All 3 branches missed.">        switch (task.getTraceLevel()) {</span>
+            case ALL:
+<span class="nc" id="L70">                report.append(&quot;FROM: &quot;).append(task.getSender()).append('\n').</span>
+<span class="nc" id="L71">                        append(&quot;TO: &quot;).append(to).append('\n').</span>
+<span class="nc" id="L72">                        append(&quot;SUBJECT: &quot;).append(task.getSubject()).append('\n').append('\n').</span>
+<span class="nc" id="L73">                        append(task.getTextBody()).append('\n').append('\n').</span>
+<span class="nc" id="L74">                        append(task.getHtmlBody()).append('\n');</span>
+<span class="nc" id="L75">                break;</span>
+
+            case SUMMARY:
+<span class="nc" id="L78">                report.append(&quot;E-mail sent to &quot;).append(to).append('\n');</span>
+<span class="nc" id="L79">                break;</span>
+
+            case FAILURES:
+            case NONE:
+            default:
+        }
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (report.length() &gt; 0) {</span>
+<span class="nc" id="L86">            execution.setMessage(report.toString());</span>
+        }
+<span class="nc" id="L88">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

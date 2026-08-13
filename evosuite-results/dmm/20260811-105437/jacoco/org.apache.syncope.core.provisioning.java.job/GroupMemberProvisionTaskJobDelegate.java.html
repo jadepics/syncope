@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GroupMemberProvisionTaskJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">GroupMemberProvisionTaskJobDelegate.java</span></div><h1>GroupMemberProvisionTaskJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import java.util.Collection;
+import java.util.List;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.to.PropagationStatus;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ProvisionAction;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.AnyDAO;
+import org.apache.syncope.core.persistence.api.dao.AnySearchDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmDAO;
+import org.apache.syncope.core.persistence.api.dao.search.MembershipCond;
+import org.apache.syncope.core.persistence.api.dao.search.SearchCond;
+import org.apache.syncope.core.persistence.api.entity.anyobject.AnyObject;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.task.SchedTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.AnyObjectProvisioningManager;
+import org.apache.syncope.core.provisioning.api.UserProvisioningManager;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L50">public class GroupMemberProvisionTaskJobDelegate</span>
+        extends AbstractSchedTaskJobDelegate&lt;SchedTask&gt;
+        implements StoppableJobDelegate {
+
+    public static final String ACTION_JOBDETAIL_KEY = &quot;action&quot;;
+
+    public static final String GROUP_KEY_JOBDETAIL_KEY = &quot;groupKey&quot;;
+
+    @Autowired
+    private RealmDAO realmDAO;
+
+    @Autowired
+    private GroupDAO groupDAO;
+
+    @Autowired
+    private AnySearchDAO anySearchDAO;
+
+    @Autowired
+    private UserProvisioningManager userProvisioningManager;
+
+    @Autowired
+    private AnyObjectProvisioningManager anyObjectProvisioningManager;
+
+    private String groupKey;
+
+    private ProvisionAction action;
+
+<span class="nc" id="L77">    private volatile boolean stopRequested = false;</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L81">        stopRequested = true;</span>
+<span class="nc" id="L82">    }</span>
+
+    @Transactional
+    @Override
+    public void execute(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context)
+            throws JobExecutionException {
+
+<span class="nc" id="L92">        groupKey = (String) context.getData().get(GROUP_KEY_JOBDETAIL_KEY);</span>
+<span class="nc" id="L93">        action = (ProvisionAction) context.getData().get(ACTION_JOBDETAIL_KEY);</span>
+
+<span class="nc" id="L95">        super.execute(taskType, taskKey, context);</span>
+<span class="nc" id="L96">    }</span>
+
+    @Override
+    protected String doExecute(final JobExecutionContext context) {
+<span class="nc" id="L100">        Group group = groupDAO.authFind(groupKey);</span>
+
+<span class="nc" id="L102">        StringBuilder result = new StringBuilder(&quot;Group &quot;).append(group.getName()).append(&quot; members &quot;);</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (action == ProvisionAction.DEPROVISION) {</span>
+<span class="nc" id="L104">            result.append(&quot;de&quot;);</span>
+        }
+<span class="nc" id="L106">        result.append(&quot;provision\n\n&quot;);</span>
+
+<span class="nc" id="L108">        setStatus(result.toString());</span>
+
+<span class="nc" id="L110">        Collection&lt;String&gt; gResources = groupDAO.findAllResourceKeys(groupKey);</span>
+
+<span class="nc" id="L112">        MembershipCond membershipCond = new MembershipCond();</span>
+<span class="nc" id="L113">        membershipCond.setGroup(groupKey);</span>
+<span class="nc" id="L114">        SearchCond cond = SearchCond.of(membershipCond);</span>
+
+<span class="nc" id="L116">        long userCount = anySearchDAO.count(</span>
+<span class="nc" id="L117">                realmDAO.getRoot(),</span>
+                true,
+                SyncopeConstants.FULL_ADMIN_REALMS,
+                cond,
+                AnyTypeKind.USER);
+
+<span class="nc" id="L123">        setStatus(&quot;About to &quot;</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                + (action == ProvisionAction.DEPROVISION ? &quot;de&quot; : &quot;&quot;) + &quot;provision &quot;</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">                + userCount + &quot; users &quot; + (action == ProvisionAction.DEPROVISION ? &quot;from &quot; : &quot;to &quot;) + gResources);</span>
+
+<span class="nc" id="L127">        long pages = (userCount / AnyDAO.DEFAULT_PAGE_SIZE) + 1;</span>
+<span class="nc" id="L128">        Sort sort = Sort.by(Sort.Direction.ASC, &quot;creationDate&quot;);</span>
+
+<span class="nc bnc" id="L130" title="All 4 branches missed.">        for (int page = 0; page &lt; pages &amp;&amp; !stopRequested; page++) {</span>
+<span class="nc" id="L131">            setStatus(&quot;Processing &quot; + userCount + &quot; users: page &quot; + page + &quot; of &quot; + pages);</span>
+
+<span class="nc" id="L133">            List&lt;User&gt; users = anySearchDAO.search(</span>
+<span class="nc" id="L134">                    realmDAO.getRoot(),</span>
+                    true,
+                    SyncopeConstants.FULL_ADMIN_REALMS,
+                    cond,
+<span class="nc" id="L138">                    PageRequest.of(page, AnyDAO.DEFAULT_PAGE_SIZE, sort),</span>
+                    AnyTypeKind.USER);
+
+<span class="nc bnc" id="L141" title="All 4 branches missed.">            for (int i = 0; i &lt; users.size() &amp;&amp; !stopRequested; i++) {</span>
+<span class="nc" id="L142">                User user = users.get(i);</span>
+
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                List&lt;PropagationStatus&gt; statuses = action == ProvisionAction.DEPROVISION</span>
+<span class="nc" id="L145">                        ? userProvisioningManager.deprovision(</span>
+<span class="nc" id="L146">                                user.getKey(), gResources, false, executor)</span>
+<span class="nc" id="L147">                        : userProvisioningManager.provision(</span>
+<span class="nc" id="L148">                                user.getKey(), true, null, gResources, false, executor);</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">                for (PropagationStatus propagationStatus : statuses) {</span>
+<span class="nc" id="L150">                    result.append(&quot;User &quot;).append(user.getKey()).append('\t').</span>
+<span class="nc" id="L151">                            append(&quot;Resource &quot;).append(propagationStatus.getResource()).append('\t').</span>
+<span class="nc" id="L152">                            append(propagationStatus.getStatus());</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                    if (StringUtils.isNotBlank(propagationStatus.getFailureReason())) {</span>
+<span class="nc" id="L154">                        result.append('\n').append(propagationStatus.getFailureReason()).append('\n');</span>
+                    }
+<span class="nc" id="L156">                    result.append('\n');</span>
+<span class="nc" id="L157">                }</span>
+<span class="nc" id="L158">                result.append('\n');</span>
+            }
+        }
+
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (stopRequested) {</span>
+<span class="nc" id="L163">            result.append(&quot;\nStop was requested&quot;);</span>
+<span class="nc" id="L164">            return result.toString();</span>
+        }
+
+<span class="nc" id="L167">        long anyObjectCount = anySearchDAO.count(</span>
+<span class="nc" id="L168">                realmDAO.getRoot(),</span>
+                true,
+                SyncopeConstants.FULL_ADMIN_REALMS,
+<span class="nc" id="L171">                SearchCond.of(membershipCond),</span>
+                AnyTypeKind.ANY_OBJECT);
+<span class="nc" id="L173">        setStatus(&quot;About to &quot;</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">                + (action == ProvisionAction.DEPROVISION ? &quot;de&quot; : &quot;&quot;) + &quot;provision &quot;</span>
+                + anyObjectCount + &quot; any objects from &quot; + gResources);
+
+<span class="nc" id="L177">        pages = (anyObjectCount / AnyDAO.DEFAULT_PAGE_SIZE) + 1;</span>
+
+<span class="nc bnc" id="L179" title="All 4 branches missed.">        for (int page = 0; page &lt; pages &amp;&amp; !stopRequested; page++) {</span>
+<span class="nc" id="L180">            setStatus(&quot;Processing &quot; + anyObjectCount + &quot; anyObjects: page &quot; + page + &quot; of &quot; + pages);</span>
+
+<span class="nc" id="L182">            List&lt;AnyObject&gt; anyObjects = anySearchDAO.search(</span>
+<span class="nc" id="L183">                    realmDAO.getRoot(),</span>
+                    true,
+                    SyncopeConstants.FULL_ADMIN_REALMS,
+                    cond,
+<span class="nc" id="L187">                    PageRequest.of(page, AnyDAO.DEFAULT_PAGE_SIZE, sort),</span>
+                    AnyTypeKind.ANY_OBJECT);
+
+<span class="nc bnc" id="L190" title="All 4 branches missed.">            for (int i = 0; i &lt; anyObjects.size() &amp;&amp; !stopRequested; i++) {</span>
+<span class="nc" id="L191">                AnyObject anyObject = anyObjects.get(i);</span>
+
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                List&lt;PropagationStatus&gt; statuses = action == ProvisionAction.DEPROVISION</span>
+<span class="nc" id="L194">                        ? anyObjectProvisioningManager.deprovision(</span>
+<span class="nc" id="L195">                                anyObject.getKey(), gResources, false, executor)</span>
+<span class="nc" id="L196">                        : anyObjectProvisioningManager.provision(</span>
+<span class="nc" id="L197">                                anyObject.getKey(), gResources, false, executor);</span>
+
+<span class="nc bnc" id="L199" title="All 2 branches missed.">                for (PropagationStatus propagationStatus : statuses) {</span>
+<span class="nc" id="L200">                    result.append(anyObject.getType().getKey()).append(' ').</span>
+<span class="nc" id="L201">                            append(anyObject.getKey()).append('\t').</span>
+<span class="nc" id="L202">                            append(&quot;Resource &quot;).append(propagationStatus.getResource()).append('\t').</span>
+<span class="nc" id="L203">                            append(propagationStatus.getStatus());</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                    if (StringUtils.isNotBlank(propagationStatus.getFailureReason())) {</span>
+<span class="nc" id="L205">                        result.append('\n').append(propagationStatus.getFailureReason()).append('\n');</span>
+                    }
+<span class="nc" id="L207">                    result.append('\n');</span>
+<span class="nc" id="L208">                }</span>
+<span class="nc" id="L209">                result.append('\n');</span>
+            }
+        }
+
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        if (stopRequested) {</span>
+<span class="nc" id="L214">            result.append(&quot;\nStop was requested&quot;);</span>
+        }
+
+<span class="nc" id="L217">        return result.toString();</span>
+    }
+
+    @Override
+    protected boolean hasToBeRegistered(final TaskExec&lt;?&gt; execution) {
+        // always record execution result
+<span class="nc" id="L223">        return true;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

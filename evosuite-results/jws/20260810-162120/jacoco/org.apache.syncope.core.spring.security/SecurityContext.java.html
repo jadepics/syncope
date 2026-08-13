@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SecurityContext.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">SecurityContext.java</span></div><h1>SecurityContext.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.KeyLengthException;
+import dev.samstevens.totp.code.CodeGenerator;
+import dev.samstevens.totp.code.CodeVerifier;
+import dev.samstevens.totp.code.DefaultCodeGenerator;
+import dev.samstevens.totp.code.DefaultCodeVerifier;
+import dev.samstevens.totp.code.HashingAlgorithm;
+import dev.samstevens.totp.time.SystemTimeProvider;
+import dev.samstevens.totp.time.TimeProvider;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
+import java.util.Optional;
+import org.apache.syncope.common.lib.types.CipherAlgorithm;
+import org.apache.syncope.core.persistence.api.ApplicationContextProvider;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.provisioning.api.rules.RuleProvider;
+import org.apache.syncope.core.spring.policy.DefaultRuleProvider;
+import org.apache.syncope.core.spring.security.jws.AccessTokenJWSSigner;
+import org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier;
+import org.jenkinsci.plugins.scriptsecurity.sandbox.blacklists.Blacklist;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.EnableAspectJAutoProxy;
+import org.springframework.context.annotation.Role;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.security.config.core.GrantedAuthorityDefaults;
+
+@EnableConfigurationProperties(SecurityProperties.class)
+@EnableAspectJAutoProxy(proxyTargetClass = false)
+@Configuration(proxyBeanMethods = false)
+<span class="nc" id="L64">public class SecurityContext {</span>
+
+<span class="nc" id="L66">    private static final Logger LOG = LoggerFactory.getLogger(SecurityContext.class);</span>
+
+    @Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+    @Bean
+    public static GrantedAuthorityDefaults grantedAuthorityDefaults() {
+<span class="nc" id="L71">        return new GrantedAuthorityDefaults(&quot;&quot;); // Remove the ROLE_ prefix</span>
+    }
+
+    protected static String jwsKey(final JWSAlgorithm jwsAlgorithm, final SecurityProperties props) {
+<span class="nc" id="L75">        String jwsKey = Optional.ofNullable(props.getJwsKey()).</span>
+<span class="nc" id="L76">                orElseThrow(() -&gt; new IllegalArgumentException(&quot;No JWS key provided&quot;));</span>
+
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (JWSAlgorithm.Family.HMAC_SHA.contains(jwsAlgorithm)) {</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">            int minLength = jwsAlgorithm.equals(JWSAlgorithm.HS256)</span>
+<span class="nc" id="L80">                    ? 256 / 8</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">                    : jwsAlgorithm.equals(JWSAlgorithm.HS384)</span>
+<span class="nc" id="L82">                    ? 384 / 8</span>
+<span class="nc" id="L83">                    : 512 / 8;</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">            if (jwsKey.length() &lt; minLength) {</span>
+<span class="nc" id="L85">                jwsKey = SecureRandomUtils.generateRandomPassword(minLength);</span>
+<span class="nc" id="L86">                props.setJwsKey(jwsKey);</span>
+<span class="nc" id="L87">                LOG.warn(&quot;The configured key for {} must be at least {} bits, generating random: {}&quot;,</span>
+<span class="nc" id="L88">                        jwsAlgorithm, minLength * 8, jwsKey);</span>
+            }
+        }
+
+<span class="nc" id="L92">        return jwsKey;</span>
+    }
+
+    @Bean
+    public CipherAlgorithm adminPasswordAlgorithm(final SecurityProperties props) {
+<span class="nc" id="L97">        return props.getAdminPasswordAlgorithm();</span>
+    }
+
+    @Bean
+    public JWSAlgorithm jwsAlgorithm(final SecurityProperties props) {
+<span class="nc" id="L102">        return JWSAlgorithm.parse(props.getJwsAlgorithm().toUpperCase());</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public DefaultCredentialChecker credentialChecker(
+            final SecurityProperties props,
+            final JWSAlgorithm jwsAlgorithm) {
+
+<span class="nc" id="L111">        return new DefaultCredentialChecker(</span>
+<span class="nc" id="L112">                jwsKey(jwsAlgorithm, props),</span>
+<span class="nc" id="L113">                props.getAdminPassword(),</span>
+<span class="nc" id="L114">                props.getAnonymousKey());</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AccessTokenJWSVerifier accessTokenJWSVerifier(
+            final JWSAlgorithm jwsAlgorithm,
+            final SecurityProperties props)
+            throws JOSEException, NoSuchAlgorithmException, InvalidKeySpecException {
+
+<span class="nc" id="L124">        return new AccessTokenJWSVerifier(jwsAlgorithm, jwsKey(jwsAlgorithm, props));</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AccessTokenJWSSigner accessTokenJWSSigner(
+            final JWSAlgorithm jwsAlgorithm,
+            final SecurityProperties props)
+            throws KeyLengthException, NoSuchAlgorithmException, InvalidKeySpecException {
+
+<span class="nc" id="L134">        return new AccessTokenJWSSigner(jwsAlgorithm, jwsKey(jwsAlgorithm, props));</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public SyncopeJWTSSOProvider syncopeJWTSSOProvider(
+            final SecurityProperties props,
+            final EncryptorManager encryptorManager,
+            final AccessTokenJWSVerifier accessTokenJWSVerifier,
+            final UserDAO userDAO,
+            final AccessTokenDAO accessTokenDAO) {
+
+<span class="nc" id="L146">        return new SyncopeJWTSSOProvider(props, encryptorManager, accessTokenJWSVerifier, userDAO, accessTokenDAO);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public PasswordGenerator passwordGenerator() {
+<span class="nc" id="L152">        return new DefaultPasswordGenerator();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public RuleProvider ruleProvider(final RealmSearchDAO realmSearchDAO) {
+<span class="nc" id="L158">        return new DefaultRuleProvider(realmSearchDAO);</span>
+    }
+
+    @Bean
+    public ApplicationContextProvider applicationContextProvider() {
+<span class="nc" id="L163">        return new ApplicationContextProvider();</span>
+    }
+
+    @Bean
+    public EncryptorManager encryptorManager(final SecurityProperties securityProperties) {
+<span class="nc" id="L168">        return new DefaultEncryptorManager(securityProperties);</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public Blacklist groovyBlackList(final ResourceLoader resourceLoader, final SecurityProperties props)
+            throws IOException {
+
+<span class="nc" id="L176">        try (InputStream in = resourceLoader.getResource(props.getGroovyBlacklist()).getInputStream();</span>
+<span class="nc" id="L177">                Reader reader = new InputStreamReader(in)) {</span>
+
+<span class="nc" id="L179">            return new Blacklist(reader);</span>
+        }
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public HashingAlgorithm totpHashingAlgorithm() {
+<span class="nc" id="L186">        return HashingAlgorithm.SHA512;</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public CodeVerifier totpCodeVerifier(final HashingAlgorithm hashingAlgorithm) {
+<span class="nc" id="L192">        CodeGenerator codeGenerator = new DefaultCodeGenerator(hashingAlgorithm);</span>
+<span class="nc" id="L193">        TimeProvider timeProvider = new SystemTimeProvider();</span>
+<span class="nc" id="L194">        return new DefaultCodeVerifier(codeGenerator, timeProvider);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

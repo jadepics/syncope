@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SecurityProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">SecurityProperties.java</span></div><h1>SecurityProperties.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import com.nimbusds.jose.JWSAlgorithm;
+import org.apache.syncope.common.lib.types.CipherAlgorithm;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(&quot;security&quot;)
+<span class="nc" id="L26">public class SecurityProperties {</span>
+
+<span class="nc" id="L28">    public static class ThrottleProperties {</span>
+
+<span class="nc" id="L30">        private boolean enabled = true;</span>
+
+<span class="nc" id="L32">        private int maxAttempts = 5;</span>
+
+<span class="nc" id="L34">        private long windowSeconds = 60;</span>
+
+<span class="nc" id="L36">        private long lockSeconds = 60;</span>
+
+        public boolean isEnabled() {
+<span class="nc" id="L39">            return enabled;</span>
+        }
+
+        public void setEnabled(final boolean enabled) {
+<span class="nc" id="L43">            this.enabled = enabled;</span>
+<span class="nc" id="L44">        }</span>
+
+        public int getMaxAttempts() {
+<span class="nc" id="L47">            return maxAttempts;</span>
+        }
+
+        public void setMaxAttempts(final int maxAttempts) {
+<span class="nc" id="L51">            this.maxAttempts = maxAttempts;</span>
+<span class="nc" id="L52">        }</span>
+
+        public long getWindowSeconds() {
+<span class="nc" id="L55">            return windowSeconds;</span>
+        }
+
+        public void setWindowSeconds(final long windowSeconds) {
+<span class="nc" id="L59">            this.windowSeconds = windowSeconds;</span>
+<span class="nc" id="L60">        }</span>
+
+        public long getLockSeconds() {
+<span class="nc" id="L63">            return lockSeconds;</span>
+        }
+
+        public void setLockSeconds(final long lockSeconds) {
+<span class="nc" id="L67">            this.lockSeconds = lockSeconds;</span>
+<span class="nc" id="L68">        }</span>
+    }
+
+<span class="nc" id="L71">    public static class AuthenticationErrorProperties {</span>
+
+        public static final String DEFAULT_GENERIC_MESSAGE = &quot;Authentication failed&quot;;
+
+<span class="nc" id="L75">        private boolean exposeDetails = false;</span>
+
+<span class="nc" id="L77">        private String genericMessage = DEFAULT_GENERIC_MESSAGE;</span>
+
+        public boolean isExposeDetails() {
+<span class="nc" id="L80">            return exposeDetails;</span>
+        }
+
+        public void setExposeDetails(final boolean exposeDetails) {
+<span class="nc" id="L84">            this.exposeDetails = exposeDetails;</span>
+<span class="nc" id="L85">        }</span>
+
+        public String getGenericMessage() {
+<span class="nc" id="L88">            return genericMessage;</span>
+        }
+
+        public void setGenericMessage(final String genericMessage) {
+<span class="nc" id="L92">            this.genericMessage = genericMessage;</span>
+<span class="nc" id="L93">        }</span>
+    }
+
+<span class="nc" id="L96">    public static class DigesterProperties {</span>
+
+<span class="nc" id="L98">        private int saltIterations = 1;</span>
+
+<span class="nc" id="L100">        private int saltSizeBytes = 8;</span>
+
+<span class="nc" id="L102">        private boolean invertPositionOfPlainSaltInEncryptionResults = true;</span>
+
+<span class="nc" id="L104">        private boolean invertPositionOfSaltInMessageBeforeDigesting = true;</span>
+
+<span class="nc" id="L106">        private boolean useLenientSaltSizeCheck = true;</span>
+
+        public int getSaltIterations() {
+<span class="nc" id="L109">            return saltIterations;</span>
+        }
+
+        public void setSaltIterations(final int saltIterations) {
+<span class="nc" id="L113">            this.saltIterations = saltIterations;</span>
+<span class="nc" id="L114">        }</span>
+
+        public int getSaltSizeBytes() {
+<span class="nc" id="L117">            return saltSizeBytes;</span>
+        }
+
+        public void setSaltSizeBytes(final int saltSizeBytes) {
+<span class="nc" id="L121">            this.saltSizeBytes = saltSizeBytes;</span>
+<span class="nc" id="L122">        }</span>
+
+        public boolean isInvertPositionOfPlainSaltInEncryptionResults() {
+<span class="nc" id="L125">            return invertPositionOfPlainSaltInEncryptionResults;</span>
+        }
+
+        public void setInvertPositionOfPlainSaltInEncryptionResults(
+                final boolean invertPositionOfPlainSaltInEncryptionResults) {
+
+<span class="nc" id="L131">            this.invertPositionOfPlainSaltInEncryptionResults = invertPositionOfPlainSaltInEncryptionResults;</span>
+<span class="nc" id="L132">        }</span>
+
+        public boolean isInvertPositionOfSaltInMessageBeforeDigesting() {
+<span class="nc" id="L135">            return invertPositionOfSaltInMessageBeforeDigesting;</span>
+        }
+
+        public void setInvertPositionOfSaltInMessageBeforeDigesting(
+                final boolean invertPositionOfSaltInMessageBeforeDigesting) {
+
+<span class="nc" id="L141">            this.invertPositionOfSaltInMessageBeforeDigesting = invertPositionOfSaltInMessageBeforeDigesting;</span>
+<span class="nc" id="L142">        }</span>
+
+        public boolean isUseLenientSaltSizeCheck() {
+<span class="nc" id="L145">            return useLenientSaltSizeCheck;</span>
+        }
+
+        public void setUseLenientSaltSizeCheck(final boolean useLenientSaltSizeCheck) {
+<span class="nc" id="L149">            this.useLenientSaltSizeCheck = useLenientSaltSizeCheck;</span>
+<span class="nc" id="L150">        }</span>
+    }
+
+    private String adminUser;
+
+    private String adminPassword;
+
+    private CipherAlgorithm adminPasswordAlgorithm;
+
+    private String adminMfaSecret;
+
+    private String anonymousUser;
+
+    private String anonymousKey;
+
+<span class="nc" id="L165">    private String jwtIssuer = &quot;ApacheSyncope&quot;;</span>
+
+    private String jwsKey;
+
+<span class="nc" id="L169">    private String jwsAlgorithm = JWSAlgorithm.HS512.getName();</span>
+
+    private String aesSecretKey;
+
+<span class="nc" id="L173">    private String groovyBlacklist = &quot;classpath:META-INF/groovy.blacklist&quot;;</span>
+
+<span class="nc" id="L175">    private final ThrottleProperties authenticationThrottle = new ThrottleProperties();</span>
+
+<span class="nc" id="L177">    private boolean passwordResetHideDetails = true;</span>
+
+<span class="nc" id="L179">    private final ThrottleProperties passwordResetThrottle = new ThrottleProperties();</span>
+
+<span class="nc" id="L181">    private final AuthenticationErrorProperties authenticationError = new AuthenticationErrorProperties();</span>
+
+<span class="nc" id="L183">    private final DigesterProperties digester = new DigesterProperties();</span>
+
+    public String getAdminUser() {
+<span class="nc" id="L186">        return adminUser;</span>
+    }
+
+    public void setAdminUser(final String adminUser) {
+<span class="nc" id="L190">        this.adminUser = adminUser;</span>
+<span class="nc" id="L191">    }</span>
+
+    public String getAdminPassword() {
+<span class="nc" id="L194">        return adminPassword;</span>
+    }
+
+    public void setAdminPassword(final String adminPassword) {
+<span class="nc" id="L198">        this.adminPassword = adminPassword;</span>
+<span class="nc" id="L199">    }</span>
+
+    public CipherAlgorithm getAdminPasswordAlgorithm() {
+<span class="nc" id="L202">        return adminPasswordAlgorithm;</span>
+    }
+
+    public void setAdminPasswordAlgorithm(final CipherAlgorithm adminPasswordAlgorithm) {
+<span class="nc" id="L206">        this.adminPasswordAlgorithm = adminPasswordAlgorithm;</span>
+<span class="nc" id="L207">    }</span>
+
+    public String getAdminMfaSecret() {
+<span class="nc" id="L210">        return adminMfaSecret;</span>
+    }
+
+    public void setAdminMfaSecret(final String adminMfaSecret) {
+<span class="nc" id="L214">        this.adminMfaSecret = adminMfaSecret;</span>
+<span class="nc" id="L215">    }</span>
+
+    public String getAnonymousUser() {
+<span class="nc" id="L218">        return anonymousUser;</span>
+    }
+
+    public void setAnonymousUser(final String anonymousUser) {
+<span class="nc" id="L222">        this.anonymousUser = anonymousUser;</span>
+<span class="nc" id="L223">    }</span>
+
+    public String getAnonymousKey() {
+<span class="nc" id="L226">        return anonymousKey;</span>
+    }
+
+    public void setAnonymousKey(final String anonymousKey) {
+<span class="nc" id="L230">        this.anonymousKey = anonymousKey;</span>
+<span class="nc" id="L231">    }</span>
+
+    public String getJwtIssuer() {
+<span class="nc" id="L234">        return jwtIssuer;</span>
+    }
+
+    public void setJwtIssuer(final String jwtIssuer) {
+<span class="nc" id="L238">        this.jwtIssuer = jwtIssuer;</span>
+<span class="nc" id="L239">    }</span>
+
+    public String getJwsKey() {
+<span class="nc" id="L242">        return jwsKey;</span>
+    }
+
+    public void setJwsKey(final String jwsKey) {
+<span class="nc" id="L246">        this.jwsKey = jwsKey;</span>
+<span class="nc" id="L247">    }</span>
+
+    public String getJwsAlgorithm() {
+<span class="nc" id="L250">        return jwsAlgorithm;</span>
+    }
+
+    public void setJwsAlgorithm(final String jwsAlgorithm) {
+<span class="nc" id="L254">        this.jwsAlgorithm = jwsAlgorithm;</span>
+<span class="nc" id="L255">    }</span>
+
+    public String getAesSecretKey() {
+<span class="nc" id="L258">        return aesSecretKey;</span>
+    }
+
+    public void setAesSecretKey(final String secretKey) {
+<span class="nc" id="L262">        this.aesSecretKey = secretKey;</span>
+<span class="nc" id="L263">    }</span>
+
+    public String getGroovyBlacklist() {
+<span class="nc" id="L266">        return groovyBlacklist;</span>
+    }
+
+    public void setGroovyBlacklist(final String groovyBlacklist) {
+<span class="nc" id="L270">        this.groovyBlacklist = groovyBlacklist;</span>
+<span class="nc" id="L271">    }</span>
+
+    public SecurityProperties.ThrottleProperties getAuthenticationThrottle() {
+<span class="nc" id="L274">        return authenticationThrottle;</span>
+    }
+
+    public boolean isPasswordResetHideDetails() {
+<span class="nc" id="L278">        return passwordResetHideDetails;</span>
+    }
+
+    public void setPasswordResetHideDetails(final boolean passwordResetHideDetails) {
+<span class="nc" id="L282">        this.passwordResetHideDetails = passwordResetHideDetails;</span>
+<span class="nc" id="L283">    }</span>
+
+    public ThrottleProperties getPasswordResetThrottle() {
+<span class="nc" id="L286">        return passwordResetThrottle;</span>
+    }
+
+    public AuthenticationErrorProperties getAuthenticationError() {
+<span class="nc" id="L290">        return authenticationError;</span>
+    }
+
+    public DigesterProperties getDigester() {
+<span class="nc" id="L294">        return digester;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

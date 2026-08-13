@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GroupDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">GroupDataBinderImpl.java</span></div><h1>GroupDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.AnyOperations;
+import org.apache.syncope.common.lib.EntityTOUtils;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.request.GroupCR;
+import org.apache.syncope.common.lib.request.GroupUR;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.to.GroupTO;
+import org.apache.syncope.common.lib.to.RelationshipTO;
+import org.apache.syncope.common.lib.to.TypeExtensionTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.AnyChecker;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.group.GroupTypeExtension;
+import org.apache.syncope.core.persistence.api.search.AnySearchCondVisitor;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.data.GroupDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.annotation.Transactional;
+
+@Transactional(rollbackFor = { Throwable.class })
+public class GroupDataBinderImpl extends AnyDataBinder implements GroupDataBinder {
+
+    protected final AnySearchCondVisitor searchCondVisitor;
+
+    public GroupDataBinderImpl(
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final AnySearchCondVisitor searchCondVisitor,
+            final PlainAttrValidationManager validator,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L94">        super(anyTypeDAO,</span>
+                realmSearchDAO,
+                anyTypeClassDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                plainSchemaDAO,
+                resourceDAO,
+                relationshipTypeDAO,
+                anyChecker,
+                entityFactory,
+                anyUtilsFactory,
+                derAttrHandler,
+                mappingManager,
+                intAttrNameParser,
+                outboundMatcher,
+                validator,
+                jexlTools);
+
+<span class="nc" id="L113">        this.searchCondVisitor = searchCondVisitor;</span>
+<span class="nc" id="L114">    }</span>
+
+    @Override
+    public void create(final Group group, final GroupCR groupCR) {
+<span class="nc" id="L118">        GroupTO anyTO = new GroupTO();</span>
+<span class="nc" id="L119">        EntityTOUtils.toAnyTO(groupCR, anyTO);</span>
+
+<span class="nc" id="L121">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+        // name
+<span class="nc" id="L124">        SyncopeClientException invalidGroups = SyncopeClientException.build(ClientExceptionType.InvalidGroup);</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (groupCR.getName() == null) {</span>
+<span class="nc" id="L126">            LOG.error(&quot;No name specified for this group&quot;);</span>
+
+<span class="nc" id="L128">            invalidGroups.getElements().add(&quot;No name specified for this group&quot;);</span>
+        } else {
+<span class="nc" id="L130">            group.setName(groupCR.getName());</span>
+        }
+
+        // realm
+<span class="nc" id="L134">        Realm realm = realmSearchDAO.findByFullPath(groupCR.getRealm()).orElse(null);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        if (realm == null) {</span>
+<span class="nc" id="L136">            SyncopeClientException noRealm = SyncopeClientException.build(ClientExceptionType.InvalidRealm);</span>
+<span class="nc" id="L137">            noRealm.getElements().add(&quot;Invalid or null realm specified: &quot; + groupCR.getRealm());</span>
+<span class="nc" id="L138">            scce.addException(noRealm);</span>
+        }
+<span class="nc" id="L140">        group.setRealm(realm);</span>
+
+        // manager, attributes, resources and relationships
+<span class="nc" id="L143">        fill(anyTO, group, groupCR, anyUtilsFactory.getInstance(AnyTypeKind.GROUP), scce);</span>
+
+        // type extensions
+<span class="nc" id="L146">        groupCR.getTypeExtensions().forEach(typeExtTO -&gt; anyTypeDAO.findById(typeExtTO.getAnyType()).ifPresentOrElse(</span>
+                anyType -&gt; {
+<span class="nc" id="L148">                    GroupTypeExtension typeExt = entityFactory.newEntity(GroupTypeExtension.class);</span>
+<span class="nc" id="L149">                    typeExt.setAnyType(anyType);</span>
+<span class="nc" id="L150">                    typeExt.setGroup(group);</span>
+<span class="nc" id="L151">                    group.add(typeExt);</span>
+
+<span class="nc" id="L153">                    typeExtTO.getAuxClasses().forEach(name -&gt; anyTypeClassDAO.findById(name).ifPresentOrElse(</span>
+<span class="nc" id="L154">                    typeExt::add,</span>
+<span class="nc" id="L155">                    () -&gt; LOG.warn(&quot;Ignoring invalid {}: {}&quot;, AnyTypeClass.class.getSimpleName(), name)));</span>
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">                    if (typeExt.getAuxClasses().isEmpty()) {</span>
+<span class="nc" id="L158">                        group.getTypeExtensions().remove(typeExt);</span>
+<span class="nc" id="L159">                        typeExt.setGroup(null);</span>
+                    }
+<span class="nc" id="L161">                },</span>
+<span class="nc" id="L162">                () -&gt; LOG.warn(&quot;Ignoring invalid {}: {}&quot;, AnyType.class.getSimpleName(), typeExtTO.getAnyType())));</span>
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L166">            throw scce;</span>
+        }
+<span class="nc" id="L168">    }</span>
+
+    @Override
+    public PropagationByResource&lt;String&gt; update(final Group toBeUpdated, final GroupUR groupUR) {
+<span class="nc" id="L172">        processAuxClasses(toBeUpdated, groupUR);</span>
+
+        // Re-merge any pending change from workflow tasks
+<span class="nc" id="L175">        Group group = groupDAO.save(toBeUpdated);</span>
+
+<span class="nc" id="L177">        GroupTO anyTO = AnyOperations.patch(getGroupTO(group, true), groupUR);</span>
+
+<span class="nc" id="L179">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+
+        // Save projection on Resources (before update)
+<span class="nc" id="L182">        Map&lt;String, ConnObject&gt; beforeOnResources =</span>
+<span class="nc" id="L183">                onResources(group, groupDAO.findAllResourceKeys(group.getKey()), null, Set.of());</span>
+
+<span class="nc" id="L185">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+        // realm
+<span class="nc" id="L188">        setRealm(group, groupUR);</span>
+
+        // name
+<span class="nc bnc" id="L191" title="All 4 branches missed.">        if (groupUR.getName() != null &amp;&amp; StringUtils.isNotBlank(groupUR.getName().getValue())) {</span>
+<span class="nc" id="L192">            group.setName(groupUR.getName().getValue());</span>
+        }
+
+        // manager, attributes, resources and relationships
+<span class="nc" id="L196">        fill(anyTO, group, groupUR, propByRes, anyUtilsFactory.getInstance(AnyTypeKind.GROUP), scce);</span>
+
+<span class="nc" id="L198">        group = groupDAO.save(group);</span>
+
+        // type extensions
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        for (TypeExtensionTO typeExtTO : groupUR.getTypeExtensions()) {</span>
+<span class="nc" id="L202">            AnyType anyType = anyTypeDAO.findById(typeExtTO.getAnyType()).orElse(null);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            if (anyType == null) {</span>
+<span class="nc" id="L204">                LOG.warn(&quot;Ignoring invalid {}: {}&quot;, AnyType.class.getSimpleName(), typeExtTO.getAnyType());</span>
+            } else {
+<span class="nc" id="L206">                GroupTypeExtension typeExt = group.getTypeExtension(anyType).orElse(null);</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                if (typeExt == null) {</span>
+<span class="nc" id="L208">                    typeExt = entityFactory.newEntity(GroupTypeExtension.class);</span>
+<span class="nc" id="L209">                    typeExt.setAnyType(anyType);</span>
+<span class="nc" id="L210">                    typeExt.setGroup(group);</span>
+<span class="nc" id="L211">                    group.add(typeExt);</span>
+                }
+
+                // add all classes contained in the TO
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                for (String key : typeExtTO.getAuxClasses()) {</span>
+<span class="nc" id="L216">                    AnyTypeClass anyTypeClass = anyTypeClassDAO.findById(key).orElse(null);</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">                    if (anyTypeClass == null) {</span>
+<span class="nc" id="L218">                        LOG.warn(&quot;Ignoring invalid {}: {}&quot;, AnyTypeClass.class.getSimpleName(), key);</span>
+                    } else {
+<span class="nc" id="L220">                        typeExt.add(anyTypeClass);</span>
+                    }
+<span class="nc" id="L222">                }</span>
+                // remove all classes not contained in the TO
+<span class="nc" id="L224">                typeExt.getAuxClasses().</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">                        removeIf(anyTypeClass -&gt; !typeExtTO.getAuxClasses().contains(anyTypeClass.getKey()));</span>
+
+                // only consider non-empty type extensions
+<span class="nc bnc" id="L228" title="All 2 branches missed.">                if (typeExt.getAuxClasses().isEmpty()) {</span>
+<span class="nc" id="L229">                    group.getTypeExtensions().remove(typeExt);</span>
+<span class="nc" id="L230">                    typeExt.setGroup(null);</span>
+                }
+            }
+<span class="nc" id="L233">        }</span>
+        // remove all type extensions not contained in the TO
+<span class="nc" id="L235">        group.getTypeExtensions().</span>
+<span class="nc" id="L236">                removeIf(typeExt -&gt; groupUR.getTypeExtension(typeExt.getAnyType().getKey()).isEmpty());</span>
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L240">            throw scce;</span>
+        }
+
+        // Re-merge any pending change from above
+<span class="nc" id="L244">        group = groupDAO.save(group);</span>
+
+        // Build final information for next stage (propagation)
+<span class="nc" id="L247">        propByRes.merge(propByRes(</span>
+<span class="nc" id="L248">                beforeOnResources, onResources(group, groupDAO.findAllResourceKeys(group.getKey()), null, Set.of())));</span>
+<span class="nc" id="L249">        return propByRes;</span>
+    }
+
+    @Override
+    public TypeExtensionTO getTypeExtensionTO(final GroupTypeExtension typeExt) {
+<span class="nc" id="L254">        TypeExtensionTO typeExtTO = new TypeExtensionTO();</span>
+<span class="nc" id="L255">        typeExtTO.setAnyType(typeExt.getAnyType().getKey());</span>
+<span class="nc" id="L256">        typeExtTO.getAuxClasses().addAll(typeExt.getAuxClasses().stream().map(AnyTypeClass::getKey).toList());</span>
+<span class="nc" id="L257">        return typeExtTO;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public GroupTO getGroupTO(final Group group, final boolean details) {
+<span class="nc" id="L263">        GroupTO groupTO = new GroupTO();</span>
+
+<span class="nc" id="L265">        groupTO.setKey(group.getKey());</span>
+<span class="nc" id="L266">        groupTO.setName(group.getName());</span>
+<span class="nc" id="L267">        groupTO.setStatus(group.getStatus());</span>
+
+<span class="nc" id="L269">        groupTO.setCreator(group.getCreator());</span>
+<span class="nc" id="L270">        groupTO.setCreationDate(group.getCreationDate());</span>
+<span class="nc" id="L271">        groupTO.setCreationContext(group.getCreationContext());</span>
+<span class="nc" id="L272">        groupTO.setLastModifier(group.getLastModifier());</span>
+<span class="nc" id="L273">        groupTO.setLastChangeDate(group.getLastChangeDate());</span>
+<span class="nc" id="L274">        groupTO.setLastChangeContext(group.getLastChangeContext());</span>
+
+<span class="nc" id="L276">        fillTO(group, groupTO, derAttrHandler.getValues(group), group.getResources());</span>
+
+        // User and AnyType membership counts
+<span class="nc" id="L279">        groupTO.setUserMembershipCount(groupDAO.countUMembers(group.getKey()));</span>
+<span class="nc" id="L280">        groupTO.setAnyObjectMembershipCount(groupDAO.countAMembers(group.getKey()));</span>
+
+<span class="nc" id="L282">        group.getTypeExtensions().forEach(typeExt -&gt; groupTO.getTypeExtensions().add(getTypeExtensionTO(typeExt)));</span>
+
+<span class="nc bnc" id="L284" title="All 2 branches missed.">        if (details) {</span>
+            // relationships
+<span class="nc" id="L286">            groupTO.getRelationships().addAll(group.getRelationships().stream().</span>
+<span class="nc" id="L287">                    map(relationship -&gt; getRelationshipTO(group.getPlainAttrs(relationship),</span>
+<span class="nc" id="L288">                    derAttrHandler.getValues(group, relationship),</span>
+<span class="nc" id="L289">                    relationship.getType().getKey(),</span>
+                    RelationshipTO.End.LEFT,
+<span class="nc" id="L291">                    relationship.getRightEnd())).toList());</span>
+        }
+
+<span class="nc" id="L294">        return groupTO;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public GroupTO getGroupTO(final String key) {
+<span class="nc" id="L300">        return getGroupTO(groupDAO.authFind(key), true);</span>
+    }
+
+    protected static void populateTransitiveResources(
+            final Group group,
+            final Groupable&lt;?, ?, ?&gt; any,
+            final Map&lt;String, PropagationByResource&lt;String&gt;&gt; result) {
+
+<span class="nc" id="L308">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L309">        group.getResources().forEach(resource -&gt; {</span>
+            // exclude from propagation those objects that have that resource assigned by some other membership(s)
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            if (!any.getResources().contains(resource)</span>
+<span class="nc" id="L312">                    &amp;&amp; any.getMemberships().stream().</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">                            filter(m -&gt; !m.getRightEnd().equals(group)).</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">                            noneMatch(m -&gt; m.getRightEnd().getResources().contains(resource))) {</span>
+
+<span class="nc" id="L316">                propByRes.add(ResourceOperation.DELETE, resource.getKey());</span>
+            }
+
+<span class="nc bnc" id="L319" title="All 2 branches missed.">            if (!propByRes.isEmpty()) {</span>
+<span class="nc" id="L320">                result.put(any.getKey(), propByRes);</span>
+            }
+<span class="nc" id="L322">        });</span>
+<span class="nc" id="L323">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public Map&lt;String, PropagationByResource&lt;String&gt;&gt; findAnyObjectsWithTransitiveResources(final String groupKey) {
+<span class="nc" id="L328">        Group group = groupDAO.authFind(groupKey);</span>
+
+<span class="nc" id="L330">        Map&lt;String, PropagationByResource&lt;String&gt;&gt; result = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L332">        groupDAO.findAMemberships(group).</span>
+<span class="nc" id="L333">                forEach((membership) -&gt; populateTransitiveResources(group, membership.getLeftEnd(), result));</span>
+
+<span class="nc" id="L335">        return result;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Map&lt;String, PropagationByResource&lt;String&gt;&gt; findUsersWithTransitiveResources(final String groupKey) {
+<span class="nc" id="L341">        Group group = groupDAO.authFind(groupKey);</span>
+
+<span class="nc" id="L343">        Map&lt;String, PropagationByResource&lt;String&gt;&gt; result = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L345">        groupDAO.findUMemberships(group, Pageable.unpaged()).</span>
+<span class="nc" id="L346">                forEach((membership) -&gt; populateTransitiveResources(group, membership.getLeftEnd(), result));</span>
+
+<span class="nc" id="L348">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

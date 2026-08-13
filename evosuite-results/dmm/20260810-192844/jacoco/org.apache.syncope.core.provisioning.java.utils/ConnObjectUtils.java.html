@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConnObjectUtils.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.utils</a> &gt; <span class="el_source">ConnObjectUtils.java</span></div><h1>ConnObjectUtils.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.utils;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.AnyOperations;
+import org.apache.syncope.common.lib.Attr;
+import org.apache.syncope.common.lib.EntityTOUtils;
+import org.apache.syncope.common.lib.request.AnyCR;
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.request.UserCR;
+import org.apache.syncope.common.lib.to.AnyObjectTO;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.to.GroupTO;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.RealmTO;
+import org.apache.syncope.common.lib.to.UserTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.policy.PasswordPolicy;
+import org.apache.syncope.core.persistence.api.entity.task.InboundTask;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.jexl.TemplateUtils;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.apache.syncope.core.spring.security.PasswordGenerator;
+import org.identityconnectors.common.security.GuardedByteArray;
+import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.common.security.SecurityUtil;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
+public class ConnObjectUtils {
+
+<span class="nc" id="L69">    protected static final Logger LOG = LoggerFactory.getLogger(ConnObjectUtils.class);</span>
+
+    public static SyncToken toSyncToken(final String syncToken) {
+<span class="nc" id="L72">        return Optional.ofNullable(syncToken).map(st -&gt; POJOHelper.deserialize(st, SyncToken.class)).orElse(null);</span>
+    }
+
+    public static String toString(final SyncToken syncToken) {
+<span class="nc" id="L76">        return Optional.ofNullable(syncToken).map(POJOHelper::serialize).orElse(null);</span>
+    }
+
+    /**
+     * Extract password value from passed value (if instance of GuardedString or GuardedByteArray).
+     *
+     * @param pwd received from the underlying connector
+     * @return password value
+     */
+    public static String getPassword(final Object pwd) {
+<span class="nc" id="L86">        StringBuilder result = new StringBuilder();</span>
+
+<span class="nc bnc" id="L88" title="All 4 branches missed.">        switch (pwd) {</span>
+<span class="nc" id="L89">            case GuardedString guardedString -&gt;</span>
+<span class="nc" id="L90">                result.append(SecurityUtil.decrypt(guardedString));</span>
+<span class="nc" id="L91">            case GuardedByteArray guardedByteArray -&gt;</span>
+<span class="nc" id="L92">                result.append(Arrays.toString(SecurityUtil.decrypt(guardedByteArray)));</span>
+<span class="nc" id="L93">            case String string -&gt;</span>
+<span class="nc" id="L94">                result.append(string);</span>
+            default -&gt;
+<span class="nc" id="L96">                result.append(pwd);</span>
+        }
+
+<span class="nc" id="L99">        return result.toString();</span>
+    }
+
+    /**
+     * Builds {@link ConnObject} out of a collection of {@link Attribute} instances.
+     *
+     * @param fiql FIQL expression to uniquely identify the given Connector Object
+     * @param attrs attributes
+     * @return transfer object
+     */
+    public static ConnObject getConnObjectTO(final String fiql, final Set&lt;Attribute&gt; attrs) {
+<span class="nc" id="L110">        ConnObject connObjectTO = new ConnObject();</span>
+<span class="nc" id="L111">        connObjectTO.setFiql(fiql);</span>
+
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        if (!CollectionUtils.isEmpty(attrs)) {</span>
+<span class="nc" id="L114">            connObjectTO.getAttrs().addAll(attrs.stream().map(attr -&gt; {</span>
+<span class="nc" id="L115">                Attr attrTO = new Attr();</span>
+<span class="nc" id="L116">                attrTO.setSchema(attr.getName());</span>
+
+<span class="nc bnc" id="L118" title="All 2 branches missed.">                if (!CollectionUtils.isEmpty(attr.getValue())) {</span>
+<span class="nc" id="L119">                    attr.getValue().stream().filter(Objects::nonNull).forEach(value -&gt; {</span>
+<span class="nc bnc" id="L120" title="All 4 branches missed.">                        if (value instanceof GuardedString || value instanceof GuardedByteArray) {</span>
+<span class="nc" id="L121">                            attrTO.getValues().add(getPassword(value));</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                        } else if (value instanceof byte[] bytea) {</span>
+<span class="nc" id="L123">                            attrTO.getValues().add(Base64.getEncoder().encodeToString(bytea));</span>
+                        } else {
+<span class="nc" id="L125">                            attrTO.getValues().add(value.toString());</span>
+                        }
+<span class="nc" id="L127">                    });</span>
+                }
+
+<span class="nc" id="L130">                return attrTO;</span>
+<span class="nc" id="L131">            }).toList());</span>
+        }
+
+<span class="nc" id="L134">        return connObjectTO;</span>
+    }
+
+    protected final TemplateUtils templateUtils;
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final UserDAO userDAO;
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final PasswordGenerator passwordGenerator;
+
+    protected final MappingManager mappingManager;
+
+    protected final AnyUtilsFactory anyUtilsFactory;
+
+    protected final EncryptorManager encryptorManager;
+
+    public ConnObjectUtils(
+            final TemplateUtils templateUtils,
+            final RealmSearchDAO realmSearchDAO,
+            final UserDAO userDAO,
+            final ExternalResourceDAO resourceDAO,
+            final PasswordGenerator passwordGenerator,
+            final MappingManager mappingManager,
+            final AnyUtilsFactory anyUtilsFactory,
+<span class="nc" id="L161">            final EncryptorManager encryptorManager) {</span>
+
+<span class="nc" id="L163">        this.templateUtils = templateUtils;</span>
+<span class="nc" id="L164">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L165">        this.userDAO = userDAO;</span>
+<span class="nc" id="L166">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L167">        this.passwordGenerator = passwordGenerator;</span>
+<span class="nc" id="L168">        this.mappingManager = mappingManager;</span>
+<span class="nc" id="L169">        this.anyUtilsFactory = anyUtilsFactory;</span>
+<span class="nc" id="L170">        this.encryptorManager = encryptorManager;</span>
+<span class="nc" id="L171">    }</span>
+
+    /**
+     * Build a UserCR / GroupCR / AnyObjectCR out of connector object attributes and schema mapping.
+     *
+     * @param obj connector object
+     * @param inboundTask inbound task
+     * @param anyTypeKind any type kind
+     * @param provision provision information
+     * @param generatePassword whether password value shall be generated, in case not found from
+     * connector object
+     * @param &lt;C&gt; create request type
+     * @return create request
+     */
+    @Transactional(readOnly = true)
+    public &lt;C extends AnyCR&gt; C getAnyCR(
+            final ConnectorObject obj,
+            final InboundTask&lt;?&gt; inboundTask,
+            final AnyTypeKind anyTypeKind,
+            final Provision provision,
+            final boolean generatePassword) {
+
+<span class="nc" id="L193">        AnyTO anyTO = getAnyTOFromConnObject(obj, inboundTask, anyTypeKind, provision);</span>
+<span class="nc" id="L194">        C anyCR = anyUtilsFactory.getInstance(anyTypeKind).newAnyCR();</span>
+<span class="nc" id="L195">        EntityTOUtils.toAnyCR(anyTO, anyCR);</span>
+
+        // (for users) if password was not set above, generate if possible
+<span class="nc bnc" id="L198" title="All 2 branches missed.">        if (anyCR instanceof final UserCR userCR</span>
+<span class="nc bnc" id="L199" title="All 4 branches missed.">                &amp;&amp; StringUtils.isBlank(userCR.getPassword())</span>
+                &amp;&amp; generatePassword) {
+
+<span class="nc" id="L202">            List&lt;PasswordPolicy&gt; passwordPolicies = new ArrayList&lt;&gt;();</span>
+
+            // add resource policies
+<span class="nc" id="L205">            userCR.getResources().stream().</span>
+<span class="nc" id="L206">                    map(resourceDAO::findById).</span>
+<span class="nc" id="L207">                    flatMap(Optional::stream).</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">                    filter(r -&gt; r.getPasswordPolicy() != null).</span>
+<span class="nc" id="L209">                    forEach(r -&gt; passwordPolicies.add(r.getPasswordPolicy()));</span>
+
+            // add realm policies
+<span class="nc" id="L212">            realmSearchDAO.findByFullPath(userCR.getRealm()).</span>
+<span class="nc" id="L213">                    ifPresent(realm -&gt; realmSearchDAO.findAncestors(realm).stream().</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                    filter(ancestor -&gt; ancestor.getPasswordPolicy() != null</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                    &amp;&amp; !passwordPolicies.contains(ancestor.getPasswordPolicy())).</span>
+<span class="nc" id="L216">                    forEach(ancestor -&gt; passwordPolicies.add(ancestor.getPasswordPolicy())));</span>
+
+<span class="nc" id="L218">            userCR.setPassword(passwordGenerator.generate(passwordPolicies));</span>
+        }
+
+<span class="nc" id="L221">        return anyCR;</span>
+    }
+
+    public RealmTO getRealmTO(final ConnectorObject obj, final OrgUnit orgUnit) {
+<span class="nc" id="L225">        RealmTO realmTO = new RealmTO();</span>
+
+<span class="nc" id="L227">        MappingUtils.getInboundItems(orgUnit.getItems().stream()).</span>
+<span class="nc" id="L228">                forEach(item -&gt; mappingManager.setIntValues(</span>
+<span class="nc" id="L229">                item, obj.getAttributeByName(item.getExtAttrName()), realmTO));</span>
+
+<span class="nc" id="L231">        return realmTO;</span>
+    }
+
+    /**
+     * Build {@link AnyUR} out of connector object attributes and schema mapping.
+     *
+     * @param key any object to be updated
+     * @param obj connector object
+     * @param original any object to get diff from
+     * @param inboundTask inbound task
+     * @param anyTypeKind any type kind
+     * @param provision provision information
+     * @param &lt;U&gt; any object
+     * @return modifications for the any object to be updated
+     */
+    @SuppressWarnings(&quot;unchecked&quot;)
+    @Transactional(readOnly = true)
+    public &lt;U extends AnyUR&gt; U getAnyUR(
+            final String key,
+            final ConnectorObject obj,
+            final AnyTO original,
+            final InboundTask&lt;?&gt; inboundTask,
+            final AnyTypeKind anyTypeKind,
+            final Provision provision) {
+
+<span class="nc" id="L256">        AnyTO updated = getAnyTOFromConnObject(obj, inboundTask, anyTypeKind, provision);</span>
+<span class="nc" id="L257">        updated.setKey(key);</span>
+
+        U anyUR;
+<span class="nc bnc" id="L260" title="All 3 branches missed.">        switch (provision.getAnyType()) {</span>
+            case &quot;USER&quot;:
+<span class="nc" id="L262">                UserTO originalUser = (UserTO) original;</span>
+<span class="nc" id="L263">                UserTO updatedUser = (UserTO) updated;</span>
+
+<span class="nc bnc" id="L265" title="All 2 branches missed.">                if (StringUtils.isBlank(updatedUser.getUsername())) {</span>
+<span class="nc" id="L266">                    updatedUser.setUsername(originalUser.getUsername());</span>
+                }
+
+                // update password if and only if password is really changed
+<span class="nc" id="L270">                User user = userDAO.authFind(key);</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">                if (StringUtils.isBlank(updatedUser.getPassword())</span>
+<span class="nc" id="L272">                        || encryptorManager.getInstance().</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">                                verify(updatedUser.getPassword(), user.getCipherAlgorithm(), user.getPassword())) {</span>
+
+<span class="nc" id="L275">                    updatedUser.setPassword(null);</span>
+                }
+
+<span class="nc" id="L278">                updatedUser.setSecurityQuestion(originalUser.getSecurityQuestion());</span>
+
+<span class="nc bnc" id="L280" title="All 2 branches missed.">                if (!mappingManager.hasMustChangePassword(provision)) {</span>
+<span class="nc" id="L281">                    updatedUser.setMustChangePassword(originalUser.isMustChangePassword());</span>
+                }
+
+<span class="nc" id="L284">                anyUR = (U) AnyOperations.diff(updatedUser, originalUser, true);</span>
+<span class="nc" id="L285">                break;</span>
+
+            case &quot;GROUP&quot;:
+<span class="nc" id="L288">                GroupTO originalGroup = (GroupTO) original;</span>
+<span class="nc" id="L289">                GroupTO updatedGroup = (GroupTO) updated;</span>
+
+<span class="nc bnc" id="L291" title="All 2 branches missed.">                if (StringUtils.isBlank(updatedGroup.getName())) {</span>
+<span class="nc" id="L292">                    updatedGroup.setName(originalGroup.getName());</span>
+                }
+<span class="nc" id="L294">                updatedGroup.getTypeExtensions().addAll(originalGroup.getTypeExtensions());</span>
+
+<span class="nc" id="L296">                anyUR = (U) AnyOperations.diff(updatedGroup, originalGroup, true);</span>
+<span class="nc" id="L297">                break;</span>
+
+            default:
+<span class="nc" id="L300">                AnyObjectTO originalAnyObject = (AnyObjectTO) original;</span>
+<span class="nc" id="L301">                AnyObjectTO updatedAnyObject = (AnyObjectTO) updated;</span>
+
+<span class="nc bnc" id="L303" title="All 2 branches missed.">                if (StringUtils.isBlank(updatedAnyObject.getName())) {</span>
+<span class="nc" id="L304">                    updatedAnyObject.setName(originalAnyObject.getName());</span>
+                }
+
+<span class="nc" id="L307">                anyUR = (U) AnyOperations.diff(updatedAnyObject, originalAnyObject, true);</span>
+        }
+
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        if (anyUR != null) {</span>
+            // ensure not to include incidental realm changes in the patch
+<span class="nc" id="L312">            anyUR.setRealm(null);</span>
+
+            // SYNCOPE-1343, remove null or empty values from the patch plain attributes
+<span class="nc" id="L315">            AnyOperations.cleanEmptyAttrs(updated, anyUR);</span>
+        }
+<span class="nc" id="L317">        return anyUR;</span>
+    }
+
+    protected &lt;T extends AnyTO&gt; T getAnyTOFromConnObject(
+            final ConnectorObject obj,
+            final InboundTask&lt;?&gt; inboundTask,
+            final AnyTypeKind anyTypeKind,
+            final Provision provision) {
+
+<span class="nc" id="L326">        T anyTO = anyUtilsFactory.getInstance(anyTypeKind).newAnyTO();</span>
+<span class="nc" id="L327">        anyTO.setType(provision.getAnyType());</span>
+<span class="nc" id="L328">        anyTO.getAuxClasses().addAll(provision.getAuxClasses());</span>
+
+        // 1. fill with data from connector object
+<span class="nc" id="L331">        anyTO.setRealm(inboundTask.getDestinationRealm().getFullPath());</span>
+<span class="nc" id="L332">        MappingUtils.getInboundItems(provision.getMapping().getItems().stream()).forEach(</span>
+<span class="nc" id="L333">                item -&gt; mappingManager.setIntValues(item, obj.getAttributeByName(item.getExtAttrName()), anyTO));</span>
+
+        // 2. add data from defined template (if any)
+<span class="nc" id="L336">        inboundTask.getTemplate(provision.getAnyType()).</span>
+<span class="nc" id="L337">                ifPresent(template -&gt; templateUtils.apply(anyTO, template.get()));</span>
+
+<span class="nc" id="L339">        return anyTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

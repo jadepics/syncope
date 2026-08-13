@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>StreamPullJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull.stream</a> &gt; <span class="el_source">StreamPullJobDelegate.java</span></div><h1>StreamPullJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull.stream;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.Mapping;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.to.PullTaskTO;
+import org.apache.syncope.common.lib.types.ConflictResolutionAction;
+import org.apache.syncope.common.lib.types.IdMImplementationType;
+import org.apache.syncope.common.lib.types.MappingPurpose;
+import org.apache.syncope.common.lib.types.PullMode;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundCorrelationRuleEntity;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundPolicy;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.stream.SyncopeStreamPullExecutor;
+import org.apache.syncope.core.provisioning.java.pushpull.PullJobDelegate;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecureRandomUtils;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L59">public class StreamPullJobDelegate extends PullJobDelegate implements SyncopeStreamPullExecutor {</span>
+
+    @Autowired
+    private ImplementationDAO implementationDAO;
+
+    @Autowired
+    private RealmSearchDAO realmSearchDAO;
+
+    private InboundPolicy inboundPolicy(
+            final AnyType anyType,
+            final ConflictResolutionAction conflictResolutionAction,
+            final String inboundCorrelationRule) {
+
+<span class="nc" id="L72">        InboundCorrelationRuleEntity inboundCorrelationRuleEntity = null;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (inboundCorrelationRule != null) {</span>
+<span class="nc" id="L74">            Implementation impl = implementationDAO.findById(inboundCorrelationRule).orElse(null);</span>
+<span class="nc bnc" id="L75" title="All 4 branches missed.">            if (impl == null || !IdMImplementationType.INBOUND_CORRELATION_RULE.equals(impl.getType())) {</span>
+<span class="nc" id="L76">                LOG.debug(&quot;Invalid  {} {}, ignoring...&quot;, Implementation.class.getSimpleName(), inboundCorrelationRule);</span>
+            } else {
+<span class="nc" id="L78">                inboundCorrelationRuleEntity = entityFactory.newEntity(InboundCorrelationRuleEntity.class);</span>
+<span class="nc" id="L79">                inboundCorrelationRuleEntity.setAnyType(anyType);</span>
+<span class="nc" id="L80">                inboundCorrelationRuleEntity.setImplementation(impl);</span>
+            }
+        }
+
+<span class="nc" id="L84">        InboundPolicy inboundPolicy = entityFactory.newEntity(InboundPolicy.class);</span>
+<span class="nc" id="L85">        inboundPolicy.setConflictResolutionAction(conflictResolutionAction);</span>
+
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        if (inboundCorrelationRuleEntity != null) {</span>
+<span class="nc" id="L88">            inboundPolicy.add(inboundCorrelationRuleEntity);</span>
+<span class="nc" id="L89">            inboundCorrelationRuleEntity.setInboundPolicy(inboundPolicy);</span>
+        }
+
+<span class="nc" id="L92">        return inboundPolicy;</span>
+    }
+
+    private Provision provision(
+            final AnyType anyType,
+            final String keyColumn,
+            final List&lt;String&gt; columns) throws JobExecutionException {
+
+<span class="nc" id="L100">        Provision provision = new Provision();</span>
+<span class="nc" id="L101">        provision.setAnyType(anyType.getKey());</span>
+<span class="nc" id="L102">        provision.setObjectClass(anyType.getKey());</span>
+
+<span class="nc" id="L104">        Mapping mapping = new Mapping();</span>
+<span class="nc" id="L105">        provision.setMapping(mapping);</span>
+
+<span class="nc" id="L107">        AnyUtils anyUtils = anyUtilsFactory.getInstance(anyType.getKind());</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (anyUtils.getField(keyColumn).isEmpty()) {</span>
+<span class="nc" id="L109">            plainSchemaDAO.findById(keyColumn).</span>
+<span class="nc" id="L110">                    orElseThrow(() -&gt; new JobExecutionException(&quot;Plain Schema for key column not found: &quot; + keyColumn));</span>
+        }
+
+<span class="nc" id="L113">        Item connObjectKeyItem = new Item();</span>
+<span class="nc" id="L114">        connObjectKeyItem.setExtAttrName(keyColumn);</span>
+<span class="nc" id="L115">        connObjectKeyItem.setIntAttrName(keyColumn);</span>
+<span class="nc" id="L116">        connObjectKeyItem.setPurpose(MappingPurpose.PULL);</span>
+<span class="nc" id="L117">        mapping.setConnObjectKeyItem(connObjectKeyItem);</span>
+
+<span class="nc" id="L119">        columns.stream().</span>
+<span class="nc bnc" id="L120" title="All 4 branches missed.">                filter(column -&gt; anyUtils.getField(column).isPresent() || plainSchemaDAO.existsById(column)).</span>
+<span class="nc" id="L121">                map(column -&gt; {</span>
+<span class="nc" id="L122">                    Item item = new Item();</span>
+<span class="nc" id="L123">                    item.setExtAttrName(column);</span>
+<span class="nc" id="L124">                    item.setIntAttrName(column);</span>
+<span class="nc" id="L125">                    item.setPurpose(MappingPurpose.PULL);</span>
+<span class="nc" id="L126">                    mapping.add(item);</span>
+<span class="nc" id="L127">                    return item;</span>
+<span class="nc" id="L128">                }).forEach(mapping::add);</span>
+
+<span class="nc" id="L130">        return provision;</span>
+    }
+
+    private ExternalResource externalResource(
+            final AnyType anyType,
+            final String keyColumn,
+            final List&lt;String&gt; columns,
+            final ConflictResolutionAction conflictResolutionAction,
+            final String inboundCorrelationRule) throws JobExecutionException {
+
+<span class="nc" id="L140">        Provision provision = provision(anyType, keyColumn, columns);</span>
+
+<span class="nc" id="L142">        ExternalResource resource = entityFactory.newEntity(ExternalResource.class);</span>
+<span class="nc" id="L143">        resource.setKey(&quot;StreamPull_&quot; + SecureRandomUtils.generateRandomUUID().toString());</span>
+<span class="nc" id="L144">        resource.getProvisions().add(provision);</span>
+
+<span class="nc" id="L146">        resource.setInboundPolicy(inboundPolicy(anyType, conflictResolutionAction, inboundCorrelationRule));</span>
+
+<span class="nc" id="L148">        return resource;</span>
+    }
+
+    @Override
+    public List&lt;ProvisioningReport&gt; pull(
+            final AnyType anyType,
+            final String keyColumn,
+            final List&lt;String&gt; columns,
+            final ConflictResolutionAction conflictResolutionAction,
+            final String inboundCorrelationRule,
+            final Connector connector,
+            final PullTaskTO pullTaskTO,
+            final String executor) throws JobExecutionException {
+
+<span class="nc" id="L162">        LOG.debug(&quot;Executing stream pull&quot;);</span>
+
+<span class="nc" id="L164">        taskType = TaskType.PULL;</span>
+        try {
+<span class="nc" id="L166">            ExternalResource resource =</span>
+<span class="nc" id="L167">                    externalResource(anyType, keyColumn, columns, conflictResolutionAction, inboundCorrelationRule);</span>
+<span class="nc" id="L168">            Provision provision = resource.getProvisions().getFirst();</span>
+
+<span class="nc" id="L170">            task = entityFactory.newEntity(PullTask.class);</span>
+<span class="nc" id="L171">            task.setName(pullTaskTO.getName());</span>
+<span class="nc" id="L172">            task.setResource(resource);</span>
+<span class="nc" id="L173">            task.setMatchingRule(pullTaskTO.getMatchingRule());</span>
+<span class="nc" id="L174">            task.setUnmatchingRule(pullTaskTO.getUnmatchingRule());</span>
+<span class="nc" id="L175">            task.setPullMode(PullMode.FULL_RECONCILIATION);</span>
+<span class="nc" id="L176">            task.setPerformCreate(true);</span>
+<span class="nc" id="L177">            task.setPerformUpdate(true);</span>
+<span class="nc" id="L178">            task.setPerformDelete(false);</span>
+<span class="nc" id="L179">            task.setSyncStatus(false);</span>
+<span class="nc" id="L180">            task.setDestinationRealm(realmSearchDAO.findByFullPath(pullTaskTO.getDestinationRealm()).</span>
+<span class="nc" id="L181">                    orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + pullTaskTO.getDestinationRealm())));</span>
+<span class="nc" id="L182">            task.setRemediation(pullTaskTO.isRemediation());</span>
+
+<span class="nc" id="L184">            profile = new ProvisioningProfile&lt;&gt;(</span>
+                    connector,
+                    taskType,
+                    task,
+                    conflictResolutionAction,
+<span class="nc" id="L189">                    getInboundActions(AuthContextUtils.getDomain(), pullTaskTO.getActions().stream().</span>
+<span class="nc" id="L190">                            map(implementationDAO::findById).flatMap(Optional::stream).</span>
+<span class="nc" id="L191">                            toList()),</span>
+                    executor,
+                    false);
+
+<span class="nc" id="L195">            dispatcher = buildDispatcher();</span>
+
+<span class="nc bnc" id="L197" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L198">                action.beforeAll(profile);</span>
+<span class="nc" id="L199">            }</span>
+
+<span class="nc" id="L201">            dispatcher.addHandlerSupplier(provision.getObjectClass(), () -&gt; {</span>
+                SyncopePullResultHandler handler;
+<span class="nc bnc" id="L203" title="All 3 branches missed.">                switch (anyType.getKind()) {</span>
+                    case USER:
+<span class="nc" id="L205">                        handler = buildUserHandler();</span>
+<span class="nc" id="L206">                        break;</span>
+
+                    case GROUP:
+<span class="nc" id="L209">                        handler = buildGroupHandler();</span>
+<span class="nc" id="L210">                        break;</span>
+
+                    case ANY_OBJECT:
+                    default:
+<span class="nc" id="L214">                        handler = buildAnyObjectHandler();</span>
+                }
+<span class="nc" id="L216">                handler.setProfile(profile);</span>
+<span class="nc" id="L217">                return handler;</span>
+            });
+
+            // execute filtered pull
+<span class="nc" id="L221">            Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L222">            profile.getActions().forEach(a -&gt; moreAttrsToGet.addAll(a.moreAttrsToGet(profile, provision)));</span>
+
+<span class="nc" id="L224">            connector.fullReconciliation(</span>
+<span class="nc" id="L225">                    new ObjectClass(provision.getObjectClass()),</span>
+                    dispatcher,
+<span class="nc" id="L227">                    MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L228">                            MappingUtils.getInboundItems(provision.getMapping().getItems().stream()),</span>
+<span class="nc" id="L229">                            moreAttrsToGet.toArray(String[]::new)));</span>
+
+<span class="nc" id="L231">            AnyPullResultHandler handler =</span>
+<span class="nc" id="L232">                    (AnyPullResultHandler) dispatcher.nonConcurrentHandler(provision.getObjectClass());</span>
+            try {
+<span class="nc" id="L234">                handler.setManagers();</span>
+<span class="nc" id="L235">            } catch (Exception e) {</span>
+<span class="nc" id="L236">                LOG.error(&quot;While setting managers&quot;, e);</span>
+<span class="nc" id="L237">            }</span>
+
+<span class="nc bnc" id="L239" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L240">                action.afterAll(profile);</span>
+<span class="nc" id="L241">            }</span>
+
+<span class="nc" id="L243">            return profile.getResults();</span>
+<span class="nc" id="L244">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">            throw e instanceof final JobExecutionException jobExecutionException</span>
+<span class="nc" id="L246">                    ? jobExecutionException</span>
+<span class="nc" id="L247">                    : new JobExecutionException(&quot;While stream pulling&quot;, e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -1,0 +1,8 @@
+mvn.cmd : NOTE: Picked up JDK_JAVA_OPTIONS: -Djava.security.manager=allow --add-opens=java.desktop/java.awt=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED 
+--add-opens=java.base/java.net=ALL-UNNAMED
+In C:\Users\micci\PycharmProjects\syncope\scripts\evosuite\evosuite_common_dmm.ps1:287 car:19
++         $output = & $script:MavenExe @Arguments 2>&1
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (NOTE: Picked up...net=ALL-UNNAMED:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

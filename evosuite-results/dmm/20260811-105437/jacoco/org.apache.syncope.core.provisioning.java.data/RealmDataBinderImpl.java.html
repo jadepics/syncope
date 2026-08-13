@@ -1,0 +1,389 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RealmDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">RealmDataBinderImpl.java</span></div><h1>RealmDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.Attr;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.to.RealmTO;
+import org.apache.syncope.common.lib.types.AttrSchemaType;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.PolicyDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyTemplateRealm;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.policy.AccessPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AccountPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AttrReleasePolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AuthPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PasswordPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.TicketExpirationPolicy;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrName;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.data.RealmDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.api.jexl.TemplateUtils;
+import org.apache.syncope.core.provisioning.api.rules.PushCorrelationRule;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder;
+import org.identityconnectors.framework.common.objects.Uid;
+
+public class RealmDataBinderImpl extends AttributableDataBinder implements RealmDataBinder {
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final AnyTypeClassDAO anyTypeClassDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final RealmDAO realmDAO;
+
+    protected final PolicyDAO policyDAO;
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final EntityFactory entityFactory;
+
+    protected final TemplateUtils templateUtils;
+
+    public RealmDataBinderImpl(
+            final AnyTypeDAO anyTypeDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final ImplementationDAO implementationDAO,
+            final RealmDAO realmDAO,
+            final PolicyDAO policyDAO,
+            final ExternalResourceDAO resourceDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final EntityFactory entityFactory,
+            final DerAttrHandler derAttrHandler,
+            final PlainAttrValidationManager validator,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final JexlTools jexlTools,
+            final TemplateUtils templateUtils) {
+
+<span class="nc" id="L107">        super(plainSchemaDAO, validator, derAttrHandler, mappingManager, intAttrNameParser, jexlTools);</span>
+<span class="nc" id="L108">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L109">        this.anyTypeClassDAO = anyTypeClassDAO;</span>
+<span class="nc" id="L110">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L111">        this.realmDAO = realmDAO;</span>
+<span class="nc" id="L112">        this.policyDAO = policyDAO;</span>
+<span class="nc" id="L113">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L114">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L115">        this.templateUtils = templateUtils;</span>
+<span class="nc" id="L116">    }</span>
+
+    protected SyncopeClientException checkMandatory(final Realm realm) {
+<span class="nc" id="L119">        SyncopeClientException reqValMissing = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+        // Check if there is some mandatory schema defined for which no value has been provided
+<span class="nc" id="L122">        realm.getAnyTypeClasses().stream().</span>
+<span class="nc" id="L123">                flatMap(atc -&gt; atc.getPlainSchemas().stream()).</span>
+<span class="nc" id="L124">                forEach(schema -&gt; checkMandatory(</span>
+<span class="nc" id="L125">                schema, realm.getPlainAttr(schema.getKey()).orElse(null), realm, reqValMissing));</span>
+
+<span class="nc" id="L127">        return reqValMissing;</span>
+    }
+
+    protected void fill(
+            final RealmTO realmTO,
+            final Realm realm,
+            final SyncopeClientCompositeException scce) {
+
+<span class="nc" id="L135">        realm.getPlainAttrs().forEach(realm::remove);</span>
+
+<span class="nc" id="L137">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+<span class="nc" id="L139">        realmTO.getPlainAttrs().stream().</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">                filter(attrTO -&gt; !attrTO.getValues().isEmpty()).</span>
+<span class="nc" id="L141">                forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresent(schema -&gt; {</span>
+
+<span class="nc" id="L143">            PlainAttr attr = realm.getPlainAttr(schema.getKey()).orElseGet(() -&gt; {</span>
+<span class="nc" id="L144">                PlainAttr newAttr = new PlainAttr();</span>
+<span class="nc" id="L145">                newAttr.setPlainSchema(schema);</span>
+<span class="nc" id="L146">                return newAttr;</span>
+            });
+<span class="nc" id="L148">            fillAttr(realmTO, attrTO.getValues(), schema, attr, invalidValues);</span>
+
+<span class="nc bnc" id="L150" title="All 2 branches missed.">            if (!attr.getValuesAsStrings().isEmpty()) {</span>
+<span class="nc" id="L151">                realm.add(attr);</span>
+            }
+<span class="nc" id="L153">        }));</span>
+
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L156">            scce.addException(invalidValues);</span>
+        }
+
+<span class="nc" id="L159">        SyncopeClientException requiredValuesMissing = checkMandatory(realm);</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (!requiredValuesMissing.isEmpty()) {</span>
+<span class="nc" id="L161">            scce.addException(requiredValuesMissing);</span>
+        }
+<span class="nc" id="L163">    }</span>
+
+    protected void bind(final Realm realm, final RealmTO realmTO, final SyncopeClientCompositeException scce) {
+<span class="nc" id="L166">        realm.setName(realmTO.getName());</span>
+
+<span class="nc" id="L168">        realmTO.getAnyTypeClasses().forEach(anyTypeClass -&gt; anyTypeClassDAO.findById(anyTypeClass).ifPresentOrElse(</span>
+<span class="nc" id="L169">                realm::add,</span>
+<span class="nc" id="L170">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, AnyTypeClass.class.getSimpleName(), anyTypeClass)));</span>
+<span class="nc bnc" id="L171" title="All 4 branches missed.">        realm.getAnyTypeClasses().removeIf(c -&gt; c == null || !realmTO.getAnyTypeClasses().contains(c.getKey()));</span>
+
+<span class="nc" id="L173">        fill(realmTO, realm, scce);</span>
+
+<span class="nc" id="L175">        realm.setAccessPolicy(Optional.ofNullable(realmTO.getAccessPolicy()).</span>
+<span class="nc" id="L176">                flatMap(p -&gt; policyDAO.findById(p, AccessPolicy.class)).orElse(null));</span>
+<span class="nc" id="L177">        realm.setAccountPolicy(Optional.ofNullable(realmTO.getAccountPolicy()).</span>
+<span class="nc" id="L178">                flatMap(p -&gt; policyDAO.findById(p, AccountPolicy.class)).orElse(null));</span>
+<span class="nc" id="L179">        realm.setAttrReleasePolicy(Optional.ofNullable(realmTO.getAttrReleasePolicy()).</span>
+<span class="nc" id="L180">                flatMap(p -&gt; policyDAO.findById(p, AttrReleasePolicy.class)).orElse(null));</span>
+<span class="nc" id="L181">        realm.setAuthPolicy(Optional.ofNullable(realmTO.getAuthPolicy()).</span>
+<span class="nc" id="L182">                flatMap(p -&gt; policyDAO.findById(p, AuthPolicy.class)).orElse(null));</span>
+<span class="nc" id="L183">        realm.setPasswordPolicy(Optional.ofNullable(realmTO.getPasswordPolicy()).</span>
+<span class="nc" id="L184">                flatMap(p -&gt; policyDAO.findById(p, PasswordPolicy.class)).orElse(null));</span>
+<span class="nc" id="L185">        realm.setTicketExpirationPolicy(Optional.ofNullable(realmTO.getTicketExpirationPolicy()).</span>
+<span class="nc" id="L186">                flatMap(p -&gt; policyDAO.findById(p, TicketExpirationPolicy.class)).orElse(null));</span>
+
+<span class="nc" id="L188">        realmTO.getActions().forEach(key -&gt; implementationDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L189">                realm::add,</span>
+<span class="nc" id="L190">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, Implementation.class.getSimpleName(), key)));</span>
+        // remove all implementations not contained in the TO
+<span class="nc" id="L192">        realm.getActions().</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                removeIf(implementation -&gt; !realmTO.getActions().contains(implementation.getKey()));</span>
+
+        // validate JEXL expressions from templates and proceed if fine
+<span class="nc" id="L196">        templateUtils.check(realmTO.getTemplates(), ClientExceptionType.InvalidRealm);</span>
+<span class="nc" id="L197">        realmTO.getTemplates().forEach((key, template) -&gt; anyTypeDAO.findById(key).ifPresentOrElse(</span>
+                type -&gt; {
+<span class="nc" id="L199">                    AnyTemplateRealm anyTemplate = realm.getTemplate(type).orElse(null);</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">                    if (anyTemplate == null) {</span>
+<span class="nc" id="L201">                        anyTemplate = entityFactory.newEntity(AnyTemplateRealm.class);</span>
+<span class="nc" id="L202">                        anyTemplate.setAnyType(type);</span>
+<span class="nc" id="L203">                        anyTemplate.setRealm(realm);</span>
+
+<span class="nc" id="L205">                        realm.add(anyTemplate);</span>
+                    }
+<span class="nc" id="L207">                    anyTemplate.set(template);</span>
+<span class="nc" id="L208">                },</span>
+<span class="nc" id="L209">                () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, key)));</span>
+        // remove all templates not contained in the TO
+<span class="nc" id="L211">        realm.getTemplates().</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">                removeIf(template -&gt; !realmTO.getTemplates().containsKey(template.getAnyType().getKey()));</span>
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L216">            throw scce;</span>
+        }
+<span class="nc" id="L218">    }</span>
+
+    protected List&lt;String&gt; evaluateMandatoryCondition(final ExternalResource resource, final Realm realm) {
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        if (resource.getOrgUnit() == null) {</span>
+<span class="nc" id="L222">            return List.of();</span>
+        }
+
+<span class="nc" id="L225">        List&lt;String&gt; missingAttrNames = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L227">        MappingUtils.getPropagationItems(resource.getOrgUnit().getItems().stream()).forEach(item -&gt; {</span>
+<span class="nc" id="L228">            IntAttrName intAttrName = null;</span>
+            try {
+<span class="nc" id="L230">                intAttrName = intAttrNameParser.parse(item.getIntAttrName());</span>
+<span class="nc" id="L231">            } catch (ParseException e) {</span>
+<span class="nc" id="L232">                LOG.error(&quot;Invalid intAttrName '{}', ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L233">            }</span>
+<span class="nc bnc" id="L234" title="All 4 branches missed.">            if (intAttrName != null &amp;&amp; intAttrName.getSchemaInfo() != null) {</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                AttrSchemaType schemaType = intAttrName.getSchemaInfo().schema() instanceof PlainSchema</span>
+<span class="nc" id="L236">                        ? intAttrName.getSchemaInfo().schema().getType()</span>
+<span class="nc" id="L237">                        : AttrSchemaType.String;</span>
+
+<span class="nc" id="L239">                MappingManager.IntValues intValues = mappingManager.getIntValues(</span>
+                        resource,
+                        item,
+                        intAttrName,
+                        schemaType,
+                        realm);
+<span class="nc bnc" id="L245" title="All 2 branches missed.">                if (intValues.values().isEmpty()</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                        &amp;&amp; jexlTools.evaluateMandatoryCondition(item.getMandatoryCondition(), realm, derAttrHandler)) {</span>
+
+<span class="nc" id="L248">                    missingAttrNames.add(item.getIntAttrName());</span>
+                }
+            }
+<span class="nc" id="L251">        });</span>
+
+<span class="nc" id="L253">        return missingAttrNames;</span>
+    }
+
+    protected SyncopeClientException checkMandatoryOnResources(final Realm realm) {
+<span class="nc" id="L257">        SyncopeClientException reqValMissing = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+<span class="nc" id="L259">        realm.getResources().stream().filter(ExternalResource::isEnforceMandatoryCondition).</span>
+<span class="nc" id="L260">                forEach(resource -&gt; {</span>
+<span class="nc" id="L261">                    List&lt;String&gt; missingAttrNames = evaluateMandatoryCondition(resource, realm);</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">                    if (!missingAttrNames.isEmpty()) {</span>
+<span class="nc" id="L263">                        LOG.error(&quot;Mandatory schemas {} not provided with values&quot;, missingAttrNames);</span>
+
+<span class="nc" id="L265">                        reqValMissing.getElements().addAll(missingAttrNames);</span>
+                    }
+<span class="nc" id="L267">                });</span>
+
+<span class="nc" id="L269">        return reqValMissing;</span>
+    }
+
+    @Override
+    public Realm create(final Realm parent, final RealmTO realmTO) {
+<span class="nc" id="L274">        Realm realm = entityFactory.newEntity(Realm.class);</span>
+<span class="nc" id="L275">        realm.setParent(parent);</span>
+
+<span class="nc" id="L277">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+<span class="nc" id="L279">        bind(realm, realmTO, scce);</span>
+
+<span class="nc" id="L281">        realmTO.getResources().forEach(key -&gt; resourceDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L282">                realm::add,</span>
+<span class="nc" id="L283">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, ExternalResource.class.getSimpleName(), key)));</span>
+
+<span class="nc" id="L285">        SyncopeClientException requiredValuesMissing = checkMandatoryOnResources(realm);</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">        if (!requiredValuesMissing.isEmpty()) {</span>
+<span class="nc" id="L287">            scce.addException(requiredValuesMissing);</span>
+        }
+
+<span class="nc" id="L290">        return realm;</span>
+    }
+
+    protected Map&lt;String, ConnObject&gt; onResources(final Realm realm) {
+<span class="nc" id="L294">        Map&lt;String, ConnObject&gt; onResources = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L296">        realm.getResources().forEach(resource -&gt; Optional.ofNullable(resource.getOrgUnit()).</span>
+<span class="nc" id="L297">                ifPresent(orgUnit -&gt; orgUnit.getConnObjectKeyItem().ifPresent(keyItem -&gt; {</span>
+
+<span class="nc" id="L299">            MappingManager.PreparedAttrs prepared = mappingManager.prepareAttrsFromRealm(realm, resource);</span>
+
+            ConnObject connObjectTO;
+<span class="nc bnc" id="L302" title="All 2 branches missed.">            if (StringUtils.isBlank(prepared.connObjectLink())) {</span>
+<span class="nc" id="L303">                connObjectTO = ConnObjectUtils.getConnObjectTO(null, prepared.attributes());</span>
+            } else {
+<span class="nc" id="L305">                ConnectorObject connectorObject = new ConnectorObjectBuilder().</span>
+<span class="nc" id="L306">                        addAttributes(prepared.attributes()).</span>
+<span class="nc" id="L307">                        addAttribute(new Uid(prepared.connObjectLink())).</span>
+<span class="nc" id="L308">                        addAttribute(AttributeBuilder.build(keyItem.getExtAttrName(), prepared.connObjectLink())).</span>
+<span class="nc" id="L309">                        build();</span>
+
+<span class="nc" id="L311">                connObjectTO = ConnObjectUtils.getConnObjectTO(</span>
+<span class="nc" id="L312">                        PushCorrelationRule.DEFAULT_FIQL_BUILDER.apply(connectorObject),</span>
+<span class="nc" id="L313">                        connectorObject.getAttributes());</span>
+            }
+
+<span class="nc" id="L316">            onResources.put(resource.getKey(), connObjectTO);</span>
+<span class="nc" id="L317">        })));</span>
+
+<span class="nc" id="L319">        return onResources;</span>
+    }
+
+    @Override
+    public PropagationByResource&lt;String&gt; update(final Realm realm, final RealmTO realmTO) {
+        // Save projection on Resources (before update)
+<span class="nc" id="L325">        Map&lt;String, ConnObject&gt; beforeOnResources = onResources(realm);</span>
+
+<span class="nc" id="L327">        realm.setParent(Optional.ofNullable(realmTO.getParent()).flatMap(realmDAO::findById).orElse(null));</span>
+
+<span class="nc" id="L329">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+<span class="nc" id="L331">        bind(realm, realmTO, scce);</span>
+
+<span class="nc" id="L333">        realmTO.getResources().forEach(key -&gt; resourceDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L334">                realm::add,</span>
+<span class="nc" id="L335">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, ExternalResource.class.getSimpleName(), key)));</span>
+        // remove all resources not contained in the TO
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        realm.getResources().removeIf(resource -&gt; !realmTO.getResources().contains(resource.getKey()));</span>
+
+<span class="nc" id="L339">        SyncopeClientException requiredValuesMissing = checkMandatoryOnResources(realm);</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">        if (!requiredValuesMissing.isEmpty()) {</span>
+<span class="nc" id="L341">            scce.addException(requiredValuesMissing);</span>
+        }
+
+        // Build final information for next stage (propagation)
+<span class="nc" id="L345">        return propByRes(beforeOnResources, onResources(realm));</span>
+    }
+
+    @Override
+    public RealmTO getRealmTO(final Realm realm, final boolean admin) {
+<span class="nc" id="L350">        RealmTO realmTO = new RealmTO();</span>
+
+<span class="nc" id="L352">        realmTO.setKey(realm.getKey());</span>
+<span class="nc" id="L353">        realmTO.setName(realm.getName());</span>
+<span class="nc" id="L354">        Optional.ofNullable(realm.getParent()).ifPresent(parent -&gt; realmTO.setParent(parent.getKey()));</span>
+<span class="nc" id="L355">        realmTO.setFullPath(realm.getFullPath());</span>
+<span class="nc" id="L356">        realmTO.getAnyTypeClasses().addAll(realm.getAnyTypeClasses().stream().map(AnyTypeClass::getKey).toList());</span>
+
+<span class="nc" id="L358">        realm.getPlainAttrs().forEach(plainAttr -&gt; realmTO.getPlainAttrs().</span>
+<span class="nc" id="L359">                add(new Attr.Builder(plainAttr.getSchema()).values(plainAttr.getValuesAsStrings()).build()));</span>
+
+<span class="nc" id="L361">        derAttrHandler.getValues(realm).forEach((schema, value) -&gt; realmTO.getDerAttrs().</span>
+<span class="nc" id="L362">                add(new Attr.Builder(schema).value(value).build()));</span>
+
+<span class="nc bnc" id="L364" title="All 2 branches missed.">        if (admin) {</span>
+<span class="nc" id="L365">            Optional.ofNullable(realm.getAccountPolicy()).map(AccountPolicy::getKey).</span>
+<span class="nc" id="L366">                    ifPresent(realmTO::setAccountPolicy);</span>
+<span class="nc" id="L367">            Optional.ofNullable(realm.getPasswordPolicy()).map(PasswordPolicy::getKey).</span>
+<span class="nc" id="L368">                    ifPresent(realmTO::setPasswordPolicy);</span>
+<span class="nc" id="L369">            Optional.ofNullable(realm.getAuthPolicy()).map(AuthPolicy::getKey).</span>
+<span class="nc" id="L370">                    ifPresent(realmTO::setAuthPolicy);</span>
+<span class="nc" id="L371">            Optional.ofNullable(realm.getAccessPolicy()).map(AccessPolicy::getKey).</span>
+<span class="nc" id="L372">                    ifPresent(realmTO::setAccessPolicy);</span>
+<span class="nc" id="L373">            Optional.ofNullable(realm.getAttrReleasePolicy()).map(AttrReleasePolicy::getKey).</span>
+<span class="nc" id="L374">                    ifPresent(realmTO::setAttrReleasePolicy);</span>
+<span class="nc" id="L375">            Optional.ofNullable(realm.getTicketExpirationPolicy()).map(TicketExpirationPolicy::getKey).</span>
+<span class="nc" id="L376">                    ifPresent(realmTO::setTicketExpirationPolicy);</span>
+
+<span class="nc" id="L378">            realmTO.getActions().addAll(realm.getActions().stream().map(Implementation::getKey).toList());</span>
+
+<span class="nc" id="L380">            realm.getTemplates().forEach(</span>
+<span class="nc" id="L381">                    template -&gt; realmTO.getTemplates().put(template.getAnyType().getKey(), template.get()));</span>
+
+<span class="nc" id="L383">            realmTO.getResources().addAll(realm.getResources().stream().map(ExternalResource::getKey).toList());</span>
+        }
+
+<span class="nc" id="L386">        return realmTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

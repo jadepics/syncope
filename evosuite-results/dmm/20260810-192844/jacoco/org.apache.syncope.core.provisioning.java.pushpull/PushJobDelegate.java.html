@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PushJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">PushJobDelegate.java</span></div><h1>PushJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.MutablePair;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.ConflictResolutionAction;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.AnyDAO;
+import org.apache.syncope.core.persistence.api.dao.AnySearchDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.search.SearchCond;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.policy.PushPolicy;
+import org.apache.syncope.core.persistence.api.entity.task.PushTask;
+import org.apache.syncope.core.persistence.api.search.AnySearchCondVisitor;
+import org.apache.syncope.core.persistence.api.search.SearchCondConverter;
+import org.apache.syncope.core.provisioning.api.ProvisionSorter;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPushResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.PushActions;
+import org.apache.syncope.core.provisioning.api.pushpull.RealmPushResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePushExecutor;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePushResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.UserPushResultHandler;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.data.domain.PageRequest;
+
+<span class="nc" id="L63">public class PushJobDelegate</span>
+        extends AbstractProvisioningJobDelegate&lt;PushTask&gt;
+        implements SyncopePushExecutor, StoppableJobDelegate {
+
+    @Autowired
+    protected AnySearchDAO searchDAO;
+
+    @Autowired
+    protected RealmSearchDAO realmSearchDAO;
+
+    @Autowired
+    protected AnySearchCondVisitor searchCondVisitor;
+
+    @Autowired
+    protected ConfigurableApplicationContext ctx;
+
+    protected ProvisioningProfile&lt;PushTask, PushActions&gt; profile;
+
+<span class="nc" id="L81">    protected final Map&lt;String, MutablePair&lt;Integer, String&gt;&gt; handled = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L83">    protected final Map&lt;String, PushActions&gt; perContextActions = new ConcurrentHashMap&lt;&gt;();</span>
+
+    protected PushResultHandlerDispatcher dispatcher;
+
+    @Override
+    public void reportHandled(final String anyType, final String key) {
+<span class="nc" id="L89">        MutablePair&lt;Integer, String&gt; pair = handled.get(anyType);</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (pair == null) {</span>
+<span class="nc" id="L91">            pair = MutablePair.of(0, null);</span>
+<span class="nc" id="L92">            handled.put(anyType, pair);</span>
+        }
+<span class="nc" id="L94">        pair.setLeft(pair.getLeft() + 1);</span>
+<span class="nc" id="L95">        pair.setRight(key);</span>
+
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (!handled.isEmpty()) {</span>
+<span class="nc" id="L98">            StringBuilder builder = new StringBuilder(&quot;Processed:\n&quot;);</span>
+<span class="nc" id="L99">            handled.forEach((k, v) -&gt; builder.append(' ').append(v.getLeft()).append('\t').</span>
+<span class="nc" id="L100">                    append(k).</span>
+<span class="nc" id="L101">                    append(&quot; / latest: &quot;).append(v.getRight()).</span>
+<span class="nc" id="L102">                    append('\n'));</span>
+<span class="nc" id="L103">            setStatus(builder.toString());</span>
+        }
+<span class="nc" id="L105">    }</span>
+
+    protected boolean doHandle(
+            final List&lt;? extends Any&gt; anys,
+            final PushResultHandlerDispatcher dispatcher,
+            final ExternalResource resource)
+            throws JobExecutionException {
+
+<span class="nc" id="L113">        boolean result = true;</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">        for (int i = 0; i &lt; anys.size() &amp;&amp; result; i++) {</span>
+            try {
+<span class="nc" id="L116">                result = dispatcher.handle(anys.get(i));</span>
+<span class="nc" id="L117">            } catch (Exception e) {</span>
+<span class="nc" id="L118">                LOG.warn(&quot;Failure pushing '{}' on '{}'&quot;, anys.get(i), resource, e);</span>
+<span class="nc" id="L119">                throw new JobExecutionException(&quot;While pushing &quot; + anys.get(i) + &quot; on &quot; + resource, e);</span>
+<span class="nc" id="L120">            }</span>
+        }
+<span class="nc" id="L122">        return result;</span>
+    }
+
+    protected RealmPushResultHandler buildRealmHandler() {
+<span class="nc" id="L126">        return ctx.getBeanFactory().createBean(DefaultRealmPushResultHandler.class);</span>
+    }
+
+    protected AnyPushResultHandler buildAnyObjectHandler() {
+<span class="nc" id="L130">        return ctx.getBeanFactory().createBean(DefaultAnyObjectPushResultHandler.class);</span>
+    }
+
+    protected UserPushResultHandler buildUserHandler() {
+<span class="nc" id="L134">        return ctx.getBeanFactory().createBean(DefaultUserPushResultHandler.class);</span>
+    }
+
+    protected AnyPushResultHandler buildGroupHandler() {
+<span class="nc" id="L138">        return ctx.getBeanFactory().createBean(DefaultGroupPushResultHandler.class);</span>
+    }
+
+    protected List&lt;PushActions&gt; getPushActions(final String domain, final List&lt;? extends Implementation&gt; impls) {
+<span class="nc" id="L142">        List&lt;PushActions&gt; result = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L144">        impls.forEach(impl -&gt; {</span>
+            try {
+<span class="nc" id="L146">                result.add(ImplementationManager.build(</span>
+                        domain,
+                        impl,
+<span class="nc" id="L149">                        () -&gt; perContextActions.get(impl.getKey()),</span>
+<span class="nc" id="L150">                        instance -&gt; perContextActions.put(impl.getKey(), instance)));</span>
+<span class="nc" id="L151">            } catch (Exception e) {</span>
+<span class="nc" id="L152">                LOG.warn(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L153">            }</span>
+<span class="nc" id="L154">        });</span>
+
+<span class="nc" id="L156">        return result;</span>
+    }
+
+    @Override
+    protected void init(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context) throws JobExecutionException {
+
+<span class="nc" id="L165">        super.init(taskType, taskKey, context);</span>
+
+<span class="nc" id="L167">        profile = new ProvisioningProfile&lt;&gt;(</span>
+                connector,
+                taskType,
+                task,
+<span class="nc" id="L171">                Optional.ofNullable(task.getResource().getPushPolicy()).</span>
+<span class="nc" id="L172">                        map(PushPolicy::getConflictResolutionAction).</span>
+<span class="nc" id="L173">                        orElse(ConflictResolutionAction.IGNORE),</span>
+<span class="nc" id="L174">                getPushActions(context.getDomain(), task.getActions()),</span>
+                executor,
+<span class="nc" id="L176">                context.isDryRun());</span>
+<span class="nc" id="L177">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L181">        Optional.ofNullable(dispatcher).ifPresent(PushResultHandlerDispatcher::stop);</span>
+<span class="nc" id="L182">    }</span>
+
+    protected PushResultHandlerDispatcher buildDispatcher() {
+<span class="nc" id="L185">        return ctx.getBeanFactory().createBean(PushResultHandlerDispatcher.class).</span>
+<span class="nc" id="L186">                init(profile, this);</span>
+    }
+
+    @Override
+    protected String doExecute(final JobExecutionContext context) throws JobExecutionException {
+<span class="nc" id="L191">        LOG.debug(&quot;Executing push on {}&quot;, task.getResource());</span>
+
+<span class="nc" id="L193">        dispatcher = buildDispatcher();</span>
+
+<span class="nc bnc" id="L195" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L197">                action.beforeAll(profile);</span>
+<span class="nc" id="L198">            }</span>
+        }
+
+<span class="nc" id="L201">        setStatus(&quot;Initialization completed&quot;);</span>
+
+        // First realms...
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        if (task.getResource().getOrgUnit() != null) {</span>
+<span class="nc" id="L205">            setStatus(&quot;Pushing realms&quot;);</span>
+
+<span class="nc" id="L207">            dispatcher.addHandlerSupplier(SyncopeConstants.REALM_ANYTYPE, () -&gt; {</span>
+<span class="nc" id="L208">                RealmPushResultHandler handler = buildRealmHandler();</span>
+<span class="nc" id="L209">                handler.setProfile(profile);</span>
+<span class="nc" id="L210">                return handler;</span>
+            });
+
+            // Never push the root realm
+<span class="nc" id="L214">            List&lt;Realm&gt; realms = realmSearchDAO.findDescendants(</span>
+<span class="nc" id="L215">                    profile.getTask().getSourceRealm().getFullPath(), null).stream().</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">                    filter(realm -&gt; realm.getParent() != null).toList();</span>
+<span class="nc" id="L217">            boolean result = true;</span>
+<span class="nc bnc" id="L218" title="All 4 branches missed.">            for (int i = 0; i &lt; realms.size() &amp;&amp; result; i++) {</span>
+                try {
+<span class="nc" id="L220">                    result = dispatcher.handle(realms.get(i));</span>
+<span class="nc" id="L221">                } catch (Exception e) {</span>
+<span class="nc" id="L222">                    LOG.warn(&quot;Failure pushing '{}' on '{}'&quot;, realms.get(i), task.getResource(), e);</span>
+<span class="nc" id="L223">                    throw new JobExecutionException(</span>
+<span class="nc" id="L224">                            &quot;While pushing &quot; + realms.get(i) + &quot; on &quot; + task.getResource(), e);</span>
+<span class="nc" id="L225">                }</span>
+            }
+        }
+
+        // ...then provisions for any types
+<span class="nc" id="L230">        ProvisionSorter provisionSorter = getProvisionSorter(context.getDomain(), task);</span>
+
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        for (Provision provision : task.getResource().getProvisions().stream().</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">                filter(provision -&gt; provision.getMapping() != null).sorted(provisionSorter).</span>
+<span class="nc" id="L234">                toList()) {</span>
+
+<span class="nc" id="L236">            setStatus(&quot;Pushing &quot; + provision.getAnyType());</span>
+
+<span class="nc" id="L238">            AnyType anyType = anyTypeDAO.findById(provision.getAnyType()).</span>
+<span class="nc" id="L239">                    orElseThrow(() -&gt; new NotFoundException(&quot;AnyType&quot; + provision.getAnyType()));</span>
+
+<span class="nc" id="L241">            dispatcher.addHandlerSupplier(provision.getAnyType(), () -&gt; {</span>
+                SyncopePushResultHandler handler;
+<span class="nc bnc" id="L243" title="All 3 branches missed.">                switch (anyType.getKind()) {</span>
+                    case USER:
+<span class="nc" id="L245">                        handler = buildUserHandler();</span>
+<span class="nc" id="L246">                        break;</span>
+
+                    case GROUP:
+<span class="nc" id="L249">                        handler = buildGroupHandler();</span>
+<span class="nc" id="L250">                        break;</span>
+
+                    case ANY_OBJECT:
+                    default:
+<span class="nc" id="L254">                        handler = buildAnyObjectHandler();</span>
+                }
+<span class="nc" id="L256">                handler.setProfile(profile);</span>
+<span class="nc" id="L257">                return handler;</span>
+            });
+
+<span class="nc" id="L260">            String filter = task.getFilter(anyType.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">            SearchCond cond = StringUtils.isBlank(filter)</span>
+<span class="nc" id="L262">                    ? searchDAO.getAllMatchingCond()</span>
+<span class="nc" id="L263">                    : SearchCondConverter.convert(searchCondVisitor, filter);</span>
+<span class="nc" id="L264">            long count = searchDAO.count(</span>
+<span class="nc" id="L265">                    profile.getTask().getSourceRealm(),</span>
+                    true,
+<span class="nc" id="L267">                    Set.of(profile.getTask().getSourceRealm().getFullPath()),</span>
+                    cond,
+<span class="nc" id="L269">                    anyType.getKind());</span>
+<span class="nc" id="L270">            boolean result = true;</span>
+<span class="nc bnc" id="L271" title="All 4 branches missed.">            for (int page = 0; page &lt;= (count / AnyDAO.DEFAULT_PAGE_SIZE) &amp;&amp; result; page++) {</span>
+<span class="nc" id="L272">                List&lt;? extends Any&gt; anys = searchDAO.search(</span>
+<span class="nc" id="L273">                        profile.getTask().getSourceRealm(),</span>
+                        true,
+<span class="nc" id="L275">                        Set.of(profile.getTask().getSourceRealm().getFullPath()),</span>
+                        cond,
+<span class="nc" id="L277">                        PageRequest.of(page, AnyDAO.DEFAULT_PAGE_SIZE),</span>
+<span class="nc" id="L278">                        anyType.getKind());</span>
+<span class="nc" id="L279">                result = doHandle(anys, dispatcher, task.getResource());</span>
+            }
+<span class="nc" id="L281">        }</span>
+
+<span class="nc" id="L283">        dispatcher.shutdown();</span>
+
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L287">                action.afterAll(profile);</span>
+<span class="nc" id="L288">            }</span>
+        }
+
+<span class="nc" id="L291">        setStatus(&quot;Push done&quot;);</span>
+
+<span class="nc" id="L293">        String result = createReport(profile.getResults(), task.getResource(), context.isDryRun());</span>
+<span class="nc" id="L294">        LOG.debug(&quot;Push result: {}&quot;, result);</span>
+<span class="nc" id="L295">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

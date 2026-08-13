@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RelationshipTypeDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">RelationshipTypeDataBinderImpl.java</span></div><h1>RelationshipTypeDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.Optional;
+import org.apache.syncope.common.lib.to.RelationshipTypeTO;
+import org.apache.syncope.common.lib.to.TypeExtensionTO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.RelationshipType;
+import org.apache.syncope.core.persistence.api.entity.RelationshipTypeExtension;
+import org.apache.syncope.core.provisioning.api.data.RelationshipTypeDataBinder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class RelationshipTypeDataBinderImpl implements RelationshipTypeDataBinder {
+
+<span class="nc" id="L39">    protected static final Logger LOG = LoggerFactory.getLogger(RelationshipTypeDataBinder.class);</span>
+
+    protected final RelationshipTypeDAO relationshipTypeDAO;
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final AnyTypeClassDAO anyTypeClassDAO;
+
+    protected final EntityFactory entityFactory;
+
+    public RelationshipTypeDataBinderImpl(
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+<span class="nc" id="L53">            final EntityFactory entityFactory) {</span>
+
+<span class="nc" id="L55">        this.relationshipTypeDAO = relationshipTypeDAO;</span>
+<span class="nc" id="L56">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L57">        this.anyTypeClassDAO = anyTypeClassDAO;</span>
+<span class="nc" id="L58">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L59">    }</span>
+
+    @Override
+    public RelationshipType create(final RelationshipTypeTO relationshipTypeTO) {
+<span class="nc" id="L63">        RelationshipType relationshipType = entityFactory.newEntity(RelationshipType.class);</span>
+
+<span class="nc" id="L65">        relationshipType.setLeftEndAnyType(Optional.ofNullable(relationshipTypeTO.getLeftEndAnyType()).</span>
+<span class="nc" id="L66">                flatMap(anyTypeDAO::findById).</span>
+<span class="nc" id="L67">                orElseThrow(() -&gt; new NotFoundException(&quot;AnyType &quot; + relationshipTypeTO.getLeftEndAnyType())));</span>
+<span class="nc" id="L68">        relationshipType.setRightEndAnyType(Optional.ofNullable(relationshipTypeTO.getRightEndAnyType()).</span>
+<span class="nc" id="L69">                flatMap(anyTypeDAO::findById).</span>
+<span class="nc" id="L70">                orElseThrow(() -&gt; new NotFoundException(&quot;AnyType &quot; + relationshipTypeTO.getRightEndAnyType())));</span>
+
+<span class="nc" id="L72">        return update(relationshipType, relationshipTypeTO);</span>
+    }
+
+    @Override
+    public RelationshipType update(
+            final RelationshipType relationshipType,
+            final RelationshipTypeTO relationshipTypeTO) {
+
+        RelationshipType rt;
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (relationshipType.getKey() == null) {</span>
+<span class="nc" id="L82">            relationshipType.setKey(relationshipTypeTO.getKey());</span>
+<span class="nc" id="L83">            rt = relationshipTypeDAO.save(relationshipType);</span>
+        } else {
+<span class="nc" id="L85">            rt = relationshipType;</span>
+        }
+
+<span class="nc" id="L88">        rt.setDescription(relationshipTypeTO.getDescription());</span>
+
+        // type extensions
+<span class="nc" id="L91">        relationshipTypeTO.getTypeExtensions().</span>
+<span class="nc" id="L92">                forEach(typeExtTO -&gt; anyTypeDAO.findById(typeExtTO.getAnyType()).ifPresentOrElse(anyType -&gt; {</span>
+
+<span class="nc" id="L94">            RelationshipTypeExtension typeExt = rt.getTypeExtension(anyType).orElse(null);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">            if (typeExt == null) {</span>
+<span class="nc" id="L96">                typeExt = entityFactory.newEntity(RelationshipTypeExtension.class);</span>
+<span class="nc" id="L97">                typeExt.setAnyType(anyType);</span>
+<span class="nc" id="L98">                typeExt.setRelationshipType(rt);</span>
+<span class="nc" id="L99">                rt.add(typeExt);</span>
+            }
+
+            // add all classes contained in the TO
+<span class="nc bnc" id="L103" title="All 2 branches missed.">            for (String key : typeExtTO.getAuxClasses()) {</span>
+<span class="nc" id="L104">                AnyTypeClass anyTypeClass = anyTypeClassDAO.findById(key).orElse(null);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">                if (anyTypeClass == null) {</span>
+<span class="nc" id="L106">                    LOG.warn(&quot;Ignoring invalid {}: {}&quot;, AnyTypeClass.class.getSimpleName(), key);</span>
+                } else {
+<span class="nc" id="L108">                    typeExt.add(anyTypeClass);</span>
+                }
+<span class="nc" id="L110">            }</span>
+            // remove all classes not contained in the TO
+<span class="nc" id="L112">            typeExt.getAuxClasses().</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                    removeIf(anyTypeClass -&gt; !typeExtTO.getAuxClasses().contains(anyTypeClass.getKey()));</span>
+
+            // only consider non-empty type extensions
+<span class="nc bnc" id="L116" title="All 2 branches missed.">            if (typeExt.getAuxClasses().isEmpty()) {</span>
+<span class="nc" id="L117">                rt.getTypeExtensions().remove(typeExt);</span>
+<span class="nc" id="L118">                typeExt.setRelationshipType(null);</span>
+            }
+
+<span class="nc" id="L121">        }, () -&gt; LOG.warn(&quot;Ignoring invalid {}: {}&quot;, AnyType.class.getSimpleName(), typeExtTO.getAnyType())));</span>
+
+        // remove all type extensions not contained in the TO
+<span class="nc" id="L124">        rt.getTypeExtensions().</span>
+<span class="nc" id="L125">                removeIf(typeExt -&gt; relationshipTypeTO.getTypeExtension(typeExt.getAnyType().getKey()).isEmpty());</span>
+
+<span class="nc" id="L127">        return rt;</span>
+    }
+
+    @Override
+    public TypeExtensionTO getTypeExtensionTO(final RelationshipTypeExtension typeExt) {
+<span class="nc" id="L132">        TypeExtensionTO typeExtTO = new TypeExtensionTO();</span>
+<span class="nc" id="L133">        typeExtTO.setAnyType(typeExt.getAnyType().getKey());</span>
+<span class="nc" id="L134">        typeExtTO.getAuxClasses().addAll(typeExt.getAuxClasses().stream().map(AnyTypeClass::getKey).toList());</span>
+<span class="nc" id="L135">        return typeExtTO;</span>
+    }
+
+    @Override
+    public RelationshipTypeTO getRelationshipTypeTO(final RelationshipType relationshipType) {
+<span class="nc" id="L140">        RelationshipTypeTO relationshipTypeTO = new RelationshipTypeTO();</span>
+
+<span class="nc" id="L142">        relationshipTypeTO.setKey(relationshipType.getKey());</span>
+<span class="nc" id="L143">        relationshipTypeTO.setDescription(relationshipType.getDescription());</span>
+<span class="nc" id="L144">        relationshipTypeTO.setLeftEndAnyType(relationshipType.getLeftEndAnyType().getKey());</span>
+<span class="nc" id="L145">        relationshipTypeTO.setRightEndAnyType(relationshipType.getRightEndAnyType().getKey());</span>
+
+<span class="nc" id="L147">        relationshipType.getTypeExtensions().</span>
+<span class="nc" id="L148">                forEach(typeExt -&gt; relationshipTypeTO.getTypeExtensions().add(getTypeExtensionTO(typeExt)));</span>
+
+<span class="nc" id="L150">        return relationshipTypeTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

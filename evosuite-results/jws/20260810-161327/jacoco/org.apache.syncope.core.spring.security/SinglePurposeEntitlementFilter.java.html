@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SinglePurposeEntitlementFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">SinglePurposeEntitlementFilter.java</span></div><h1>SinglePurposeEntitlementFilter.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.FilterConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.ws.rs.HttpMethod;
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+import org.apache.syncope.common.lib.types.IdRepoEntitlement;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestWrapper;
+
+<span class="nc" id="L36">public class SinglePurposeEntitlementFilter implements Filter {</span>
+
+<span class="nc" id="L38">    protected record Setting(String entitlement, String httpMethod, String httpPathInfo, String errorMessage) {</span>
+
+    }
+
+<span class="nc" id="L42">    protected static final List&lt;Setting&gt; SETTINGS = List.of(</span>
+            new Setting(IdRepoEntitlement.MUST_CHANGE_PASSWORD,
+                    HttpMethod.POST, &quot;/users/self/mustChangePassword&quot;,
+                    &quot;Please change your password first&quot;),
+            new Setting(IdRepoEntitlement.MFA_ENROLL,
+                    HttpMethod.PUT, &quot;/mfa&quot;,
+                    &quot;Please enroll your MFA first&quot;));
+
+    @Override
+    public void init(final FilterConfig filterConfig) {
+        // not used
+<span class="nc" id="L53">    }</span>
+
+    @Override
+    public void destroy() {
+        // not used
+<span class="nc" id="L58">    }</span>
+
+    @Override
+    public void doFilter(final ServletRequest request, final ServletResponse response, final FilterChain chain)
+            throws IOException, ServletException {
+
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (request instanceof SecurityContextHolderAwareRequestWrapper wrappedRequest) {</span>
+<span class="nc" id="L65">            Optional&lt;Setting&gt; match = SETTINGS.stream().</span>
+<span class="nc" id="L66">                    filter(setting -&gt; SecurityContextHolder.getContext().getAuthentication().getAuthorities().</span>
+<span class="nc" id="L67">                    stream().anyMatch(granted -&gt; setting.entitlement().equals(granted.getAuthority()))).</span>
+<span class="nc" id="L68">                    findFirst();</span>
+
+<span class="nc bnc" id="L70" title="All 2 branches missed.">            match.filter(setting -&gt; !setting.httpMethod().equalsIgnoreCase(wrappedRequest.getMethod())</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">                    || !setting.httpPathInfo().equals(wrappedRequest.getPathInfo())).</span>
+<span class="nc" id="L72">                    ifPresent(setting -&gt; {</span>
+<span class="nc" id="L73">                        throw new AccessDeniedException(</span>
+<span class="nc" id="L74">                                setting.errorMessage(),</span>
+<span class="nc" id="L75">                                new SingleEntitlementException(setting.entitlement()));</span>
+                    });
+        }
+
+<span class="nc" id="L79">        chain.doFilter(request, response);</span>
+<span class="nc" id="L80">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

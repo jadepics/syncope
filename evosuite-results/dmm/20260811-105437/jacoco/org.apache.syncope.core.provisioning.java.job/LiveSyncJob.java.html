@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LiveSyncJob.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">LiveSyncJob.java</span></div><h1>LiveSyncJob.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.JobManager;
+import org.apache.syncope.core.provisioning.api.job.SchedTaskJobDelegate;
+import org.apache.syncope.core.provisioning.java.pushpull.LiveSyncJobDelegate;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+<span class="nc" id="L32">public class LiveSyncJob extends TaskJob {</span>
+
+<span class="nc" id="L34">    private static final Logger LOG = LoggerFactory.getLogger(LiveSyncJob.class);</span>
+
+    private LiveSyncJobDelegate delegate;
+
+    @Override
+    public SchedTaskJobDelegate getDelegate() {
+<span class="nc" id="L40">        return delegate;</span>
+    }
+
+    @Override
+    protected void delegate(final JobExecutionContext context, final String taskKey)
+            throws ClassNotFoundException, JobExecutionException {
+
+<span class="nc" id="L47">        String implKey = (String) context.getData().get(JobManager.DELEGATE_IMPLEMENTATION);</span>
+<span class="nc" id="L48">        Implementation impl = implementationDAO.findById(implKey).orElse(null);</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">        if (impl == null) {</span>
+<span class="nc" id="L50">            LOG.error(&quot;Could not find Implementation '{}', aborting&quot;, implKey);</span>
+        } else {
+<span class="nc" id="L52">            delegate = ImplementationManager.build(context.getDomain(), impl);</span>
+<span class="nc" id="L53">            delegate.execute(</span>
+                    TaskType.LIVE_SYNC,
+                    taskKey,
+                    context);
+        }
+<span class="nc" id="L58">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

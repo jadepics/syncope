@@ -1,0 +1,47 @@
+[main] ERROR org.evosuite.runtime.jvm.ShutdownHookHandler - Failed to initialize shutdown hook handling
+[Time-limited test] ERROR org.apache.syncope.core.provisioning.api.MappingManager - Could not decode password for null
+java.lang.NullPointerException: Cannot invoke "org.apache.syncope.core.persistence.api.entity.user.Account.getPassword()" because "account" is null
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager.decodePassword(DefaultMappingManager.java:467)
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager_ESTest.test02(DefaultMappingManager_ESTest.java:138)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.FailOnTimeout$CallableStatement.call(FailOnTimeout.java:299)
+	at org.junit.internal.runners.statements.FailOnTimeout$CallableStatement.call(FailOnTimeout.java:293)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+[Time-limited test] ERROR org.apache.syncope.core.provisioning.api.MappingManager - No mapping configured for Realms
+[Time-limited test] ERROR org.apache.syncope.core.provisioning.api.MappingManager - Unable to locate conn object key item for Realms
+[Time-limited test] ERROR org.apache.syncope.core.provisioning.api.MappingManager - No mapping configured for Realms
+[Time-limited test] ERROR org.apache.syncope.core.provisioning.api.MappingManager - Could not decode password for JPALinkedAccount[null]
+java.lang.NullPointerException: Cannot invoke "org.apache.syncope.core.persistence.api.EncryptorManager.getInstance()" because "this.encryptorManager" is null
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager.decodePassword(DefaultMappingManager.java:466)
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager.getPasswordAttrValue(DefaultMappingManager.java:479)
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager_ESTest.test47(DefaultMappingManager_ESTest.java:1100)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.FailOnTimeout$CallableStatement.call(FailOnTimeout.java:299)
+	at org.junit.internal.runners.statements.FailOnTimeout$CallableStatement.call(FailOnTimeout.java:293)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+[Time-limited test] ERROR org.apache.syncope.core.provisioning.api.MappingManager - Could not read value of 'name' from JPAAnyObject[null]
+java.lang.NullPointerException: Cannot invoke "Object.toString()" because "fieldValue" is null
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager.getIntValues(DefaultMappingManager.java:802)
+	at org.apache.syncope.core.provisioning.java.DefaultMappingManager_ESTest.test48(DefaultMappingManager_ESTest.java:1132)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.FailOnTimeout$CallableStatement.call(FailOnTimeout.java:299)
+	at org.junit.internal.runners.statements.FailOnTimeout$CallableStatement.call(FailOnTimeout.java:293)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.lang.Thread.run(Thread.java:1583)

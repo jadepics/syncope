@@ -1,0 +1,1 @@
+[main] ERROR org.evosuite.runtime.classhandling.ClassStateSupport - Found $jacocoInit in class com.nimbusds.jose.util.ByteUtils

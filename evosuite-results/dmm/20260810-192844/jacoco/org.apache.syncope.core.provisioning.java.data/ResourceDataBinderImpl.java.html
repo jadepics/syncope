@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ResourceDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">ResourceDataBinderImpl.java</span></div><h1>ResourceDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.text.ParseException;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.AnyTypeClassTO;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.ItemContainer;
+import org.apache.syncope.common.lib.to.Mapping;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ResourceTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.MappingPurpose;
+import org.apache.syncope.common.lib.types.SchemaType;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ConnInstanceDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.PolicyDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.ConnInstance;
+import org.apache.syncope.core.persistence.api.entity.DerSchema;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.persistence.api.entity.policy.AccountPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PasswordPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PropagationPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PushPolicy;
+import org.apache.syncope.core.provisioning.api.IntAttrName;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.data.ResourceDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ResourceDataBinderImpl implements ResourceDataBinder {
+
+<span class="nc" id="L71">    protected static final Logger LOG = LoggerFactory.getLogger(ResourceDataBinder.class);</span>
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final ConnInstanceDAO connInstanceDAO;
+
+    protected final PolicyDAO policyDAO;
+
+    protected final AnyTypeClassDAO anyTypeClassDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final PlainSchemaDAO plainSchemaDAO;
+
+    protected final EntityFactory entityFactory;
+
+    protected final IntAttrNameParser intAttrNameParser;
+
+    protected final PropagationTaskExecutor propagationTaskExecutor;
+
+    protected final JexlTools jexlTools;
+
+    public ResourceDataBinderImpl(
+            final AnyTypeDAO anyTypeDAO,
+            final ConnInstanceDAO connInstanceDAO,
+            final PolicyDAO policyDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final ImplementationDAO implementationDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final EntityFactory entityFactory,
+            final IntAttrNameParser intAttrNameParser,
+            final PropagationTaskExecutor propagationTaskExecutor,
+<span class="nc" id="L103">            final JexlTools jexlTools) {</span>
+
+<span class="nc" id="L105">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L106">        this.connInstanceDAO = connInstanceDAO;</span>
+<span class="nc" id="L107">        this.policyDAO = policyDAO;</span>
+<span class="nc" id="L108">        this.anyTypeClassDAO = anyTypeClassDAO;</span>
+<span class="nc" id="L109">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L110">        this.plainSchemaDAO = plainSchemaDAO;</span>
+<span class="nc" id="L111">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L112">        this.intAttrNameParser = intAttrNameParser;</span>
+<span class="nc" id="L113">        this.propagationTaskExecutor = propagationTaskExecutor;</span>
+<span class="nc" id="L114">        this.jexlTools = jexlTools;</span>
+<span class="nc" id="L115">    }</span>
+
+    @Override
+    public ExternalResource create(final ResourceTO resourceTO) {
+<span class="nc" id="L119">        return update(entityFactory.newEntity(ExternalResource.class), resourceTO);</span>
+    }
+
+    @Override
+    public ExternalResource update(final ExternalResource resource, final ResourceTO resourceTO) {
+<span class="nc" id="L124">        resource.setKey(resourceTO.getKey());</span>
+
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        if (resourceTO.getConnector() != null) {</span>
+<span class="nc" id="L127">            ConnInstance connector = connInstanceDAO.findById(resourceTO.getConnector()).</span>
+<span class="nc" id="L128">                    orElseThrow(() -&gt; new NotFoundException(&quot;ConnInstance &quot; + resourceTO.getConnector()));</span>
+<span class="nc" id="L129">            resource.setConnector(connector);</span>
+        }
+
+<span class="nc" id="L132">        resource.setEnforceMandatoryCondition(resourceTO.isEnforceMandatoryCondition());</span>
+
+<span class="nc" id="L134">        resource.setPropagationPriority(resourceTO.getPropagationPriority());</span>
+
+        // 1. add or update all (valid) provisions from TO
+<span class="nc" id="L137">        resourceTO.getProvisions().forEach(provisionTO -&gt; {</span>
+<span class="nc" id="L138">            AnyType anyType = anyTypeDAO.findById(provisionTO.getAnyType()).orElse(null);</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">            if (anyType == null) {</span>
+<span class="nc" id="L140">                LOG.debug(&quot;Invalid {} specified {}, ignoring...&quot;,</span>
+<span class="nc" id="L141">                        AnyType.class.getSimpleName(), provisionTO.getAnyType());</span>
+            } else {
+<span class="nc" id="L143">                Provision provision = resource.getProvisionByAnyType(anyType.getKey()).orElseGet(() -&gt; {</span>
+<span class="nc" id="L144">                    Provision p = new Provision();</span>
+<span class="nc" id="L145">                    p.setAnyType(anyType.getKey());</span>
+<span class="nc" id="L146">                    resource.getProvisions().add(p);</span>
+<span class="nc" id="L147">                    return p;</span>
+                });
+
+<span class="nc bnc" id="L150" title="All 2 branches missed.">                if (provisionTO.getObjectClass() == null) {</span>
+<span class="nc" id="L151">                    SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidProvision);</span>
+<span class="nc" id="L152">                    sce.getElements().add(&quot;Null &quot; + ObjectClass.class.getSimpleName());</span>
+<span class="nc" id="L153">                    throw sce;</span>
+                }
+<span class="nc" id="L155">                provision.setObjectClass(provisionTO.getObjectClass());</span>
+
+                // add all classes contained in the TO
+<span class="nc bnc" id="L158" title="All 2 branches missed.">                for (String name : provisionTO.getAuxClasses()) {</span>
+<span class="nc" id="L159">                    AnyTypeClass anyTypeClass = anyTypeClassDAO.findById(name).orElse(null);</span>
+<span class="nc bnc" id="L160" title="All 4 branches missed.">                    if (anyTypeClass == null || provision.getAuxClasses().contains(name)) {</span>
+<span class="nc" id="L161">                        LOG.warn(&quot;Ignoring invalid or already present {}: {}&quot;,</span>
+<span class="nc" id="L162">                                AnyTypeClass.class.getSimpleName(), name);</span>
+                    } else {
+<span class="nc" id="L164">                        provision.getAuxClasses().add(anyTypeClass.getKey());</span>
+                    }
+<span class="nc" id="L166">                }</span>
+                // remove all classes not contained in the TO
+<span class="nc" id="L168">                provision.getAuxClasses().</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">                        removeIf(anyTypeClass -&gt; !provisionTO.getAuxClasses().contains(anyTypeClass));</span>
+
+<span class="nc" id="L171">                provision.setIgnoreCaseMatch(provisionTO.isIgnoreCaseMatch());</span>
+
+<span class="nc bnc" id="L173" title="All 2 branches missed.">                if (StringUtils.isBlank(provisionTO.getUidOnCreate())) {</span>
+<span class="nc" id="L174">                    provision.setUidOnCreate(null);</span>
+                } else {
+<span class="nc" id="L176">                    PlainSchema uidOnCreate = plainSchemaDAO.findById(provisionTO.getUidOnCreate()).orElse(null);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">                    if (uidOnCreate == null) {</span>
+<span class="nc" id="L178">                        LOG.warn(&quot;Ignoring invalid schema for uidOnCreate: {}&quot;, provisionTO.getUidOnCreate());</span>
+<span class="nc" id="L179">                        provision.setUidOnCreate(null);</span>
+                    } else {
+<span class="nc" id="L181">                        provision.setUidOnCreate(uidOnCreate.getKey());</span>
+                    }
+                }
+
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                if (provisionTO.getMapping() == null) {</span>
+<span class="nc" id="L186">                    provision.setMapping(null);</span>
+                } else {
+<span class="nc" id="L188">                    Mapping mapping = provision.getMapping();</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                    if (mapping == null) {</span>
+<span class="nc" id="L190">                        mapping = new Mapping();</span>
+<span class="nc" id="L191">                        provision.setMapping(mapping);</span>
+                    } else {
+<span class="nc" id="L193">                        mapping.getItems().clear();</span>
+                    }
+
+<span class="nc" id="L196">                    AnyTypeClassTO allowedSchemas = new AnyTypeClassTO();</span>
+<span class="nc" id="L197">                    Stream.concat(</span>
+<span class="nc" id="L198">                            anyType.getClasses().stream(),</span>
+<span class="nc" id="L199">                            provision.getAuxClasses().stream().map(anyTypeClassDAO::findById).</span>
+<span class="nc" id="L200">                                    flatMap(Optional::stream)).forEach(anyTypeClass -&gt; {</span>
+
+<span class="nc" id="L202">                        allowedSchemas.getPlainSchemas().addAll(anyTypeClass.getPlainSchemas().stream().</span>
+<span class="nc" id="L203">                                map(PlainSchema::getKey).toList());</span>
+<span class="nc" id="L204">                        allowedSchemas.getDerSchemas().addAll(anyTypeClass.getDerSchemas().stream().</span>
+<span class="nc" id="L205">                                map(DerSchema::getKey).toList());</span>
+<span class="nc" id="L206">                    });</span>
+
+<span class="nc" id="L208">                    populateMapping(</span>
+<span class="nc" id="L209">                            provisionTO.getMapping(),</span>
+                            mapping,
+<span class="nc" id="L211">                            anyType.getKind(),</span>
+                            allowedSchemas);
+                }
+            }
+<span class="nc" id="L215">        });</span>
+
+        // 2. remove all provisions not contained in the TO
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        for (Iterator&lt;Provision&gt; itor = resource.getProvisions().iterator(); itor.hasNext();) {</span>
+<span class="nc" id="L219">            Provision provision = itor.next();</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">            if (resourceTO.getProvision(provision.getAnyType()).isEmpty()) {</span>
+<span class="nc" id="L221">                itor.remove();</span>
+            }
+<span class="nc" id="L223">        }</span>
+
+        // 3. orgUnit
+<span class="nc bnc" id="L226" title="All 4 branches missed.">        if (resourceTO.getOrgUnit() == null &amp;&amp; resource.getOrgUnit() != null) {</span>
+<span class="nc" id="L227">            resource.setOrgUnit(null);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        } else if (resourceTO.getOrgUnit() != null) {</span>
+<span class="nc" id="L229">            OrgUnit orgUnitTO = resourceTO.getOrgUnit();</span>
+
+<span class="nc" id="L231">            OrgUnit orgUnit = Optional.ofNullable(resource.getOrgUnit()).orElseGet(OrgUnit::new);</span>
+
+<span class="nc bnc" id="L233" title="All 2 branches missed.">            if (orgUnitTO.getObjectClass() == null) {</span>
+<span class="nc" id="L234">                SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidOrgUnit);</span>
+<span class="nc" id="L235">                sce.getElements().add(&quot;Null &quot; + ObjectClass.class.getSimpleName());</span>
+<span class="nc" id="L236">                throw sce;</span>
+            }
+<span class="nc" id="L238">            orgUnit.setObjectClass(orgUnitTO.getObjectClass());</span>
+
+<span class="nc" id="L240">            orgUnit.setIgnoreCaseMatch(orgUnitTO.isIgnoreCaseMatch());</span>
+
+<span class="nc" id="L242">            orgUnit.setConnObjectLink(orgUnitTO.getConnObjectLink());</span>
+
+<span class="nc" id="L244">            SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+<span class="nc" id="L245">            SyncopeClientException invalidMapping = SyncopeClientException.build(</span>
+                    ClientExceptionType.InvalidMapping);
+<span class="nc" id="L247">            SyncopeClientException requiredValuesMissing = SyncopeClientException.build(</span>
+                    ClientExceptionType.RequiredValuesMissing);
+
+<span class="nc" id="L250">            orgUnit.getItems().clear();</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">            for (Item itemTO : orgUnitTO.getItems()) {</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">                if (itemTO == null) {</span>
+<span class="nc" id="L253">                    LOG.error(&quot;Null {}&quot;, Item.class.getSimpleName());</span>
+<span class="nc" id="L254">                    invalidMapping.getElements().add(&quot;Null &quot; + Item.class.getSimpleName());</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">                } else if (itemTO.getIntAttrName() == null) {</span>
+<span class="nc" id="L256">                    requiredValuesMissing.getElements().add(&quot;intAttrName&quot;);</span>
+<span class="nc" id="L257">                    scce.addException(requiredValuesMissing);</span>
+                } else {
+<span class="nc bnc" id="L259" title="All 2 branches missed.">                    if (itemTO.getMandatoryCondition() != null</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                            &amp;&amp; !jexlTools.isExpressionValid(itemTO.getMandatoryCondition())) {</span>
+
+<span class="nc" id="L262">                        SyncopeClientException invalidMandatoryCondition = SyncopeClientException.build(</span>
+                                ClientExceptionType.InvalidValues);
+<span class="nc" id="L264">                        invalidMandatoryCondition.getElements().add(itemTO.getMandatoryCondition());</span>
+<span class="nc" id="L265">                        scce.addException(invalidMandatoryCondition);</span>
+                    }
+
+<span class="nc" id="L268">                    Item item = new Item();</span>
+<span class="nc" id="L269">                    item.setIntAttrName(itemTO.getIntAttrName());</span>
+<span class="nc" id="L270">                    item.setExtAttrName(itemTO.getExtAttrName());</span>
+<span class="nc" id="L271">                    item.setPurpose(itemTO.getPurpose());</span>
+<span class="nc" id="L272">                    item.setMandatoryCondition(itemTO.getMandatoryCondition());</span>
+<span class="nc" id="L273">                    item.setConnObjectKey(itemTO.isConnObjectKey());</span>
+<span class="nc" id="L274">                    item.setPassword(itemTO.isPassword());</span>
+<span class="nc" id="L275">                    item.setPropagationJEXLTransformer(itemTO.getPropagationJEXLTransformer());</span>
+<span class="nc" id="L276">                    item.setPullJEXLTransformer(itemTO.getPullJEXLTransformer());</span>
+
+<span class="nc" id="L278">                    itemTO.getTransformers().forEach(key -&gt; implementationDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L279">                            transformer -&gt; item.getTransformers().add(transformer.getKey()),</span>
+<span class="nc" id="L280">                            () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L281">                                    Implementation.class.getSimpleName(), key)));</span>
+                    // remove all implementations not contained in the TO
+<span class="nc" id="L283">                    item.getTransformers().</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">                            removeIf(implementation -&gt; !itemTO.getTransformers().contains(implementation));</span>
+
+<span class="nc bnc" id="L286" title="All 2 branches missed.">                    if (item.isConnObjectKey()) {</span>
+<span class="nc" id="L287">                        orgUnit.setConnObjectKeyItem(item);</span>
+                    } else {
+<span class="nc" id="L289">                        orgUnit.add(item);</span>
+                    }
+                }
+<span class="nc" id="L292">            }</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">            if (!invalidMapping.getElements().isEmpty()) {</span>
+<span class="nc" id="L294">                scce.addException(invalidMapping);</span>
+            }
+<span class="nc bnc" id="L296" title="All 2 branches missed.">            if (scce.hasExceptions()) {</span>
+<span class="nc" id="L297">                throw scce;</span>
+            }
+
+<span class="nc" id="L300">            resource.setOrgUnit(orgUnit);</span>
+        }
+
+<span class="nc" id="L303">        resource.setCreateTraceLevel(resourceTO.getCreateTraceLevel());</span>
+<span class="nc" id="L304">        resource.setUpdateTraceLevel(resourceTO.getUpdateTraceLevel());</span>
+<span class="nc" id="L305">        resource.setDeleteTraceLevel(resourceTO.getDeleteTraceLevel());</span>
+<span class="nc" id="L306">        resource.setProvisioningTraceLevel(resourceTO.getProvisioningTraceLevel());</span>
+
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        resource.setPasswordPolicy(resourceTO.getPasswordPolicy() == null</span>
+<span class="nc" id="L309">                ? null : policyDAO.findById(resourceTO.getPasswordPolicy(), PasswordPolicy.class).orElse(null));</span>
+
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        resource.setAccountPolicy(resourceTO.getAccountPolicy() == null</span>
+<span class="nc" id="L312">                ? null : policyDAO.findById(resourceTO.getAccountPolicy(), AccountPolicy.class).orElse(null));</span>
+
+<span class="nc bnc" id="L314" title="All 2 branches missed.">        if (resource.getPropagationPolicy() != null</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">                &amp;&amp; !resource.getPropagationPolicy().getKey().equals(resourceTO.getPropagationPolicy())) {</span>
+
+<span class="nc" id="L317">            propagationTaskExecutor.expireRetryTemplate(resource.getKey());</span>
+        }
+<span class="nc bnc" id="L319" title="All 2 branches missed.">        resource.setPropagationPolicy(resourceTO.getPropagationPolicy() == null</span>
+<span class="nc" id="L320">                ? null : policyDAO.findById(resourceTO.getPropagationPolicy(), PropagationPolicy.class).orElse(null));</span>
+
+<span class="nc bnc" id="L322" title="All 2 branches missed.">        resource.setInboundPolicy(resourceTO.getInboundPolicy() == null</span>
+<span class="nc" id="L323">                ? null : policyDAO.findById(resourceTO.getInboundPolicy(), InboundPolicy.class).orElse(null));</span>
+
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        resource.setPushPolicy(resourceTO.getPushPolicy() == null</span>
+<span class="nc" id="L326">                ? null : policyDAO.findById(resourceTO.getPushPolicy(), PushPolicy.class).orElse(null));</span>
+
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        if (resourceTO.getProvisionSorter() == null) {</span>
+<span class="nc" id="L329">            resource.setProvisionSorter(null);</span>
+        } else {
+<span class="nc" id="L331">            implementationDAO.findById(resourceTO.getProvisionSorter()).ifPresentOrElse(</span>
+<span class="nc" id="L332">                    resource::setProvisionSorter,</span>
+<span class="nc" id="L333">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L334">                            Implementation.class.getSimpleName(), resourceTO.getProvisionSorter()));</span>
+        }
+
+<span class="nc" id="L337">        resource.setConfOverride(</span>
+<span class="nc" id="L338">                Optional.ofNullable(resourceTO.getConfOverride()).orElseGet(Optional::empty));</span>
+
+<span class="nc" id="L340">        resource.setCapabilitiesOverride(</span>
+<span class="nc" id="L341">                Optional.ofNullable(resourceTO.getCapabilitiesOverride()).orElseGet(Optional::empty));</span>
+
+<span class="nc" id="L343">        resourceTO.getPropagationActions().forEach(key -&gt; implementationDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L344">                resource::add,</span>
+<span class="nc" id="L345">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, Implementation.class.getSimpleName(), key)));</span>
+        // remove all implementations not contained in the TO
+<span class="nc" id="L347">        resource.getPropagationActions().</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">                removeIf(propActions -&gt; !resourceTO.getPropagationActions().contains(propActions.getKey()));</span>
+
+<span class="nc" id="L350">        return resource;</span>
+    }
+
+    protected void populateMapping(
+            final Mapping mappingTO,
+            final Mapping mapping,
+            final AnyTypeKind anyTypeKind,
+            final AnyTypeClassTO allowedSchemas) {
+
+<span class="nc" id="L359">        mapping.setConnObjectLink(mappingTO.getConnObjectLink());</span>
+
+<span class="nc" id="L361">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+<span class="nc" id="L362">        SyncopeClientException invalidMapping = SyncopeClientException.build(ClientExceptionType.InvalidMapping);</span>
+<span class="nc" id="L363">        SyncopeClientException requiredValuesMissing = SyncopeClientException.build(</span>
+                ClientExceptionType.RequiredValuesMissing);
+
+<span class="nc bnc" id="L366" title="All 2 branches missed.">        for (Item itemTO : mappingTO.getItems()) {</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">            if (itemTO == null) {</span>
+<span class="nc" id="L368">                LOG.error(&quot;Null {}&quot;, Item.class.getSimpleName());</span>
+<span class="nc" id="L369">                invalidMapping.getElements().add(&quot;Null &quot; + Item.class.getSimpleName());</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">            } else if (itemTO.getIntAttrName() == null) {</span>
+<span class="nc" id="L371">                requiredValuesMissing.getElements().add(&quot;intAttrName&quot;);</span>
+<span class="nc" id="L372">                scce.addException(requiredValuesMissing);</span>
+            } else {
+<span class="nc" id="L374">                IntAttrName intAttrName = null;</span>
+                try {
+<span class="nc" id="L376">                    intAttrName = intAttrNameParser.parse(itemTO.getIntAttrName(), anyTypeKind);</span>
+<span class="nc" id="L377">                } catch (ParseException e) {</span>
+<span class="nc" id="L378">                    LOG.error(&quot;Invalid intAttrName '{}'&quot;, itemTO.getIntAttrName(), e);</span>
+<span class="nc" id="L379">                }</span>
+
+<span class="nc bnc" id="L381" title="All 2 branches missed.">                if (intAttrName == null</span>
+<span class="nc bnc" id="L382" title="All 4 branches missed.">                        || intAttrName.getSchemaInfo() == null &amp;&amp; intAttrName.getField() == null) {</span>
+
+<span class="nc" id="L384">                    LOG.error(&quot;'{}' not existing&quot;, itemTO.getIntAttrName());</span>
+<span class="nc" id="L385">                    invalidMapping.getElements().add('\'' + itemTO.getIntAttrName() + &quot;' not existing&quot;);</span>
+                } else {
+<span class="nc" id="L387">                    boolean allowed = true;</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">                    if (intAttrName.getSchemaInfo() != null</span>
+<span class="nc bnc" id="L389" title="All 2 branches missed.">                            &amp;&amp; intAttrName.getExternalUser() == null</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">                            &amp;&amp; intAttrName.getExternalGroup() == null</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                            &amp;&amp; intAttrName.getExternalAnyObject() == null</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">                            &amp;&amp; intAttrName.getMembership() != null</span>
+<span class="nc bnc" id="L393" title="All 2 branches missed.">                            &amp;&amp; intAttrName.getRelationshipInfo() != null) {</span>
+
+<span class="nc bnc" id="L395" title="All 3 branches missed.">                        switch (intAttrName.getSchemaInfo().type()) {</span>
+                            case PLAIN:
+<span class="nc" id="L397">                                allowed = allowedSchemas.getPlainSchemas().</span>
+<span class="nc" id="L398">                                        contains(intAttrName.getSchemaInfo().schema().getKey());</span>
+<span class="nc" id="L399">                                break;</span>
+
+                            case DERIVED:
+<span class="nc" id="L402">                                allowed = allowedSchemas.getDerSchemas().</span>
+<span class="nc" id="L403">                                        contains(intAttrName.getSchemaInfo().schema().getKey());</span>
+<span class="nc" id="L404">                                break;</span>
+
+                            default:
+                        }
+                    }
+
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                    if (allowed) {</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">                        if (itemTO.getMandatoryCondition() != null</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">                                &amp;&amp; !jexlTools.isExpressionValid(itemTO.getMandatoryCondition())) {</span>
+
+<span class="nc" id="L414">                            SyncopeClientException invalidMandatoryCondition = SyncopeClientException.build(</span>
+                                    ClientExceptionType.InvalidValues);
+<span class="nc" id="L416">                            invalidMandatoryCondition.getElements().add(itemTO.getMandatoryCondition());</span>
+<span class="nc" id="L417">                            scce.addException(invalidMandatoryCondition);</span>
+                        }
+
+<span class="nc" id="L420">                        Item item = new Item();</span>
+<span class="nc" id="L421">                        item.setIntAttrName(itemTO.getIntAttrName());</span>
+<span class="nc" id="L422">                        item.setExtAttrName(itemTO.getExtAttrName());</span>
+<span class="nc" id="L423">                        item.setPurpose(itemTO.getPurpose());</span>
+<span class="nc" id="L424">                        item.setMandatoryCondition(itemTO.getMandatoryCondition());</span>
+<span class="nc" id="L425">                        item.setConnObjectKey(itemTO.isConnObjectKey());</span>
+<span class="nc" id="L426">                        item.setPassword(itemTO.isPassword());</span>
+<span class="nc" id="L427">                        item.setPropagationJEXLTransformer(itemTO.getPropagationJEXLTransformer());</span>
+<span class="nc" id="L428">                        item.setPullJEXLTransformer(itemTO.getPullJEXLTransformer());</span>
+
+<span class="nc" id="L430">                        itemTO.getTransformers().forEach(key -&gt; implementationDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L431">                                transformer -&gt; item.getTransformers().add(transformer.getKey()),</span>
+<span class="nc" id="L432">                                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L433">                                        Implementation.class.getSimpleName(), key)));</span>
+                        // remove all implementations not contained in the TO
+<span class="nc" id="L435">                        item.getTransformers().</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">                                removeIf(implementation -&gt; !itemTO.getTransformers().contains(implementation));</span>
+
+<span class="nc bnc" id="L438" title="All 2 branches missed.">                        if (item.isConnObjectKey()) {</span>
+<span class="nc bnc" id="L439" title="All 2 branches missed.">                            if (&quot;password&quot;.equals(intAttrName.getField())) {</span>
+<span class="nc" id="L440">                                invalidMapping.getElements().add(</span>
+                                        &quot;Password attributes cannot be set as ConnObjectKey&quot;);
+                            }
+
+<span class="nc" id="L444">                            mapping.setConnObjectKeyItem(item);</span>
+                        } else {
+<span class="nc" id="L446">                            mapping.add(item);</span>
+                        }
+
+<span class="nc bnc" id="L449" title="All 2 branches missed.">                        if (intAttrName.getExternalGroup() != null</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                                &amp;&amp; item.getPurpose() != MappingPurpose.PROPAGATION) {</span>
+
+<span class="nc" id="L452">                            invalidMapping.getElements().add(</span>
+<span class="nc" id="L453">                                    &quot;Only &quot; + MappingPurpose.PROPAGATION.name()</span>
+                                    + &quot; allowed when referring to groups&quot;);
+                        }
+<span class="nc bnc" id="L456" title="All 2 branches missed.">                        if (intAttrName.getExternalAnyObject() != null</span>
+<span class="nc bnc" id="L457" title="All 2 branches missed.">                                &amp;&amp; item.getPurpose() != MappingPurpose.PROPAGATION) {</span>
+
+<span class="nc" id="L459">                            invalidMapping.getElements().add(</span>
+<span class="nc" id="L460">                                    &quot;Only &quot; + MappingPurpose.PROPAGATION.name()</span>
+                                    + &quot; allowed when referring to any objects&quot;);
+                        }
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                        if (intAttrName.getSchemaInfo() != null</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">                                &amp;&amp; intAttrName.getSchemaInfo().type() == SchemaType.DERIVED</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">                                &amp;&amp; item.getPurpose() != MappingPurpose.PROPAGATION) {</span>
+
+<span class="nc" id="L467">                            invalidMapping.getElements().add(</span>
+<span class="nc" id="L468">                                    &quot;Only &quot; + MappingPurpose.PROPAGATION.name() + &quot; allowed for derived&quot;);</span>
+                        }
+<span class="nc bnc" id="L470" title="All 2 branches missed.">                        if (intAttrName.getExternalUser() != null</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">                                &amp;&amp; item.getPurpose() != MappingPurpose.PROPAGATION) {</span>
+
+<span class="nc" id="L473">                            invalidMapping.getElements().add(</span>
+<span class="nc" id="L474">                                    &quot;Only &quot; + MappingPurpose.PROPAGATION.name()</span>
+                                    + &quot; allowed when referring to users&quot;);
+                        }
+<span class="nc bnc" id="L477" title="All 2 branches missed.">                        if (intAttrName.getRelationshipInfo() != null</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">                                &amp;&amp; item.getPurpose() != MappingPurpose.PROPAGATION) {</span>
+
+<span class="nc" id="L480">                            invalidMapping.getElements().add(</span>
+<span class="nc" id="L481">                                    &quot;Only &quot; + MappingPurpose.PROPAGATION.name()</span>
+                                    + &quot; allowed when referring to relationships&quot;);
+                        }
+<span class="nc" id="L484">                    } else {</span>
+<span class="nc" id="L485">                        LOG.error(&quot;'{}' not allowed&quot;, itemTO.getIntAttrName());</span>
+<span class="nc" id="L486">                        invalidMapping.getElements().add('\'' + itemTO.getIntAttrName() + &quot;' not allowed&quot;);</span>
+                    }
+                }
+            }
+<span class="nc" id="L490">        }</span>
+
+<span class="nc bnc" id="L492" title="All 2 branches missed.">        if (!invalidMapping.getElements().isEmpty()) {</span>
+<span class="nc" id="L493">            scce.addException(invalidMapping);</span>
+        }
+<span class="nc bnc" id="L495" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L496">            throw scce;</span>
+        }
+<span class="nc" id="L498">    }</span>
+
+    protected void populateItems(final List&lt;Item&gt; items, final ItemContainer containerTO) {
+<span class="nc" id="L501">        items.forEach(item -&gt; {</span>
+<span class="nc" id="L502">            Item itemTO = new Item();</span>
+<span class="nc" id="L503">            itemTO.setIntAttrName(item.getIntAttrName());</span>
+<span class="nc" id="L504">            itemTO.setExtAttrName(item.getExtAttrName());</span>
+<span class="nc" id="L505">            itemTO.setPurpose(item.getPurpose());</span>
+<span class="nc" id="L506">            itemTO.setMandatoryCondition(item.getMandatoryCondition());</span>
+<span class="nc" id="L507">            itemTO.setConnObjectKey(item.isConnObjectKey());</span>
+<span class="nc" id="L508">            itemTO.setPassword(item.isPassword());</span>
+<span class="nc" id="L509">            itemTO.setPropagationJEXLTransformer(item.getPropagationJEXLTransformer());</span>
+<span class="nc" id="L510">            itemTO.setPullJEXLTransformer(item.getPullJEXLTransformer());</span>
+<span class="nc" id="L511">            itemTO.getTransformers().addAll(item.getTransformers());</span>
+
+<span class="nc bnc" id="L513" title="All 2 branches missed.">            if (itemTO.isConnObjectKey()) {</span>
+<span class="nc" id="L514">                containerTO.setConnObjectKeyItem(itemTO);</span>
+            } else {
+<span class="nc" id="L516">                containerTO.add(itemTO);</span>
+            }
+<span class="nc" id="L518">        });</span>
+<span class="nc" id="L519">    }</span>
+
+    @Override
+    public ResourceTO getResourceTO(final ExternalResource resource) {
+<span class="nc" id="L523">        ResourceTO resourceTO = new ResourceTO();</span>
+
+        // set the resource name
+<span class="nc" id="L526">        resourceTO.setKey(resource.getKey());</span>
+
+        // set the connector instance
+<span class="nc" id="L529">        ConnInstance connector = resource.getConnector();</span>
+
+<span class="nc" id="L531">        resourceTO.setConnector(Optional.ofNullable(connector).map(ConnInstance::getKey).orElse(null));</span>
+<span class="nc" id="L532">        resourceTO.setConnectorDisplayName(Optional.ofNullable(connector).</span>
+<span class="nc" id="L533">                map(ConnInstance::getDisplayName).orElse(null));</span>
+
+        // set the provision information
+<span class="nc" id="L536">        resource.getProvisions().forEach(provision -&gt; {</span>
+<span class="nc" id="L537">            Provision provisionTO = new Provision();</span>
+<span class="nc" id="L538">            provisionTO.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L539">            provisionTO.setObjectClass(provision.getObjectClass());</span>
+<span class="nc" id="L540">            provisionTO.getAuxClasses().addAll(provision.getAuxClasses());</span>
+<span class="nc" id="L541">            provisionTO.setSyncToken(provision.getSyncToken());</span>
+<span class="nc" id="L542">            provisionTO.setIgnoreCaseMatch(provision.isIgnoreCaseMatch());</span>
+<span class="nc" id="L543">            provisionTO.setUidOnCreate(provision.getUidOnCreate());</span>
+
+<span class="nc bnc" id="L545" title="All 2 branches missed.">            if (provision.getMapping() != null) {</span>
+<span class="nc" id="L546">                Mapping mappingTO = new Mapping();</span>
+<span class="nc" id="L547">                provisionTO.setMapping(mappingTO);</span>
+<span class="nc" id="L548">                mappingTO.setConnObjectLink(provision.getMapping().getConnObjectLink());</span>
+<span class="nc" id="L549">                populateItems(provision.getMapping().getItems(), mappingTO);</span>
+            }
+
+<span class="nc" id="L552">            resourceTO.getProvisions().add(provisionTO);</span>
+<span class="nc" id="L553">        });</span>
+
+<span class="nc bnc" id="L555" title="All 2 branches missed.">        if (resource.getOrgUnit() != null) {</span>
+<span class="nc" id="L556">            OrgUnit orgUnit = resource.getOrgUnit();</span>
+
+<span class="nc" id="L558">            OrgUnit orgUnitTO = new OrgUnit();</span>
+<span class="nc" id="L559">            orgUnitTO.setObjectClass(orgUnit.getObjectClass());</span>
+<span class="nc" id="L560">            orgUnitTO.setSyncToken(orgUnit.getSyncToken());</span>
+<span class="nc" id="L561">            orgUnitTO.setIgnoreCaseMatch(orgUnit.isIgnoreCaseMatch());</span>
+<span class="nc" id="L562">            orgUnitTO.setConnObjectLink(orgUnit.getConnObjectLink());</span>
+<span class="nc" id="L563">            populateItems(orgUnit.getItems(), orgUnitTO);</span>
+
+<span class="nc" id="L565">            resourceTO.setOrgUnit(orgUnitTO);</span>
+        }
+
+<span class="nc" id="L568">        resourceTO.setEnforceMandatoryCondition(resource.isEnforceMandatoryCondition());</span>
+
+<span class="nc" id="L570">        resourceTO.setPropagationPriority(resource.getPropagationPriority());</span>
+
+<span class="nc" id="L572">        resourceTO.setCreateTraceLevel(resource.getCreateTraceLevel());</span>
+<span class="nc" id="L573">        resourceTO.setUpdateTraceLevel(resource.getUpdateTraceLevel());</span>
+<span class="nc" id="L574">        resourceTO.setDeleteTraceLevel(resource.getDeleteTraceLevel());</span>
+<span class="nc" id="L575">        resourceTO.setProvisioningTraceLevel(resource.getProvisioningTraceLevel());</span>
+
+<span class="nc bnc" id="L577" title="All 2 branches missed.">        resourceTO.setPasswordPolicy(resource.getPasswordPolicy() == null</span>
+<span class="nc" id="L578">                ? null : resource.getPasswordPolicy().getKey());</span>
+
+<span class="nc bnc" id="L580" title="All 2 branches missed.">        resourceTO.setAccountPolicy(resource.getAccountPolicy() == null</span>
+<span class="nc" id="L581">                ? null : resource.getAccountPolicy().getKey());</span>
+
+<span class="nc bnc" id="L583" title="All 2 branches missed.">        resourceTO.setPropagationPolicy(resource.getPropagationPolicy() == null</span>
+<span class="nc" id="L584">                ? null : resource.getPropagationPolicy().getKey());</span>
+
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        resourceTO.setInboundPolicy(resource.getInboundPolicy() == null</span>
+<span class="nc" id="L587">                ? null : resource.getInboundPolicy().getKey());</span>
+
+<span class="nc bnc" id="L589" title="All 2 branches missed.">        resourceTO.setPushPolicy(resource.getPushPolicy() == null</span>
+<span class="nc" id="L590">                ? null : resource.getPushPolicy().getKey());</span>
+
+<span class="nc bnc" id="L592" title="All 2 branches missed.">        resourceTO.setProvisionSorter(resource.getProvisionSorter() == null</span>
+<span class="nc" id="L593">                ? null : resource.getProvisionSorter().getKey());</span>
+
+<span class="nc" id="L595">        resourceTO.setConfOverride(resource.getConfOverride());</span>
+
+<span class="nc" id="L597">        resourceTO.setCapabilitiesOverride(resource.getCapabilitiesOverride());</span>
+
+<span class="nc" id="L599">        resourceTO.getPropagationActions().addAll(</span>
+<span class="nc" id="L600">                resource.getPropagationActions().stream().map(Implementation::getKey).toList());</span>
+
+<span class="nc" id="L602">        return resourceTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

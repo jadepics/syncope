@@ -1,0 +1,528 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InboundMatcher.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">InboundMatcher.java</span></div><h1>InboundMatcher.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.MatchType;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnySearchDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.dao.search.AnyCond;
+import org.apache.syncope.core.persistence.api.dao.search.AttrCond;
+import org.apache.syncope.core.persistence.api.dao.search.SearchCond;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.DerSchema;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundCorrelationRuleEntity;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.IntAttrName;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.data.ItemTransformer;
+import org.apache.syncope.core.provisioning.api.rules.InboundCorrelationRule;
+import org.apache.syncope.core.provisioning.api.rules.InboundMatch;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.LiveSyncDelta;
+import org.identityconnectors.framework.common.objects.Name;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.SearchResult;
+import org.identityconnectors.framework.common.objects.SyncDelta;
+import org.identityconnectors.framework.common.objects.SyncDeltaBuilder;
+import org.identityconnectors.framework.common.objects.SyncDeltaType;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.identityconnectors.framework.common.objects.filter.FilterBuilder;
+import org.identityconnectors.framework.spi.SearchResultsHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
+@Transactional(readOnly = true)
+public class InboundMatcher {
+
+<span class="nc" id="L86">    protected static final Logger LOG = LoggerFactory.getLogger(InboundMatcher.class);</span>
+
+    protected final UserDAO userDAO;
+
+    protected final AnyObjectDAO anyObjectDAO;
+
+    protected final GroupDAO groupDAO;
+
+    protected final AnySearchDAO anySearchDAO;
+
+    protected final RealmDAO realmDAO;
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final IntAttrNameParser intAttrNameParser;
+
+    protected final AnyUtilsFactory anyUtilsFactory;
+
+<span class="nc" id="L106">    protected final Map&lt;String, InboundCorrelationRule&gt; perContextInboundCorrelationRules = new ConcurrentHashMap&lt;&gt;();</span>
+
+    public InboundMatcher(
+            final UserDAO userDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final GroupDAO groupDAO,
+            final AnySearchDAO anySearchDAO,
+            final RealmDAO realmDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final ImplementationDAO implementationDAO,
+            final IntAttrNameParser intAttrNameParser,
+<span class="nc" id="L117">            final AnyUtilsFactory anyUtilsFactory) {</span>
+
+<span class="nc" id="L119">        this.userDAO = userDAO;</span>
+<span class="nc" id="L120">        this.anyObjectDAO = anyObjectDAO;</span>
+<span class="nc" id="L121">        this.groupDAO = groupDAO;</span>
+<span class="nc" id="L122">        this.anySearchDAO = anySearchDAO;</span>
+<span class="nc" id="L123">        this.realmDAO = realmDAO;</span>
+<span class="nc" id="L124">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L125">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L126">        this.intAttrNameParser = intAttrNameParser;</span>
+<span class="nc" id="L127">        this.anyUtilsFactory = anyUtilsFactory;</span>
+<span class="nc" id="L128">    }</span>
+
+    public Optional&lt;InboundMatch&gt; match(
+            final AnyType anyType,
+            final String connObjectLinkValue,
+            final ExternalResource resource,
+            final Connector connector) {
+
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        if (StringUtils.isBlank(connObjectLinkValue)) {</span>
+<span class="nc" id="L137">            return Optional.empty();</span>
+        }
+
+<span class="nc" id="L140">        Provision provision = resource.getProvisionByAnyType(anyType.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (provision == null) {</span>
+<span class="nc" id="L142">            return Optional.empty();</span>
+        }
+
+        // first, attempt to match the provided connObjectLinkValue against the configured connObjectLink
+        // (if available) via internal search
+<span class="nc bnc" id="L147" title="All 2 branches missed.">        if (StringUtils.isNotBlank(provision.getMapping().getConnObjectLink())) {</span>
+<span class="nc" id="L148">            List&lt;? extends Any&gt; found = anySearchDAO.findByDerAttrValue(</span>
+<span class="nc" id="L149">                    provision.getMapping().getConnObjectLink(),</span>
+                    connObjectLinkValue,
+<span class="nc" id="L151">                    provision.isIgnoreCaseMatch(),</span>
+<span class="nc" id="L152">                    anyType.getKind());</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">            if (!found.isEmpty()) {</span>
+<span class="nc" id="L154">                return Optional.of(new InboundMatch(MatchType.ANY, found.getFirst()));</span>
+            }
+        }
+
+        // then, attempt to lookup the provided connObjectLinkValue onto the connector
+<span class="nc" id="L159">        List&lt;ConnectorObject&gt; found = new ArrayList&lt;&gt;();</span>
+
+        try {
+<span class="nc" id="L162">            Name nameAttr = new Name(connObjectLinkValue);</span>
+<span class="nc" id="L163">            connector.search(</span>
+<span class="nc" id="L164">                    new ObjectClass(provision.getObjectClass()),</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                    provision.isIgnoreCaseMatch()</span>
+<span class="nc" id="L166">                    ? FilterBuilder.equalsIgnoreCase(nameAttr)</span>
+<span class="nc" id="L167">                    : FilterBuilder.equalTo(nameAttr),</span>
+<span class="nc" id="L168">                    new SearchResultsHandler() {</span>
+
+                @Override
+                public void handleResult(final SearchResult result) {
+                    // nothing to do
+<span class="nc" id="L173">                }</span>
+
+                @Override
+                public boolean handle(final ConnectorObject connectorObject) {
+<span class="nc" id="L177">                    return found.add(connectorObject);</span>
+                }
+<span class="nc" id="L179">            }, MappingUtils.buildOperationOptions(provision.getMapping().getItems().stream()));</span>
+<span class="nc" id="L180">        } catch (Throwable t) {</span>
+<span class="nc" id="L181">            LOG.warn(&quot;While searching for {} ...&quot;, connObjectLinkValue, t);</span>
+<span class="nc" id="L182">        }</span>
+
+<span class="nc" id="L184">        Optional&lt;InboundMatch&gt; result = Optional.empty();</span>
+
+<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (found.isEmpty()) {</span>
+<span class="nc" id="L187">            LOG.debug(&quot;No {} found on {} with {} {}&quot;,</span>
+<span class="nc" id="L188">                    provision.getObjectClass(), resource, Name.NAME, connObjectLinkValue);</span>
+        } else {
+<span class="nc bnc" id="L190" title="All 2 branches missed.">            if (found.size() &gt; 1) {</span>
+<span class="nc" id="L191">                LOG.warn(&quot;More than one {} found on {} with {} {} - taking first only&quot;,</span>
+<span class="nc" id="L192">                        provision.getObjectClass(), resource, Name.NAME, connObjectLinkValue);</span>
+            }
+
+<span class="nc" id="L195">            ConnectorObject connObj = found.getFirst();</span>
+            try {
+<span class="nc" id="L197">                List&lt;InboundMatch&gt; matches = match(</span>
+                        new SyncDeltaBuilder().
+<span class="nc" id="L199">                                setToken(new SyncToken(&quot;&quot;)).</span>
+<span class="nc" id="L200">                                setDeltaType(SyncDeltaType.CREATE_OR_UPDATE).</span>
+<span class="nc" id="L201">                                setObject(connObj).</span>
+<span class="nc" id="L202">                                build(),</span>
+                        resource,
+                        provision,
+<span class="nc" id="L205">                        anyType.getKind());</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">                if (matches.isEmpty()) {</span>
+<span class="nc" id="L207">                    LOG.debug(&quot;No matching {} found for {}, aborting&quot;, anyType.getKind(), connObj);</span>
+                } else {
+<span class="nc bnc" id="L209" title="All 2 branches missed.">                    if (matches.size() &gt; 1) {</span>
+<span class="nc" id="L210">                        LOG.warn(&quot;More than one {} found {} - taking first only&quot;, anyType.getKind(), matches);</span>
+                    }
+
+<span class="nc bnc" id="L213" title="All 2 branches missed.">                    result = matches.stream().filter(match -&gt; match.getAny() != null).findFirst();</span>
+                }
+<span class="nc" id="L215">            } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L216">                LOG.warn(e.getMessage());</span>
+<span class="nc" id="L217">            }</span>
+        }
+
+<span class="nc" id="L220">        return result;</span>
+    }
+
+    protected List&lt;Implementation&gt; getTransformers(final Item item) {
+<span class="nc" id="L224">        return item.getTransformers().stream().</span>
+<span class="nc" id="L225">                map(implementationDAO::findById).</span>
+<span class="nc" id="L226">                flatMap(Optional::stream).</span>
+<span class="nc" id="L227">                collect(Collectors.toList());</span>
+    }
+
+    public List&lt;InboundMatch&gt; matchByConnObjectKeyValue(
+            final Item connObjectKeyItem,
+            final String connObjectKeyValue,
+            final AnyTypeKind anyTypeKind,
+            final ExternalResource resource,
+            final boolean ignoreCaseMatch) {
+
+<span class="nc" id="L237">        String finalConnObjectKeyValue = connObjectKeyValue;</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        for (ItemTransformer transformer : MappingUtils.getItemTransformers(</span>
+<span class="nc" id="L239">                AuthContextUtils.getDomain(), connObjectKeyItem, getTransformers(connObjectKeyItem))) {</span>
+
+<span class="nc" id="L241">            List&lt;Object&gt; output = transformer.beforePull(</span>
+                    connObjectKeyItem,
+                    null,
+<span class="nc" id="L244">                    List.of(finalConnObjectKeyValue));</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">            if (!CollectionUtils.isEmpty(output)) {</span>
+<span class="nc" id="L246">                finalConnObjectKeyValue = output.getFirst().toString();</span>
+            }
+<span class="nc" id="L248">        }</span>
+
+<span class="nc" id="L250">        List&lt;InboundMatch&gt; noMatchResult = List.of(InboundCorrelationRule.NO_MATCH);</span>
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L254">            intAttrName = intAttrNameParser.parse(connObjectKeyItem.getIntAttrName(), anyTypeKind);</span>
+<span class="nc" id="L255">        } catch (ParseException e) {</span>
+<span class="nc" id="L256">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, connObjectKeyItem.getIntAttrName(), e);</span>
+<span class="nc" id="L257">            return noMatchResult;</span>
+<span class="nc" id="L258">        }</span>
+
+<span class="nc" id="L260">        AnyUtils anyUtils = anyUtilsFactory.getInstance(anyTypeKind);</span>
+
+<span class="nc" id="L262">        List&lt;Any&gt; anys = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        if (intAttrName.getField() != null) {</span>
+<span class="nc bnc" id="L265" title="All 4 branches missed.">            switch (intAttrName.getField()) {</span>
+                case &quot;key&quot; -&gt;
+<span class="nc" id="L267">                    anyUtils.dao().findById(finalConnObjectKeyValue).ifPresent(anys::add);</span>
+
+                case &quot;username&quot; -&gt; {
+<span class="nc bnc" id="L270" title="All 4 branches missed.">                    if (anyTypeKind == AnyTypeKind.USER &amp;&amp; ignoreCaseMatch) {</span>
+<span class="nc" id="L271">                        AnyCond cond = new AnyCond(AttrCond.Type.IEQ);</span>
+<span class="nc" id="L272">                        cond.setSchema(&quot;username&quot;);</span>
+<span class="nc" id="L273">                        cond.setExpression(finalConnObjectKeyValue);</span>
+<span class="nc" id="L274">                        anys.addAll(anySearchDAO.search(SearchCond.of(cond), AnyTypeKind.USER));</span>
+<span class="nc" id="L275">                    } else {</span>
+<span class="nc" id="L276">                        userDAO.findByUsername(finalConnObjectKeyValue).ifPresent(anys::add);</span>
+                    }
+<span class="nc" id="L278">                }</span>
+
+                case &quot;name&quot; -&gt; {
+<span class="nc bnc" id="L281" title="All 4 branches missed.">                    if (anyTypeKind == AnyTypeKind.GROUP &amp;&amp; ignoreCaseMatch) {</span>
+<span class="nc" id="L282">                        AnyCond cond = new AnyCond(AttrCond.Type.IEQ);</span>
+<span class="nc" id="L283">                        cond.setSchema(&quot;name&quot;);</span>
+<span class="nc" id="L284">                        cond.setExpression(finalConnObjectKeyValue);</span>
+<span class="nc" id="L285">                        anys.addAll(anySearchDAO.search(SearchCond.of(cond), AnyTypeKind.GROUP));</span>
+<span class="nc" id="L286">                    } else {</span>
+<span class="nc" id="L287">                        groupDAO.findByName(finalConnObjectKeyValue).ifPresent(anys::add);</span>
+                    }
+
+<span class="nc bnc" id="L290" title="All 4 branches missed.">                    if (anyTypeKind == AnyTypeKind.ANY_OBJECT &amp;&amp; ignoreCaseMatch) {</span>
+<span class="nc" id="L291">                        AnyCond cond = new AnyCond(AttrCond.Type.IEQ);</span>
+<span class="nc" id="L292">                        cond.setSchema(&quot;name&quot;);</span>
+<span class="nc" id="L293">                        cond.setExpression(finalConnObjectKeyValue);</span>
+<span class="nc" id="L294">                        anys.addAll(anySearchDAO.search(SearchCond.of(cond), AnyTypeKind.ANY_OBJECT));</span>
+<span class="nc" id="L295">                    } else {</span>
+<span class="nc" id="L296">                        anys.addAll(anyObjectDAO.findByName(finalConnObjectKeyValue));</span>
+                    }
+<span class="nc" id="L298">                }</span>
+
+                default -&gt; {
+                }
+<span class="nc" id="L302">            }</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        } else if (intAttrName.getSchemaInfo() != null) {</span>
+<span class="nc bnc" id="L304" title="All 3 branches missed.">            switch (intAttrName.getSchemaInfo().type()) {</span>
+                case PLAIN -&gt; {
+<span class="nc bnc" id="L306" title="All 2 branches missed.">                    AttrCond attrCond = new AttrCond(ignoreCaseMatch ? AttrCond.Type.IEQ : AttrCond.Type.EQ);</span>
+<span class="nc" id="L307">                    attrCond.setSchema(intAttrName.getSchemaInfo().schema().getKey());</span>
+<span class="nc" id="L308">                    attrCond.setExpression(finalConnObjectKeyValue);</span>
+<span class="nc" id="L309">                    anys.addAll(anySearchDAO.search(SearchCond.of(attrCond), anyTypeKind));</span>
+<span class="nc" id="L310">                }</span>
+
+                case DERIVED -&gt;
+<span class="nc" id="L313">                    anys.addAll(anySearchDAO.findByDerAttrValue(</span>
+<span class="nc" id="L314">                            ((DerSchema) intAttrName.getSchemaInfo().schema()).getExpression(),</span>
+                            finalConnObjectKeyValue,
+                            ignoreCaseMatch,
+                            anyTypeKind));
+
+                default -&gt; {
+                }
+            }
+        }
+
+<span class="nc" id="L324">        List&lt;InboundMatch&gt; result = anys.stream().</span>
+<span class="nc" id="L325">                map(any -&gt; new InboundMatch(MatchType.ANY, any)).</span>
+<span class="nc" id="L326">                collect(Collectors.toList());</span>
+
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        if (resource != null) {</span>
+<span class="nc" id="L329">            userDAO.findLinkedAccount(resource, finalConnObjectKeyValue).</span>
+<span class="nc" id="L330">                    map(account -&gt; new InboundMatch(MatchType.LINKED_ACCOUNT, account)).</span>
+<span class="nc" id="L331">                    ifPresent(result::add);</span>
+        }
+
+<span class="nc bnc" id="L334" title="All 2 branches missed.">        return result.isEmpty() ? noMatchResult : result;</span>
+    }
+
+    protected List&lt;InboundMatch&gt; matchByCorrelationRule(
+            final SyncDelta syncDelta,
+            final Provision provision,
+            final InboundCorrelationRule rule,
+            final AnyTypeKind type) {
+
+<span class="nc" id="L343">        List&lt;InboundMatch&gt; result = new ArrayList&lt;&gt;();</span>
+
+        try {
+<span class="nc" id="L346">            result.addAll(anySearchDAO.search(rule.getSearchCond(syncDelta, provision), type).stream().</span>
+<span class="nc" id="L347">                    map(any -&gt; rule.matching(any, syncDelta, provision)).</span>
+<span class="nc" id="L348">                    toList());</span>
+<span class="nc" id="L349">        } catch (Throwable t) {</span>
+<span class="nc" id="L350">            LOG.error(&quot;While searching via {}&quot;, rule.getClass().getName(), t);</span>
+<span class="nc" id="L351">        }</span>
+
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if (result.isEmpty()) {</span>
+<span class="nc" id="L354">            rule.unmatching(syncDelta, provision).ifPresent(result::add);</span>
+        }
+
+<span class="nc" id="L357">        return result;</span>
+    }
+
+    protected Optional&lt;InboundCorrelationRule&gt; rule(final ExternalResource resource, final Provision provision) {
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        Optional&lt;? extends InboundCorrelationRuleEntity&gt; correlationRule = resource.getInboundPolicy() == null</span>
+<span class="nc" id="L362">                ? Optional.empty()</span>
+<span class="nc" id="L363">                : resource.getInboundPolicy().getCorrelationRule(provision.getAnyType());</span>
+
+<span class="nc" id="L365">        Optional&lt;InboundCorrelationRule&gt; rule = Optional.empty();</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">        if (correlationRule.isPresent()) {</span>
+<span class="nc" id="L367">            Implementation impl = correlationRule.get().getImplementation();</span>
+            try {
+<span class="nc" id="L369">                rule = ImplementationManager.buildInboundCorrelationRule(</span>
+<span class="nc" id="L370">                        AuthContextUtils.getDomain(),</span>
+                        impl,
+<span class="nc" id="L372">                        () -&gt; perContextInboundCorrelationRules.get(impl.getKey()),</span>
+<span class="nc" id="L373">                        instance -&gt; perContextInboundCorrelationRules.put(impl.getKey(), instance));</span>
+<span class="nc" id="L374">            } catch (Exception e) {</span>
+<span class="nc" id="L375">                LOG.error(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L376">            }</span>
+        }
+
+<span class="nc" id="L379">        return rule;</span>
+    }
+
+    /**
+     * Finds internal entities based on external attributes and mapping.
+     *
+     * @param syncDelta change operation, including external attributes
+     * @param resource external resource
+     * @param provision mapping
+     * @param anyTypeKind type kind
+     * @return list of matching users' / groups' / any objects' keys
+     */
+    public List&lt;InboundMatch&gt; match(
+            final SyncDelta syncDelta,
+            final ExternalResource resource,
+            final Provision provision,
+            final AnyTypeKind anyTypeKind) {
+
+<span class="nc" id="L397">        Optional&lt;InboundCorrelationRule&gt; rule = rule(resource, provision);</span>
+
+<span class="nc" id="L399">        List&lt;InboundMatch&gt; result = List.of();</span>
+        try {
+<span class="nc bnc" id="L401" title="All 2 branches missed.">            if (rule.isPresent()) {</span>
+<span class="nc" id="L402">                result = matchByCorrelationRule(syncDelta, provision, rule.get(), anyTypeKind);</span>
+            } else {
+<span class="nc" id="L404">                String connObjectKeyValue = null;</span>
+
+<span class="nc" id="L406">                Optional&lt;Item&gt; connObjectKeyItem = MappingUtils.getConnObjectKeyItem(provision);</span>
+<span class="nc bnc" id="L407" title="All 2 branches missed.">                if (connObjectKeyItem.isPresent()) {</span>
+<span class="nc" id="L408">                    Attribute connObjectKeyAttr = syncDelta.getObject().</span>
+<span class="nc" id="L409">                            getAttributeByName(connObjectKeyItem.get().getExtAttrName());</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                    if (connObjectKeyAttr != null) {</span>
+<span class="nc" id="L411">                        connObjectKeyValue = AttributeUtil.getStringValue(connObjectKeyAttr);</span>
+                    }
+                    // fallback to __UID__
+<span class="nc bnc" id="L414" title="All 2 branches missed.">                    if (connObjectKeyValue == null) {</span>
+<span class="nc" id="L415">                        connObjectKeyValue = syncDelta.getUid().getUidValue();</span>
+                    }
+                }
+<span class="nc bnc" id="L418" title="All 2 branches missed.">                if (connObjectKeyValue == null) {</span>
+<span class="nc" id="L419">                    result = List.of(InboundCorrelationRule.NO_MATCH);</span>
+                } else {
+<span class="nc" id="L421">                    result = matchByConnObjectKeyValue(</span>
+<span class="nc" id="L422">                            connObjectKeyItem.get(),</span>
+                            connObjectKeyValue,
+                            anyTypeKind,
+                            resource,
+<span class="nc" id="L426">                            provision.isIgnoreCaseMatch());</span>
+                }
+            }
+<span class="nc" id="L429">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L430">            LOG.error(&quot;Could not match {} with any existing {}&quot;, syncDelta, provision.getAnyType(), e);</span>
+<span class="nc" id="L431">        }</span>
+
+<span class="nc" id="L433">        return result;</span>
+    }
+
+    /**
+     * Finds internal realms based on external attributes and mapping.
+     *
+     * @param syncDelta change operation, including external attributes
+     * @param orgUnit mapping
+     * @return list of matching realms' keys.
+     */
+    @Transactional(readOnly = true)
+    public List&lt;Realm&gt; match(final LiveSyncDelta syncDelta, final OrgUnit orgUnit) {
+<span class="nc" id="L445">        String connObjectKey = null;</span>
+
+<span class="nc" id="L447">        Item connObjectKeyItem = orgUnit.getConnObjectKeyItem().orElse(null);</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">        if (connObjectKeyItem != null) {</span>
+<span class="nc" id="L449">            Attribute connObjectKeyAttr = syncDelta.getObject().getAttributeByName(connObjectKeyItem.getExtAttrName());</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">            if (connObjectKeyAttr != null) {</span>
+<span class="nc" id="L451">                connObjectKey = AttributeUtil.getStringValue(connObjectKeyAttr);</span>
+            }
+        }
+<span class="nc bnc" id="L454" title="All 2 branches missed.">        if (connObjectKey == null) {</span>
+<span class="nc" id="L455">            return List.of();</span>
+        }
+
+<span class="nc bnc" id="L458" title="All 2 branches missed.">        for (ItemTransformer transformer : MappingUtils.getItemTransformers(</span>
+<span class="nc" id="L459">                AuthContextUtils.getDomain(), connObjectKeyItem, getTransformers(connObjectKeyItem))) {</span>
+
+<span class="nc" id="L461">            List&lt;Object&gt; output = transformer.beforePull(</span>
+                    connObjectKeyItem,
+                    null,
+<span class="nc" id="L464">                    List.of(connObjectKey));</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">            if (!CollectionUtils.isEmpty(output)) {</span>
+<span class="nc" id="L466">                connObjectKey = output.getFirst().toString();</span>
+            }
+<span class="nc" id="L468">        }</span>
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L472">            intAttrName = intAttrNameParser.parse(connObjectKeyItem.getIntAttrName());</span>
+<span class="nc" id="L473">        } catch (ParseException e) {</span>
+<span class="nc" id="L474">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, connObjectKeyItem.getIntAttrName(), e);</span>
+<span class="nc" id="L475">            return List.of();</span>
+<span class="nc" id="L476">        }</span>
+
+<span class="nc" id="L478">        List&lt;Realm&gt; result = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L480" title="All 2 branches missed.">        if (intAttrName.getField() != null) {</span>
+<span class="nc bnc" id="L481" title="All 4 branches missed.">            switch (intAttrName.getField()) {</span>
+                case &quot;key&quot; -&gt;
+<span class="nc" id="L483">                    realmDAO.findById(connObjectKey).ifPresent(result::add);</span>
+
+                case &quot;name&quot; -&gt; {
+<span class="nc bnc" id="L486" title="All 2 branches missed.">                    if (orgUnit.isIgnoreCaseMatch()) {</span>
+<span class="nc" id="L487">                        AnyCond cond = new AnyCond();</span>
+<span class="nc" id="L488">                        cond.setType(AttrCond.Type.IEQ);</span>
+<span class="nc" id="L489">                        cond.setSchema(&quot;name&quot;);</span>
+<span class="nc" id="L490">                        cond.setExpression(connObjectKey);</span>
+<span class="nc" id="L491">                        result.addAll(realmSearchDAO.search(</span>
+<span class="nc" id="L492">                                Set.of(SyncopeConstants.ROOT_REALM), SearchCond.of(cond), Pageable.unpaged()));</span>
+<span class="nc" id="L493">                    } else {</span>
+<span class="nc" id="L494">                        result.addAll(realmSearchDAO.findByName(connObjectKey).stream().toList());</span>
+                    }
+<span class="nc" id="L496">                }</span>
+
+                case &quot;fullpath&quot; -&gt;
+<span class="nc" id="L499">                    realmSearchDAO.findByFullPath(connObjectKey).ifPresent(result::add);</span>
+
+                default -&gt; {
+                }
+<span class="nc" id="L503">            }</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">        } else if (intAttrName.getSchemaInfo() != null) {</span>
+<span class="nc bnc" id="L505" title="All 3 branches missed.">            switch (intAttrName.getSchemaInfo().type()) {</span>
+                case PLAIN -&gt; {
+<span class="nc bnc" id="L507" title="All 2 branches missed.">                    AttrCond cond = new AttrCond(orgUnit.isIgnoreCaseMatch() ? AttrCond.Type.IEQ : AttrCond.Type.EQ);</span>
+<span class="nc" id="L508">                    cond.setSchema(intAttrName.getSchemaInfo().schema().getKey());</span>
+<span class="nc" id="L509">                    cond.setExpression(connObjectKey);</span>
+<span class="nc" id="L510">                    result.addAll(realmSearchDAO.search(</span>
+<span class="nc" id="L511">                            Set.of(SyncopeConstants.ROOT_REALM), SearchCond.of(cond), Pageable.unpaged()));</span>
+<span class="nc" id="L512">                }</span>
+
+                case DERIVED -&gt;
+<span class="nc" id="L515">                    result.addAll(realmSearchDAO.findByDerAttrValue(</span>
+<span class="nc" id="L516">                            ((DerSchema) intAttrName.getSchemaInfo().schema()).getExpression(),</span>
+                            connObjectKey,
+<span class="nc" id="L518">                            orgUnit.isIgnoreCaseMatch()));</span>
+
+                default -&gt; {
+                }
+            }
+        }
+
+<span class="nc" id="L525">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

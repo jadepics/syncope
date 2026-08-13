@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SinglePullJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">SinglePullJobDelegate.java</span></div><h1>SinglePullJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.to.PullTaskTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.ConflictResolutionAction;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.PullMode;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.task.AnyTemplatePullTask;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.jexl.TemplateUtils;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.ReconFilterBuilder;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopeSinglePullExecutor;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L55">public class SinglePullJobDelegate extends PullJobDelegate implements SyncopeSinglePullExecutor {</span>
+
+    @Autowired
+    protected ImplementationDAO implementationDAO;
+
+    @Autowired
+    protected RealmSearchDAO realmSearchDAO;
+
+    @Autowired
+    protected TemplateUtils templateUtils;
+
+    @Override
+    public List&lt;ProvisioningReport&gt; pull(
+            final ExternalResource resource,
+            final Provision provision,
+            final Connector connector,
+            final ReconFilterBuilder reconFilterBuilder,
+            final Set&lt;String&gt; moreAttrsToGet,
+            final PullTaskTO pullTaskTO,
+            final String executor) throws JobExecutionException {
+
+<span class="nc" id="L76">        LOG.debug(&quot;Executing pull on {}&quot;, resource);</span>
+
+<span class="nc" id="L78">        taskType = TaskType.PULL;</span>
+        try {
+<span class="nc" id="L80">            task = entityFactory.newEntity(PullTask.class);</span>
+<span class="nc" id="L81">            task.setName(pullTaskTO.getName());</span>
+<span class="nc" id="L82">            task.setResource(resource);</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">            task.setMatchingRule(pullTaskTO.getMatchingRule() == null</span>
+<span class="nc" id="L84">                    ? MatchingRule.UPDATE : pullTaskTO.getMatchingRule());</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">            task.setUnmatchingRule(pullTaskTO.getUnmatchingRule() == null</span>
+<span class="nc" id="L86">                    ? UnmatchingRule.PROVISION : pullTaskTO.getUnmatchingRule());</span>
+<span class="nc" id="L87">            task.setPullMode(PullMode.FILTERED_RECONCILIATION);</span>
+<span class="nc" id="L88">            task.setPerformCreate(pullTaskTO.isPerformCreate());</span>
+<span class="nc" id="L89">            task.setPerformUpdate(pullTaskTO.isPerformUpdate());</span>
+<span class="nc" id="L90">            task.setPerformDelete(pullTaskTO.isPerformDelete());</span>
+<span class="nc" id="L91">            task.setSyncStatus(pullTaskTO.isSyncStatus());</span>
+<span class="nc" id="L92">            task.setDestinationRealm(realmSearchDAO.findByFullPath(pullTaskTO.getDestinationRealm()).</span>
+<span class="nc" id="L93">                    orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + pullTaskTO.getDestinationRealm())));</span>
+<span class="nc" id="L94">            task.setRemediation(pullTaskTO.isRemediation());</span>
+
+            // validate JEXL expressions from templates and proceed if fine
+<span class="nc" id="L97">            templateUtils.check(pullTaskTO.getTemplates(), ClientExceptionType.InvalidPullTask);</span>
+<span class="nc" id="L98">            pullTaskTO.getTemplates().forEach((type, template) -&gt; anyTypeDAO.findById(type).ifPresentOrElse(</span>
+                    anyType -&gt; {
+<span class="nc" id="L100">                        AnyTemplatePullTask anyTemplate = task.getTemplate(anyType.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">                        if (anyTemplate == null) {</span>
+<span class="nc" id="L102">                            anyTemplate = entityFactory.newEntity(AnyTemplatePullTask.class);</span>
+<span class="nc" id="L103">                            anyTemplate.setAnyType(anyType);</span>
+<span class="nc" id="L104">                            anyTemplate.setPullTask(task);</span>
+
+<span class="nc" id="L106">                            task.add(anyTemplate);</span>
+                        }
+<span class="nc" id="L108">                        anyTemplate.set(template);</span>
+<span class="nc" id="L109">                    },</span>
+<span class="nc" id="L110">                    () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, type)));</span>
+
+<span class="nc" id="L112">            profile = new ProvisioningProfile&lt;&gt;(</span>
+                    connector,
+                    taskType,
+                    task,
+                    ConflictResolutionAction.FIRSTMATCH,
+<span class="nc" id="L117">                    getInboundActions(AuthContextUtils.getDomain(), pullTaskTO.getActions().stream().</span>
+<span class="nc" id="L118">                            map(implementationDAO::findById).flatMap(Optional::stream).</span>
+<span class="nc" id="L119">                            toList()),</span>
+                    executor,
+                    false);
+
+<span class="nc" id="L123">            dispatcher = buildDispatcher();</span>
+
+<span class="nc bnc" id="L125" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L126">                action.beforeAll(profile);</span>
+<span class="nc" id="L127">            }</span>
+
+<span class="nc" id="L129">            AnyType anyType = anyTypeDAO.findById(provision.getAnyType()).</span>
+<span class="nc" id="L130">                    orElseThrow(() -&gt; new NotFoundException(&quot;AnyType&quot; + provision.getAnyType()));</span>
+
+<span class="nc" id="L132">            dispatcher.addHandlerSupplier(provision.getObjectClass(), () -&gt; {</span>
+                SyncopePullResultHandler handler;
+<span class="nc bnc" id="L134" title="All 3 branches missed.">                switch (anyType.getKind()) {</span>
+                    case USER:
+<span class="nc" id="L136">                        handler = buildUserHandler();</span>
+<span class="nc" id="L137">                        break;</span>
+
+                    case GROUP:
+<span class="nc" id="L140">                        handler = buildGroupHandler();</span>
+<span class="nc" id="L141">                        break;</span>
+
+                    case ANY_OBJECT:
+                    default:
+<span class="nc" id="L145">                        handler = buildAnyObjectHandler();</span>
+                }
+<span class="nc" id="L147">                handler.setProfile(profile);</span>
+<span class="nc" id="L148">                return handler;</span>
+            });
+
+            // execute filtered pull
+<span class="nc" id="L152">            Set&lt;String&gt; matg = new HashSet&lt;&gt;(moreAttrsToGet);</span>
+<span class="nc" id="L153">            profile.getActions().forEach(a -&gt; matg.addAll(a.moreAttrsToGet(profile, provision)));</span>
+
+<span class="nc" id="L155">            connector.filteredReconciliation(</span>
+<span class="nc" id="L156">                    new ObjectClass(provision.getObjectClass()),</span>
+                    reconFilterBuilder,
+                    dispatcher,
+<span class="nc" id="L159">                    MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L160">                            MappingUtils.getInboundItems(provision.getMapping().getItems().stream()),</span>
+<span class="nc" id="L161">                            matg.toArray(String[]::new)));</span>
+
+<span class="nc" id="L163">            AnyPullResultHandler handler =</span>
+<span class="nc" id="L164">                    (AnyPullResultHandler) dispatcher.nonConcurrentHandler(provision.getObjectClass());</span>
+            try {
+<span class="nc" id="L166">                handler.setManagers();</span>
+<span class="nc" id="L167">            } catch (Exception e) {</span>
+<span class="nc" id="L168">                LOG.error(&quot;While setting managers&quot;, e);</span>
+<span class="nc" id="L169">            }</span>
+
+<span class="nc bnc" id="L171" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L172">                action.afterAll(profile);</span>
+<span class="nc" id="L173">            }</span>
+
+<span class="nc" id="L175">            return profile.getResults();</span>
+<span class="nc" id="L176">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">            throw e instanceof final JobExecutionException jobExecutionException</span>
+<span class="nc" id="L178">                    ? jobExecutionException</span>
+<span class="nc" id="L179">                    : new JobExecutionException(&quot;While pulling from connector&quot;, e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DelegationDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">DelegationDataBinderImpl.java</span></div><h1>DelegationDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.Iterator;
+import java.util.stream.Collectors;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.DelegationTO;
+import org.apache.syncope.common.lib.to.RoleTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RoleDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.Delegation;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Role;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.data.DelegationDataBinder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class DelegationDataBinderImpl implements DelegationDataBinder {
+
+<span class="nc" id="L40">    protected static final Logger LOG = LoggerFactory.getLogger(DelegationDataBinder.class);</span>
+
+    protected final UserDAO userDAO;
+
+    protected final RoleDAO roleDAO;
+
+    protected final EntityFactory entityFactory;
+
+    public DelegationDataBinderImpl(
+            final UserDAO userDAO,
+            final RoleDAO roleDAO,
+<span class="nc" id="L51">            final EntityFactory entityFactory) {</span>
+
+<span class="nc" id="L53">        this.userDAO = userDAO;</span>
+<span class="nc" id="L54">        this.roleDAO = roleDAO;</span>
+<span class="nc" id="L55">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L56">    }</span>
+
+    @Override
+    public Delegation create(final DelegationTO delegationTO) {
+<span class="nc" id="L60">        Delegation delegation = entityFactory.newEntity(Delegation.class);</span>
+
+<span class="nc" id="L62">        User delegating = userDAO.findById(delegationTO.getDelegating()).</span>
+<span class="nc" id="L63">                orElseThrow(() -&gt; new NotFoundException(&quot;Delegating User &quot; + delegationTO.getDelegating()));</span>
+<span class="nc" id="L64">        delegation.setDelegating(delegating);</span>
+
+<span class="nc" id="L66">        User delegated = userDAO.findById(delegationTO.getDelegated()).</span>
+<span class="nc" id="L67">                orElseThrow(() -&gt; new NotFoundException(&quot;Delegated User &quot; + delegationTO.getDelegated()));</span>
+<span class="nc" id="L68">        delegation.setDelegated(delegated);</span>
+
+<span class="nc" id="L70">        return update(delegation, delegationTO);</span>
+    }
+
+    @Override
+    public Delegation update(final Delegation delegation, final DelegationTO delegationTO) {
+<span class="nc" id="L75">        delegation.setStart(delegationTO.getStart());</span>
+<span class="nc" id="L76">        delegation.setEnd(delegationTO.getEnd());</span>
+
+        // 1. add or update all (valid) roles from TO
+<span class="nc" id="L79">        delegationTO.getRoles().forEach(roleTO -&gt; {</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">            if (roleTO == null) {</span>
+<span class="nc" id="L81">                LOG.error(&quot;Null {}&quot;, RoleTO.class.getSimpleName());</span>
+            } else {
+<span class="nc" id="L83">                Role role = roleDAO.findById(roleTO).</span>
+<span class="nc" id="L84">                        orElseThrow(() -&gt; {</span>
+<span class="nc" id="L85">                            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidRole);</span>
+<span class="nc" id="L86">                            sce.getElements().add(&quot;Role &quot; + roleTO + &quot; not found&quot;);</span>
+<span class="nc" id="L87">                            return sce;</span>
+                        });
+
+<span class="nc" id="L90">                delegation.add(role);</span>
+            }
+<span class="nc" id="L92">        });</span>
+
+        // 2. remove all roles not contained in the TO
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        for (Iterator&lt;? extends Role&gt; itor = delegation.getRoles().iterator(); itor.hasNext();) {</span>
+<span class="nc" id="L96">            Role role = itor.next();</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">            if (delegationTO.getRoles().stream().noneMatch(roleKey -&gt; roleKey.equals(role.getKey()))) {</span>
+<span class="nc" id="L98">                itor.remove();</span>
+            }
+<span class="nc" id="L100">        }</span>
+
+<span class="nc" id="L102">        return delegation;</span>
+    }
+
+    @Override
+    public DelegationTO getDelegationTO(final Delegation delegation) {
+<span class="nc" id="L107">        DelegationTO delegationTO = new DelegationTO();</span>
+
+<span class="nc" id="L109">        delegationTO.setKey(delegation.getKey());</span>
+<span class="nc" id="L110">        delegationTO.setDelegating(delegation.getDelegating().getKey());</span>
+<span class="nc" id="L111">        delegationTO.setDelegated(delegation.getDelegated().getKey());</span>
+<span class="nc" id="L112">        delegationTO.setStart(delegation.getStart());</span>
+<span class="nc" id="L113">        delegationTO.setEnd(delegation.getEnd());</span>
+<span class="nc" id="L114">        delegationTO.getRoles().addAll(delegation.getRoles().stream().map(Role::getKey).collect(Collectors.toSet()));</span>
+
+<span class="nc" id="L116">        return delegationTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

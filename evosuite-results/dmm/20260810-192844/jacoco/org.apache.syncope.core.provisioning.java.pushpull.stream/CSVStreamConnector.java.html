@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CSVStreamConnector.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull.stream</a> &gt; <span class="el_source">CSVStreamConnector.java</span></div><h1>CSVStreamConnector.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull.stream;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.syncope.common.rest.api.beans.CSVPullSpec;
+import org.apache.syncope.core.persistence.api.entity.ConnInstance;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.identityconnectors.framework.common.exceptions.ConnectorException;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.AttributeDelta;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder;
+import org.identityconnectors.framework.common.objects.LiveSyncResultsHandler;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.ObjectClassInfo;
+import org.identityconnectors.framework.common.objects.OperationOptions;
+import org.identityconnectors.framework.common.objects.SearchResult;
+import org.identityconnectors.framework.common.objects.SyncResultsHandler;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.identityconnectors.framework.common.objects.filter.Filter;
+import org.identityconnectors.framework.spi.SearchResultsHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.util.CollectionUtils;
+import tools.jackson.databind.MappingIterator;
+import tools.jackson.databind.SequenceWriter;
+import tools.jackson.dataformat.csv.CsvMapper;
+import tools.jackson.dataformat.csv.CsvReadFeature;
+import tools.jackson.dataformat.csv.CsvSchema;
+
+public class CSVStreamConnector implements Connector, AutoCloseable {
+
+<span class="nc" id="L63">    private static final Logger LOG = LoggerFactory.getLogger(CSVStreamConnector.class);</span>
+
+    private final String keyColumn;
+
+    private final String arrayElementsSeparator;
+
+    private final CsvSchema.Builder schemaBuilder;
+
+    private final InputStream in;
+
+    private final OutputStream out;
+
+    private final List&lt;String&gt; columns;
+
+    private MappingIterator&lt;Map&lt;String, String&gt;&gt; reader;
+
+    private SequenceWriter writer;
+
+    public CSVStreamConnector(
+            final String keyColumn,
+            final String arrayElementsSeparator,
+            final CsvSchema.Builder schemaBuilder,
+            final InputStream in,
+            final OutputStream out,
+<span class="nc" id="L87">            final String... columns) {</span>
+
+<span class="nc" id="L89">        this.keyColumn = keyColumn;</span>
+<span class="nc" id="L90">        this.arrayElementsSeparator = arrayElementsSeparator;</span>
+<span class="nc" id="L91">        this.schemaBuilder = schemaBuilder;</span>
+<span class="nc" id="L92">        this.in = in;</span>
+<span class="nc" id="L93">        this.out = out;</span>
+<span class="nc" id="L94">        this.columns = List.of(columns);</span>
+<span class="nc" id="L95">    }</span>
+
+    @Override
+    public void close() throws IOException {
+<span class="nc bnc" id="L99" title="All 2 branches missed.">        if (reader != null) {</span>
+<span class="nc" id="L100">            reader.close();</span>
+        }
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (writer != null) {</span>
+<span class="nc" id="L103">            writer.close();</span>
+        }
+<span class="nc" id="L105">    }</span>
+
+    public MappingIterator&lt;Map&lt;String, String&gt;&gt; reader() throws IOException {
+<span class="nc" id="L108">        synchronized (this) {</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            if (reader == null) {</span>
+<span class="nc" id="L110">                reader = CsvMapper.builder().</span>
+<span class="nc" id="L111">                        enable(CsvReadFeature.SKIP_EMPTY_LINES).</span>
+<span class="nc" id="L112">                        build().</span>
+<span class="nc" id="L113">                        readerFor(Map.class).with(schemaBuilder.build()).readValues(in);</span>
+            }
+<span class="nc" id="L115">        }</span>
+<span class="nc" id="L116">        return reader;</span>
+    }
+
+    public List&lt;String&gt; getColumns(final CSVPullSpec spec) throws IOException {
+<span class="nc" id="L120">        List&lt;String&gt; fromSpec = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L121">        ((CsvSchema) reader().parserSchema()).forEach(column -&gt; {</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">            if (!spec.getIgnoreColumns().contains(column.getName())) {</span>
+<span class="nc" id="L123">                fromSpec.add(column.getName());</span>
+            }
+<span class="nc" id="L125">        });</span>
+<span class="nc" id="L126">        return fromSpec;</span>
+    }
+
+    public SequenceWriter writer() throws IOException {
+<span class="nc" id="L130">        synchronized (this) {</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">            if (writer == null) {</span>
+<span class="nc" id="L132">                writer = new CsvMapper().writerFor(Map.class).with(schemaBuilder.build()).writeValues(out);</span>
+            }
+<span class="nc" id="L134">        }</span>
+<span class="nc" id="L135">        return writer;</span>
+    }
+
+    @Override
+    public Uid authenticate(final String username, final String password, final OperationOptions options) {
+<span class="nc" id="L140">        return null;</span>
+    }
+
+    @Override
+    public ConnInstance getConnInstance() {
+<span class="nc" id="L145">        return null;</span>
+    }
+
+    @Override
+    public Uid create(
+            final ObjectClass objectClass,
+            final Set&lt;Attribute&gt; attrs,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L155">        synchronized (schemaBuilder) {</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">            if (schemaBuilder.size() == 0) {</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">                attrs.stream().filter(attr -&gt; !AttributeUtil.isSpecial(attr)).map(Attribute::getName).</span>
+<span class="nc" id="L158">                        sorted((c1, c2) -&gt; {</span>
+                            // sort according to the passed columns, leave any additional column at the end
+<span class="nc" id="L160">                            int index1 = columns.indexOf(c1);</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">                            if (index1 == -1) {</span>
+<span class="nc" id="L162">                                index1 = Integer.MAX_VALUE;</span>
+                            }
+<span class="nc" id="L164">                            int index2 = columns.indexOf(c2);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                            if (index2 == -1) {</span>
+<span class="nc" id="L166">                                index2 = Integer.MAX_VALUE;</span>
+                            }
+<span class="nc" id="L168">                            return Integer.compare(index1, index2);</span>
+                        }).
+<span class="nc" id="L170">                        forEachOrdered(schemaBuilder::addColumn);</span>
+            }
+<span class="nc" id="L172">        }</span>
+
+<span class="nc" id="L174">        Map&lt;String, String&gt; row = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        attrs.stream().filter(attr -&gt; !AttributeUtil.isSpecial(attr)).forEach(attr -&gt; {</span>
+<span class="nc bnc" id="L176" title="All 4 branches missed.">            if (CollectionUtils.isEmpty(attr.getValue()) || attr.getValue().getFirst() == null) {</span>
+<span class="nc" id="L177">                row.put(attr.getName(), null);</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">            } else if (attr.getValue().size() == 1) {</span>
+<span class="nc" id="L179">                row.put(attr.getName(), attr.getValue().getFirst().toString());</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">            } else if (arrayElementsSeparator == null) {</span>
+<span class="nc" id="L181">                row.put(attr.getName(), attr.getValue().toString());</span>
+            } else {
+<span class="nc" id="L183">                row.put(</span>
+<span class="nc" id="L184">                        attr.getName(),</span>
+<span class="nc" id="L185">                        attr.getValue().stream().map(Object::toString).</span>
+<span class="nc" id="L186">                                collect(Collectors.joining(arrayElementsSeparator)));</span>
+            }
+<span class="nc" id="L188">        });</span>
+        try {
+<span class="nc" id="L190">            writer().write(row);</span>
+<span class="nc" id="L191">        } catch (IOException e) {</span>
+<span class="nc" id="L192">            throw new ConnectorException(&quot;Could not write object &quot; + row, e);</span>
+<span class="nc" id="L193">        }</span>
+<span class="nc" id="L194">        propagationAttempted.setValue(true);</span>
+<span class="nc" id="L195">        return null;</span>
+    }
+
+    @Override
+    public Uid update(
+            final ObjectClass objectClass,
+            final Uid uid,
+            final Set&lt;Attribute&gt; attrs,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L206">        return null;</span>
+    }
+
+    @Override
+    public Set&lt;AttributeDelta&gt; updateDelta(
+            final ObjectClass objectClass,
+            final Uid uid,
+            final Set&lt;AttributeDelta&gt; modifications,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L217">        return Set.of();</span>
+    }
+
+    @Override
+    public void delete(
+            final ObjectClass objectClass,
+            final Uid uid,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+        // nothing to do
+<span class="nc" id="L228">    }</span>
+
+    @Override
+    public void sync(
+            final ObjectClass objectClass,
+            final SyncToken token,
+            final SyncResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc" id="L237">        throw new UnsupportedOperationException();</span>
+    }
+
+    @Override
+    public SyncToken getLatestSyncToken(final ObjectClass objectClass) {
+<span class="nc" id="L242">        throw new UnsupportedOperationException();</span>
+    }
+
+    @Override
+    public void livesync(
+            final ObjectClass objectClass,
+            final LiveSyncResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc" id="L251">        throw new UnsupportedOperationException();</span>
+    }
+
+    @Override
+    public ConnectorObject getObject(
+            final ObjectClass objectClass,
+            final Attribute connObjectKey,
+            final boolean ignoreCaseMatch,
+            final OperationOptions options) {
+
+<span class="nc" id="L261">        return null;</span>
+    }
+
+    @Override
+    public SearchResult search(
+            final ObjectClass objectClass,
+            final Filter filter,
+            final SearchResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc" id="L271">        SearchResult result = new SearchResult();</span>
+
+        try {
+<span class="nc bnc" id="L274" title="All 2 branches missed.">            for (int record = 1; reader().hasNext(); record++) {</span>
+<span class="nc" id="L275">                Map&lt;String, String&gt; row = reader().next();</span>
+
+<span class="nc" id="L277">                String keyValue = row.get(keyColumn);</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">                if (StringUtils.isBlank(keyValue)) {</span>
+<span class="nc" id="L279">                    keyValue = &quot;Record &quot; + record;</span>
+                }
+
+<span class="nc" id="L282">                ConnectorObjectBuilder builder = new ConnectorObjectBuilder().</span>
+<span class="nc" id="L283">                        setObjectClass(objectClass).</span>
+<span class="nc" id="L284">                        setUid(keyValue).</span>
+<span class="nc" id="L285">                        setName(keyValue);</span>
+
+<span class="nc bnc" id="L287" title="All 2 branches missed.">                row.forEach((key, value) -&gt; builder.addAttribute(arrayElementsSeparator == null</span>
+<span class="nc" id="L288">                        ? AttributeBuilder.build(key, value)</span>
+<span class="nc" id="L289">                        : AttributeBuilder.build(key,</span>
+<span class="nc" id="L290">                                (Object[]) StringUtils.splitByWholeSeparator(value, arrayElementsSeparator))));</span>
+
+<span class="nc" id="L292">                ConnectorObject obj = builder.build();</span>
+<span class="nc bnc" id="L293" title="All 4 branches missed.">                if (filter == null || filter.accept(obj)) {</span>
+<span class="nc" id="L294">                    handler.handle(obj);</span>
+                } else {
+<span class="nc" id="L296">                    LOG.debug(&quot;Found but not passing the provided filter {}: {}&quot;, filter, obj);</span>
+                }
+            }
+<span class="nc" id="L299">        } catch (IOException e) {</span>
+<span class="nc" id="L300">            LOG.error(&quot;Could not read CSV from provided stream&quot;, e);</span>
+<span class="nc" id="L301">            throw new ConnectorException(e);</span>
+<span class="nc" id="L302">        }</span>
+
+<span class="nc" id="L304">        return result;</span>
+    }
+
+    @Override
+    public Set&lt;ObjectClassInfo&gt; getObjectClassInfo() {
+<span class="nc" id="L309">        return Set.of();</span>
+    }
+
+    @Override
+    public void validate() {
+        // nothing to do
+<span class="nc" id="L315">    }</span>
+
+    @Override
+    public void test() {
+        // nothing to do
+<span class="nc" id="L320">    }</span>
+
+    @Override
+    public void dispose() {
+        // nothing to do
+<span class="nc" id="L325">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

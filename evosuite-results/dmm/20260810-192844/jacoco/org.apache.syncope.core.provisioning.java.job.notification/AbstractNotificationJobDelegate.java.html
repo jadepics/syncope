@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractNotificationJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job.notification</a> &gt; <span class="el_source">AbstractNotificationJobDelegate.java</span></div><h1>AbstractNotificationJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job.notification;
+
+import java.time.OffsetDateTime;
+import java.util.List;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.TraceLevel;
+import org.apache.syncope.core.persistence.api.dao.AnyDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.task.NotificationTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.persistence.api.utils.ExceptionUtils2;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.event.JobStatusEvent;
+import org.apache.syncope.core.provisioning.api.job.JobManager;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.apache.syncope.core.provisioning.api.notification.NotificationJobDelegate;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.transaction.annotation.Transactional;
+
+public abstract class AbstractNotificationJobDelegate implements NotificationJobDelegate, StoppableJobDelegate {
+
+<span class="nc" id="L51">    protected static final Logger LOG = LoggerFactory.getLogger(NotificationJobDelegate.class);</span>
+
+    protected final ConfParamOps confParamOps;
+
+    protected final TaskDAO taskDAO;
+
+    protected final TaskUtilsFactory taskUtilsFactory;
+
+    protected final AuditManager auditManager;
+
+    protected final NotificationManager notificationManager;
+
+    protected final ApplicationEventPublisher publisher;
+
+<span class="nc" id="L65">    protected boolean stopRequested = false;</span>
+
+    protected AbstractNotificationJobDelegate(
+            final ConfParamOps confParamOps,
+            final TaskDAO taskDAO,
+            final TaskUtilsFactory taskUtilsFactory,
+            final AuditManager auditManager,
+            final NotificationManager notificationManager,
+<span class="nc" id="L73">            final ApplicationEventPublisher publisher) {</span>
+
+<span class="nc" id="L75">        this.confParamOps = confParamOps;</span>
+<span class="nc" id="L76">        this.taskDAO = taskDAO;</span>
+<span class="nc" id="L77">        this.taskUtilsFactory = taskUtilsFactory;</span>
+<span class="nc" id="L78">        this.auditManager = auditManager;</span>
+<span class="nc" id="L79">        this.notificationManager = notificationManager;</span>
+<span class="nc" id="L80">        this.publisher = publisher;</span>
+<span class="nc" id="L81">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L85">        stopRequested = true;</span>
+<span class="nc" id="L86">    }</span>
+
+    protected void setStatus(final String status) {
+<span class="nc" id="L89">        publisher.publishEvent(new JobStatusEvent(</span>
+<span class="nc" id="L90">                this, AuthContextUtils.getDomain(), JobManager.NOTIFICATION_JOB, status));</span>
+<span class="nc" id="L91">    }</span>
+
+    protected abstract void notify(String to, NotificationTask task, TaskExec&lt;NotificationTask&gt; execution)
+            throws Exception;
+
+    @Transactional
+    @Override
+    public TaskExec&lt;NotificationTask&gt; executeSingle(final NotificationTask task, final String executor) {
+<span class="nc" id="L99">        TaskExec&lt;NotificationTask&gt; execution = taskUtilsFactory.getInstance(TaskType.NOTIFICATION).newTaskExec();</span>
+<span class="nc" id="L100">        execution.setStart(OffsetDateTime.now());</span>
+<span class="nc" id="L101">        execution.setExecutor(executor);</span>
+<span class="nc" id="L102">        boolean retryPossible = true;</span>
+
+<span class="nc bnc" id="L104" title="All 4 branches missed.">        if (StringUtils.isBlank(task.getSubject()) || task.getRecipients().isEmpty()</span>
+<span class="nc bnc" id="L105" title="All 4 branches missed.">                || StringUtils.isBlank(task.getHtmlBody()) || StringUtils.isBlank(task.getTextBody())) {</span>
+
+<span class="nc" id="L107">            String message = &quot;Could not fetch all required information for sending out notifications:&quot;</span>
+<span class="nc" id="L108">                    + &quot;\nFrom: &quot; + task.getSender()</span>
+<span class="nc" id="L109">                    + &quot;\nTo: &quot; + task.getRecipients()</span>
+<span class="nc" id="L110">                    + &quot;\nSubject: &quot; + task.getSubject()</span>
+<span class="nc" id="L111">                    + &quot;\nHTML body:\n&quot; + task.getHtmlBody()</span>
+<span class="nc" id="L112">                    + &quot;\nText body:\n&quot; + task.getTextBody()</span>
+                    + &quot;\n&quot;;
+<span class="nc" id="L114">            LOG.error(message);</span>
+
+<span class="nc" id="L116">            execution.setStatus(NotificationJob.Status.NOT_SENT.name());</span>
+<span class="nc" id="L117">            retryPossible = false;</span>
+
+<span class="nc bnc" id="L119" title="All 2 branches missed.">            if (task.getTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal()) {</span>
+<span class="nc" id="L120">                execution.setMessage(message);</span>
+            }
+<span class="nc" id="L122">        } else {</span>
+<span class="nc" id="L123">            LOG.debug(&quot;About to send notifications:\nFrom: {}\nTo: {}\nSubject: {}\nHTML body:\n{}\nText body:\n{}\n&quot;,</span>
+<span class="nc" id="L124">                    task.getSender(), task.getRecipients(), task.getSubject(), task.getHtmlBody(), task.getTextBody());</span>
+
+<span class="nc" id="L126">            setStatus(&quot;Sending notifications to &quot; + task.getRecipients());</span>
+
+<span class="nc bnc" id="L128" title="All 2 branches missed.">            for (String recipient : task.getRecipients()) {</span>
+                try {
+<span class="nc" id="L130">                    notify(recipient, task, execution);</span>
+
+<span class="nc" id="L132">                    notificationManager.createTasks(</span>
+<span class="nc" id="L133">                            AuthContextUtils.getWho(),</span>
+                            OpEvent.CategoryType.TASK,
+                            &quot;notification&quot;,
+                            null,
+                            &quot;send&quot;,
+                            OpEvent.Outcome.SUCCESS,
+                            null,
+                            null,
+                            task,
+                            &quot;Successfully sent notification to &quot; + recipient);
+<span class="nc" id="L143">                } catch (Exception e) {</span>
+<span class="nc" id="L144">                    LOG.error(&quot;Could not send out notification to {}&quot;, recipient, e);</span>
+
+<span class="nc" id="L146">                    execution.setStatus(NotificationJob.Status.NOT_SENT.name());</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">                    if (task.getTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal()) {</span>
+<span class="nc" id="L148">                        execution.setMessage(ExceptionUtils2.getFullStackTrace(e));</span>
+                    }
+
+<span class="nc" id="L151">                    notificationManager.createTasks(</span>
+<span class="nc" id="L152">                            AuthContextUtils.getWho(),</span>
+                            OpEvent.CategoryType.TASK,
+                            &quot;notification&quot;,
+                            null,
+                            &quot;send&quot;,
+                            OpEvent.Outcome.FAILURE,
+                            null,
+                            null,
+                            task,
+                            &quot;Could not send notification to &quot; + recipient, e);
+<span class="nc" id="L162">                }</span>
+
+<span class="nc" id="L164">                execution.setEnd(OffsetDateTime.now());</span>
+<span class="nc" id="L165">            }</span>
+        }
+
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (hasToBeRegistered(task, execution)) {</span>
+<span class="nc" id="L169">            execution = notificationManager.storeExec(task.getKey(), execution);</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">            if (retryPossible</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">                    &amp;&amp; NotificationJob.Status.valueOf(execution.getStatus()) == NotificationJob.Status.NOT_SENT) {</span>
+
+<span class="nc" id="L173">                handleRetries(task, execution);</span>
+            }
+        } else {
+<span class="nc" id="L176">            notificationManager.setTaskExecuted(task.getKey(), true);</span>
+        }
+
+<span class="nc" id="L179">        return execution;</span>
+    }
+
+    @Transactional
+    @Override
+    public void execute(final String executor) {
+<span class="nc" id="L185">        stopRequested = false;</span>
+
+<span class="nc" id="L187">        long count = taskDAO.countToExec(TaskType.NOTIFICATION);</span>
+<span class="nc" id="L188">        long pages = (count / AnyDAO.DEFAULT_PAGE_SIZE) + 1;</span>
+<span class="nc bnc" id="L189" title="All 4 branches missed.">        for (int page = 0; page &lt; pages &amp;&amp; !stopRequested; page++) {</span>
+<span class="nc" id="L190">            List&lt;NotificationTask&gt; tasks = taskDAO.findToExec(</span>
+                    TaskType.NOTIFICATION,
+<span class="nc" id="L192">                    PageRequest.of(page, AnyDAO.DEFAULT_PAGE_SIZE, Sort.Direction.ASC, &quot;id&quot;));</span>
+
+<span class="nc" id="L194">            setStatus(&quot;Sending out &quot; + tasks.size() + &quot; notifications&quot;);</span>
+
+<span class="nc bnc" id="L196" title="All 4 branches missed.">            for (int i = 0; i &lt; tasks.size() &amp;&amp; !stopRequested; i++) {</span>
+<span class="nc" id="L197">                LOG.debug(&quot;Found notification task {} to be executed: starting...&quot;, tasks.get(i));</span>
+<span class="nc" id="L198">                executeSingle(tasks.get(i), executor);</span>
+<span class="nc" id="L199">                LOG.debug(&quot;Notification task {} executed&quot;, tasks.get(i));</span>
+            }
+        }
+
+<span class="nc bnc" id="L203" title="All 2 branches missed.">        if (stopRequested) {</span>
+<span class="nc" id="L204">            LOG.debug(&quot;Notification job interrupted&quot;);</span>
+        }
+
+<span class="nc" id="L207">        setStatus(null);</span>
+<span class="nc" id="L208">    }</span>
+
+    protected boolean hasToBeRegistered(final NotificationTask task, final TaskExec&lt;NotificationTask&gt; execution) {
+        // True if either failed and failures have to be registered, or if ALL
+        // has to be registered.
+<span class="nc bnc" id="L213" title="All 2 branches missed.">        return (NotificationJob.Status.valueOf(execution.getStatus()) == NotificationJob.Status.NOT_SENT</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">                &amp;&amp; task.getTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal())</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">                || task.getTraceLevel() == TraceLevel.ALL;</span>
+    }
+
+    protected void handleRetries(final NotificationTask task, final TaskExec&lt;NotificationTask&gt; execution) {
+<span class="nc" id="L219">        long maxRetries = confParamOps.get(SyncopeConstants.MASTER_DOMAIN, &quot;notification.maxRetries&quot;, 0L, Long.class);</span>
+
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        if (maxRetries &lt;= 0) {</span>
+<span class="nc" id="L222">            return;</span>
+        }
+
+<span class="nc" id="L225">        long failedExecutionsCount = notificationManager.countExecutionsWithStatus(</span>
+<span class="nc" id="L226">                task.getKey(), NotificationJob.Status.NOT_SENT.name());</span>
+
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (failedExecutionsCount &lt;= maxRetries) {</span>
+<span class="nc" id="L229">            LOG.debug(&quot;Execution of notification task {} will be retried [{}/{}]&quot;,</span>
+<span class="nc" id="L230">                    task, failedExecutionsCount, maxRetries);</span>
+<span class="nc" id="L231">            notificationManager.setTaskExecuted(task.getKey(), false);</span>
+
+<span class="nc" id="L233">            auditManager.audit(</span>
+<span class="nc" id="L234">                    AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L235">                    AuthContextUtils.getWho(),</span>
+                    OpEvent.CategoryType.TASK,
+                    &quot;notification&quot;,
+                    null,
+                    &quot;retry&quot;,
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    execution,
+<span class="nc" id="L244">                    &quot;Notification task &quot; + task.getKey() + &quot; will be retried&quot;);</span>
+        } else {
+<span class="nc" id="L246">            LOG.error(&quot;Maximum number of retries reached for task {} - giving up&quot;, task);</span>
+
+<span class="nc" id="L248">            auditManager.audit(</span>
+<span class="nc" id="L249">                    AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L250">                    AuthContextUtils.getWho(),</span>
+                    OpEvent.CategoryType.TASK,
+                    &quot;notification&quot;,
+                    null,
+                    &quot;retry&quot;,
+                    OpEvent.Outcome.FAILURE,
+                    null,
+                    null,
+                    execution,
+<span class="nc" id="L259">                    &quot;Giving up retries on notification task &quot; + task.getKey());</span>
+        }
+<span class="nc" id="L261">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

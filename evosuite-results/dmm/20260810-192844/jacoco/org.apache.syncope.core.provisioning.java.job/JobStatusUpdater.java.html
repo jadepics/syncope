@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>JobStatusUpdater.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">JobStatusUpdater.java</span></div><h1>JobStatusUpdater.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import org.apache.syncope.core.persistence.api.dao.JobStatusDAO;
+import org.apache.syncope.core.provisioning.api.event.JobStatusEvent;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
+
+public class JobStatusUpdater {
+
+<span class="nc" id="L31">    protected static final Logger LOG = LoggerFactory.getLogger(JobStatusUpdater.class);</span>
+
+    protected final JobStatusDAO jobStatusDAO;
+
+<span class="nc" id="L35">    protected boolean initCompleted = false;</span>
+
+<span class="nc" id="L37">    public JobStatusUpdater(final JobStatusDAO jobStatusDAO) {</span>
+<span class="nc" id="L38">        this.jobStatusDAO = jobStatusDAO;</span>
+<span class="nc" id="L39">    }</span>
+
+    public void initComplete() {
+<span class="nc" id="L42">        initCompleted = true;</span>
+<span class="nc" id="L43">    }</span>
+
+    /**
+     * It's important to note that responding to job status updates must be done in async mode, and via a separate
+     * special thread executor that attempts to synchronize job execution serially by only making one thread active at a
+     * given time. Not doing so will force the event executor to launch separate threads per each status update, which
+     * would result in multiple concurrent INSERT operations on the database, and failing.
+     *
+     * @param event the event
+     */
+    @Async(&quot;jobStatusUpdaterThreadExecutor&quot;)
+    @EventListener
+    public void update(final JobStatusEvent event) {
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        if (!initCompleted) {</span>
+<span class="nc" id="L57">            LOG.debug(&quot;Core initialization not yet completed, discarding {}&quot;, event);</span>
+<span class="nc" id="L58">            return;</span>
+        }
+
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        if (event.getJobStatus() == null) {</span>
+<span class="nc" id="L62">            LOG.debug(&quot;Requesting to delete status for job '{}#{}', ignoring&quot;, event.getDomain(), event.getJobName());</span>
+        } else {
+<span class="nc" id="L64">            LOG.debug(&quot;Updating job '{}#{}' with status '{}'&quot;,</span>
+<span class="nc" id="L65">                    event.getDomain(), event.getJobName(), event.getJobStatus());</span>
+
+<span class="nc" id="L67">            AuthContextUtils.runAsAdmin(</span>
+<span class="nc" id="L68">                    event.getDomain(),</span>
+<span class="nc" id="L69">                    () -&gt; jobStatusDAO.set(event.getJobName(), event.getJobStatus()));</span>
+        }
+<span class="nc" id="L71">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

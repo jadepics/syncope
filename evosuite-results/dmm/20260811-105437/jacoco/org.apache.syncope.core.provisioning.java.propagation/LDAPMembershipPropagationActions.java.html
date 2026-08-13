@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LDAPMembershipPropagationActions.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.propagation</a> &gt; <span class="el_source">LDAPMembershipPropagationActions.java</span></div><h1>LDAPMembershipPropagationActions.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.propagation;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.request.MembershipUR;
+import org.apache.syncope.common.lib.request.UserUR;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.task.PropagationData;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.jexl.JexlContextBuilder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationActions;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.spring.implementation.InstanceScope;
+import org.apache.syncope.core.spring.implementation.SyncopeImplementation;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.AttributeDeltaBuilder;
+import org.identityconnectors.framework.common.objects.AttributeDeltaUtil;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Simple action for propagating group memberships to LDAP groups, when the same resource is configured for both users
+ * and groups.
+ *
+ * @see org.apache.syncope.core.provisioning.java.pushpull.LDAPMembershipPullActions
+ */
+@SyncopeImplementation(scope = InstanceScope.PER_CONTEXT)
+<span class="nc" id="L65">public class LDAPMembershipPropagationActions implements PropagationActions {</span>
+
+<span class="nc" id="L67">    protected static final Logger LOG = LoggerFactory.getLogger(LDAPMembershipPropagationActions.class);</span>
+
+    @Autowired
+    protected JexlTools jexlTools;
+
+    @Autowired
+    protected DerAttrHandler derAttrHandler;
+
+    @Autowired
+    protected UserDAO userDAO;
+
+    @Autowired
+    protected GroupDAO groupDAO;
+
+    /**
+     * Allows easy subclassing for the ConnId AD connector bundle.
+     *
+     * @return the name of the attribute used to keep track of group memberships
+     */
+    protected String getGroupMembershipAttrName() {
+<span class="nc" id="L87">        return &quot;ldapGroups&quot;;</span>
+    }
+
+    @Override
+    public Set&lt;String&gt; moreAttrsToGet(final Optional&lt;PropagationTaskInfo&gt; taskInfo, final Provision provision) {
+<span class="nc" id="L92">        return Set.of(getGroupMembershipAttrName());</span>
+    }
+
+    protected String evaluateGroupConnObjectLink(final String connObjectLinkTemplate, final Group group) {
+<span class="nc" id="L96">        LOG.debug(&quot;Evaluating connObjectLink for {}&quot;, group);</span>
+
+<span class="nc" id="L98">        JexlContext jexlContext = new JexlContextBuilder().</span>
+<span class="nc" id="L99">                fields(group).</span>
+<span class="nc" id="L100">                plainAttrs(group.getPlainAttrs()).</span>
+<span class="nc" id="L101">                derAttrs(derAttrHandler.getValues(group)).</span>
+<span class="nc" id="L102">                build();</span>
+
+<span class="nc" id="L104">        return jexlTools.evaluateExpression(connObjectLinkTemplate, jexlContext).toString();</span>
+    }
+
+    protected void buildManagedGroupConnObjectLinks(
+            final ExternalResource resource,
+            final String connObjectLinkTemplate,
+            final Set&lt;String&gt; connObjectLinks) {
+
+<span class="nc" id="L112">        List&lt;Group&gt; managedGroups = groupDAO.findByResourcesContaining(resource);</span>
+<span class="nc" id="L113">        managedGroups.forEach(group -&gt; connObjectLinks.add(evaluateGroupConnObjectLink(connObjectLinkTemplate, group)));</span>
+<span class="nc" id="L114">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public void before(final PropagationTaskInfo taskInfo) {
+<span class="nc bnc" id="L119" title="All 4 branches missed.">        if (AnyTypeKind.USER != taskInfo.getAnyTypeKind() || taskInfo.getOperation() == ResourceOperation.DELETE) {</span>
+<span class="nc" id="L120">            return;</span>
+        }
+
+<span class="nc" id="L123">        taskInfo.getResource().getProvisionByAnyType(AnyTypeKind.GROUP.name()).</span>
+<span class="nc" id="L124">                map(Provision::getMapping).</span>
+<span class="nc" id="L125">                filter(mapping -&gt; StringUtils.isNotBlank(mapping.getConnObjectLink())).ifPresentOrElse(mapping -&gt; {</span>
+
+<span class="nc" id="L127">            User user = userDAO.findById(taskInfo.getEntityKey()).</span>
+<span class="nc" id="L128">                    orElseThrow(() -&gt; new NotFoundException(&quot;User &quot; + taskInfo.getEntityKey()));</span>
+<span class="nc" id="L129">            Set&lt;String&gt; groups = new HashSet&lt;&gt;();</span>
+
+            // for each user group assigned to the resource of this task, compute and add the group's 
+            // connector object link
+<span class="nc" id="L133">            userDAO.findAllGroupKeys(user).stream().</span>
+<span class="nc" id="L134">                    map(groupDAO::findById).flatMap(Optional::stream).</span>
+<span class="nc" id="L135">                    filter(group -&gt; group.getResources().contains(taskInfo.getResource())).</span>
+<span class="nc" id="L136">                    forEach(group -&gt; {</span>
+<span class="nc" id="L137">                        String groupConnObjectLink = evaluateGroupConnObjectLink(</span>
+<span class="nc" id="L138">                                mapping.getConnObjectLink(), group);</span>
+
+<span class="nc" id="L140">                        LOG.debug(&quot;ConnObjectLink for {} is '{}'&quot;, group, groupConnObjectLink);</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">                        if (StringUtils.isNotBlank(groupConnObjectLink)) {</span>
+<span class="nc" id="L142">                            groups.add(groupConnObjectLink);</span>
+                        }
+<span class="nc" id="L144">                    });</span>
+<span class="nc" id="L145">            LOG.debug(&quot;Group connObjectLinks to propagate for membership: {}&quot;, groups);</span>
+
+<span class="nc" id="L147">            PropagationData data = taskInfo.getPropagationData();</span>
+
+            // if groups were defined by resource mapping, take their values and clear up
+<span class="nc" id="L150">            Optional.ofNullable(AttributeUtil.find(getGroupMembershipAttrName(), data.getAttributes())).</span>
+<span class="nc" id="L151">                    ifPresent(ldapGroups -&gt; {</span>
+<span class="nc" id="L152">                        Optional.ofNullable(ldapGroups.getValue()).</span>
+<span class="nc" id="L153">                                ifPresent(value -&gt; value.forEach(obj -&gt; groups.add(obj.toString())));</span>
+
+<span class="nc" id="L155">                        data.getAttributes().remove(ldapGroups);</span>
+<span class="nc" id="L156">                    });</span>
+<span class="nc" id="L157">            LOG.debug(&quot;Group connObjectLinks after including the ones from mapping: {}&quot;, groups);</span>
+
+            // take groups already assigned from beforeObj and include them too
+<span class="nc" id="L160">            taskInfo.getBeforeObj().</span>
+<span class="nc" id="L161">                    map(beforeObj -&gt; beforeObj.getAttributeByName(getGroupMembershipAttrName())).</span>
+<span class="nc" id="L162">                    filter(Objects::nonNull).</span>
+<span class="nc" id="L163">                    ifPresent(beforeLdapGroups -&gt; {</span>
+<span class="nc" id="L164">                        Set&lt;String&gt; connObjectLinks = new TreeSet&lt;&gt;(String.CASE_INSENSITIVE_ORDER);</span>
+<span class="nc" id="L165">                        buildManagedGroupConnObjectLinks(</span>
+<span class="nc" id="L166">                                taskInfo.getResource(),</span>
+<span class="nc" id="L167">                                mapping.getConnObjectLink(),</span>
+                                connObjectLinks);
+
+<span class="nc" id="L170">                        LOG.debug(&quot;Memberships not managed by Syncope: {}&quot;, beforeLdapGroups);</span>
+<span class="nc" id="L171">                        beforeLdapGroups.getValue().stream().</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">                                filter(value -&gt; !connObjectLinks.contains(String.valueOf(value))).</span>
+<span class="nc" id="L173">                                forEach(value -&gt; groups.add(String.valueOf(value)));</span>
+<span class="nc" id="L174">                    });</span>
+
+<span class="nc" id="L176">            LOG.debug(&quot;Adding Group connObjectLinks to attributes: {}={}&quot;, getGroupMembershipAttrName(), groups);</span>
+<span class="nc" id="L177">            data.getAttributes().add(AttributeBuilder.build(getGroupMembershipAttrName(), groups));</span>
+
+<span class="nc bnc" id="L179" title="All 4 branches missed.">            if (data.getAttributeDeltas() != null &amp;&amp; taskInfo.getUpdateRequest() != null) {</span>
+<span class="nc" id="L180">                Set&lt;String&gt; groupsToAdd = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L181">                Set&lt;String&gt; groupsToRemove = new HashSet&lt;&gt;();</span>
+
+                // if groups were added or removed by last update, compute and add the group's connector object link
+<span class="nc bnc" id="L184" title="All 2 branches missed.">                for (MembershipUR memb : ((UserUR) taskInfo.getUpdateRequest()).getMemberships()) {</span>
+<span class="nc" id="L185">                    String connObjectLink = evaluateGroupConnObjectLink(</span>
+<span class="nc" id="L186">                            mapping.getConnObjectLink(),</span>
+<span class="nc" id="L187">                            groupDAO.findById(memb.getGroup()).</span>
+<span class="nc" id="L188">                                    orElseThrow(() -&gt; new NotFoundException(&quot;Group &quot; + memb.getGroup())));</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                    if (memb.getOperation() == PatchOperation.ADD_REPLACE) {</span>
+<span class="nc" id="L190">                        groupsToAdd.add(connObjectLink);</span>
+                    } else {
+<span class="nc" id="L192">                        groupsToRemove.add(connObjectLink);</span>
+                    }
+<span class="nc" id="L194">                }</span>
+
+                // if groups were already considered, take their values and clear up
+<span class="nc" id="L197">                Optional.ofNullable(</span>
+<span class="nc" id="L198">                        AttributeDeltaUtil.find(getGroupMembershipAttrName(), data.getAttributeDeltas())).</span>
+<span class="nc" id="L199">                        ifPresent(ldapGroups -&gt; {</span>
+<span class="nc" id="L200">                            Optional.ofNullable(ldapGroups.getValuesToAdd()).</span>
+<span class="nc" id="L201">                                    ifPresent(value -&gt; value.forEach(obj -&gt; groupsToAdd.add(obj.toString())));</span>
+<span class="nc" id="L202">                            Optional.ofNullable(ldapGroups.getValuesToRemove()).</span>
+<span class="nc" id="L203">                                    ifPresent(value -&gt; value.forEach(obj -&gt; groupsToRemove.add(obj.toString())));</span>
+
+<span class="nc" id="L205">                            data.getAttributeDeltas().remove(ldapGroups);</span>
+<span class="nc" id="L206">                        });</span>
+
+<span class="nc bnc" id="L208" title="All 4 branches missed.">                if (!groupsToAdd.isEmpty() || !groupsToRemove.isEmpty()) {</span>
+<span class="nc" id="L209">                    LOG.debug(&quot;Adding Group connObjectLinks to attribute deltas: {}={},{}&quot;,</span>
+<span class="nc" id="L210">                            getGroupMembershipAttrName(), groupsToAdd, groupsToRemove);</span>
+<span class="nc" id="L211">                    data.getAttributeDeltas().add(</span>
+<span class="nc" id="L212">                            AttributeDeltaBuilder.build(getGroupMembershipAttrName(), groupsToAdd,</span>
+                                    groupsToRemove));
+                }
+            }
+<span class="nc" id="L216">        }, () -&gt; LOG.debug(&quot;Not about user, or group mapping missing for resource: not doing anything&quot;));</span>
+<span class="nc" id="L217">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

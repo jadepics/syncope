@@ -1,0 +1,1248 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultMappingManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultMappingManager.java</span></div><h1>DefaultMappingManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.text.ParseException;
+import java.time.temporal.TemporalAccessor;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.syncope.common.lib.Attr;
+import org.apache.syncope.common.lib.to.AnyObjectTO;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.GroupTO;
+import org.apache.syncope.common.lib.to.GroupableRelatableTO;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.Mapping;
+import org.apache.syncope.common.lib.to.MembershipTO;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.RealmTO;
+import org.apache.syncope.common.lib.to.UserTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.AttrSchemaType;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.DerSchema;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Membership;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.PlainAttrValue;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.Relatable;
+import org.apache.syncope.core.persistence.api.entity.Relationship;
+import org.apache.syncope.core.persistence.api.entity.RelationshipType;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.user.Account;
+import org.apache.syncope.core.persistence.api.entity.user.LinkedAccount;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.persistence.api.utils.FormatUtils;
+import org.apache.syncope.core.provisioning.api.AccountGetter;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrName;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PlainAttrGetter;
+import org.apache.syncope.core.provisioning.api.data.ItemTransformer;
+import org.apache.syncope.core.provisioning.api.jexl.JexlContextBuilder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.identityconnectors.framework.common.FrameworkUtil;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.identityconnectors.framework.common.objects.Name;
+import org.identityconnectors.framework.common.objects.OperationalAttributes;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
+public class DefaultMappingManager implements MappingManager {
+
+<span class="fc" id="L101">    protected static final Logger LOG = LoggerFactory.getLogger(MappingManager.class);</span>
+
+    protected static Optional&lt;String&gt; processPreparedAttr(
+            final PreparedAttr preparedAttr,
+            final Set&lt;Attribute&gt; attributes) {
+
+<span class="fc bfc" id="L107" title="All 2 branches covered.">        if (preparedAttr == null) {</span>
+<span class="fc" id="L108">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L111">        String connObjectKey = null;</span>
+
+<span class="fc bfc" id="L113" title="All 2 branches covered.">        if (preparedAttr.connObjectLink() != null) {</span>
+<span class="fc" id="L114">            connObjectKey = preparedAttr.connObjectLink();</span>
+        }
+
+<span class="fc bfc" id="L117" title="All 2 branches covered.">        if (preparedAttr.attribute() != null) {</span>
+<span class="fc" id="L118">            Optional.ofNullable(AttributeUtil.find(preparedAttr.attribute().getName(), attributes)).ifPresentOrElse(</span>
+                    alreadyAdded -&gt; {
+<span class="fc" id="L120">                        attributes.remove(alreadyAdded);</span>
+
+<span class="fc" id="L122">                        Set&lt;Object&gt; values = new HashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L123" title="1 of 2 branches missed.">                        if (!CollectionUtils.isEmpty(alreadyAdded.getValue())) {</span>
+<span class="fc" id="L124">                            values.addAll(alreadyAdded.getValue());</span>
+                        }
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">                        if (preparedAttr.attribute().getValue() != null) {</span>
+<span class="fc" id="L127">                            values.addAll(preparedAttr.attribute().getValue());</span>
+                        }
+
+<span class="fc" id="L130">                        attributes.add(AttributeBuilder.build(preparedAttr.attribute().getName(), values));</span>
+<span class="fc" id="L131">                    },</span>
+<span class="fc" id="L132">                    () -&gt; attributes.add(preparedAttr.attribute()));</span>
+        }
+
+<span class="fc" id="L135">        return Optional.ofNullable(connObjectKey);</span>
+    }
+
+    protected static Name getName(final String evalConnObjectLink, final String connObjectKey) {
+        // If connObjectLink evaluates to an empty string, just use the provided connObjectKey as Name(),
+        // otherwise evaluated connObjectLink expression is taken as Name().
+        Name name;
+<span class="fc bfc" id="L142" title="All 2 branches covered.">        if (StringUtils.isBlank(evalConnObjectLink)) {</span>
+            // add connObjectKey as __NAME__ attribute ...
+<span class="fc" id="L144">            LOG.debug(&quot;Add connObjectKey [{}] as {}&quot;, connObjectKey, Name.NAME);</span>
+<span class="fc" id="L145">            name = new Name(connObjectKey);</span>
+        } else {
+<span class="fc" id="L147">            LOG.debug(&quot;Add connObjectLink [{}] as {}&quot;, evalConnObjectLink, Name.NAME);</span>
+<span class="fc" id="L148">            name = new Name(evalConnObjectLink);</span>
+
+            // connObjectKey not propagated: it will be used to set the value for __UID__ attribute
+<span class="fc" id="L151">            LOG.debug(&quot;connObjectKey [{}] will be used as {}&quot;, connObjectKey, Uid.NAME);</span>
+        }
+
+<span class="fc" id="L154">        return name;</span>
+    }
+
+    protected static PlainAttrValue clonePlainAttrValue(final PlainAttrValue src) {
+<span class="fc" id="L158">        PlainAttrValue dst = new PlainAttrValue();</span>
+
+<span class="fc" id="L160">        dst.setBinaryValue(src.getBinaryValue());</span>
+<span class="fc" id="L161">        dst.setBooleanValue(src.getBooleanValue());</span>
+<span class="fc" id="L162">        dst.setDateValue(src.getDateValue());</span>
+<span class="fc" id="L163">        dst.setDoubleValue(src.getDoubleValue());</span>
+<span class="fc" id="L164">        dst.setLongValue(src.getLongValue());</span>
+<span class="fc" id="L165">        dst.setStringValue(src.getStringValue());</span>
+
+<span class="fc" id="L167">        return dst;</span>
+    }
+
+    protected final UserDAO userDAO;
+
+    protected final AnyObjectDAO anyObjectDAO;
+
+    protected final GroupDAO groupDAO;
+
+    protected final RelationshipTypeDAO relationshipTypeDAO;
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final DerAttrHandler derAttrHandler;
+
+    protected final IntAttrNameParser intAttrNameParser;
+
+    protected final EncryptorManager encryptorManager;
+
+    protected final JexlTools jexlTools;
+
+    public DefaultMappingManager(
+            final UserDAO userDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final GroupDAO groupDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final ImplementationDAO implementationDAO,
+            final DerAttrHandler derAttrHandler,
+            final IntAttrNameParser intAttrNameParser,
+            final EncryptorManager encryptorManager,
+<span class="fc" id="L200">            final JexlTools jexlTools) {</span>
+
+<span class="fc" id="L202">        this.userDAO = userDAO;</span>
+<span class="fc" id="L203">        this.anyObjectDAO = anyObjectDAO;</span>
+<span class="fc" id="L204">        this.groupDAO = groupDAO;</span>
+<span class="fc" id="L205">        this.relationshipTypeDAO = relationshipTypeDAO;</span>
+<span class="fc" id="L206">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="fc" id="L207">        this.implementationDAO = implementationDAO;</span>
+<span class="fc" id="L208">        this.derAttrHandler = derAttrHandler;</span>
+<span class="fc" id="L209">        this.intAttrNameParser = intAttrNameParser;</span>
+<span class="fc" id="L210">        this.encryptorManager = encryptorManager;</span>
+<span class="fc" id="L211">        this.jexlTools = jexlTools;</span>
+<span class="fc" id="L212">    }</span>
+
+    protected List&lt;Implementation&gt; getTransformers(final Item item) {
+<span class="fc" id="L215">        return item.getTransformers().stream().</span>
+<span class="fc" id="L216">                map(implementationDAO::findById).</span>
+<span class="fc" id="L217">                flatMap(Optional::stream).</span>
+<span class="fc" id="L218">                collect(Collectors.toList());</span>
+    }
+
+    /**
+     * Build __NAME__ for propagation.
+     * First look if there is a defined connObjectLink for the given resource (and in
+     * this case evaluate as JEXL); otherwise, take given connObjectKey.
+     *
+     * @param any given any object
+     * @param provision external resource
+     * @param connObjectKey connector object key
+     * @return the value to be propagated as __NAME__
+     */
+    protected Name evaluateNAME(final Any any, final Provision provision, final String connObjectKey) {
+<span class="fc bfc" id="L232" title="All 2 branches covered.">        if (StringUtils.isBlank(connObjectKey)) {</span>
+            // log but avoid to throw exception: leave it to the external resource
+<span class="nc" id="L234">            LOG.debug(&quot;Missing connObjectKey for {}&quot;, any.getType().getKey());</span>
+        }
+
+        // Evaluate connObjectKey expression
+<span class="fc" id="L238">        String connObjectLink = Optional.ofNullable(provision.getMapping()).</span>
+<span class="fc" id="L239">                map(Mapping::getConnObjectLink).</span>
+<span class="fc" id="L240">                orElse(null);</span>
+<span class="fc" id="L241">        String evalConnObjectLink = null;</span>
+<span class="pc bpc" id="L242" title="1 of 2 branches missed.">        if (StringUtils.isNotBlank(connObjectLink)) {</span>
+<span class="nc" id="L243">            JexlContext jexlContext = new JexlContextBuilder().</span>
+<span class="nc" id="L244">                    fields(any).</span>
+<span class="nc" id="L245">                    plainAttrs(any.getPlainAttrs()).</span>
+<span class="nc" id="L246">                    derAttrs(derAttrHandler.getValues(any)).</span>
+<span class="nc" id="L247">                    build();</span>
+
+<span class="nc" id="L249">            evalConnObjectLink = jexlTools.evaluateExpression(connObjectLink, jexlContext).toString();</span>
+        }
+
+<span class="fc" id="L252">        return getName(evalConnObjectLink, connObjectKey);</span>
+    }
+
+    /**
+     * Build __NAME__ for propagation.
+     * First look if there is a defined connObjectLink for the given resource (and in
+     * this case evaluate as JEXL); otherwise, take given connObjectKey.
+     *
+     * @param realm given any object
+     * @param orgUnit external resource
+     * @param connObjectKey connector object key
+     * @return the value to be propagated as __NAME__
+     */
+    protected Name evaluateNAME(final Realm realm, final OrgUnit orgUnit, final String connObjectKey) {
+<span class="fc bfc" id="L266" title="All 2 branches covered.">        if (StringUtils.isBlank(connObjectKey)) {</span>
+            // log but avoid to throw exception: leave it to the external resource
+<span class="fc" id="L268">            LOG.debug(&quot;Missing connObjectKey for Realms&quot;);</span>
+        }
+
+        // Evaluate connObjectKey expression
+<span class="fc" id="L272">        String connObjectLink = orgUnit.getConnObjectLink();</span>
+<span class="fc" id="L273">        String evalConnObjectLink = null;</span>
+<span class="fc bfc" id="L274" title="All 2 branches covered.">        if (StringUtils.isNotBlank(connObjectLink)) {</span>
+<span class="fc" id="L275">            JexlContext jexlContext = new JexlContextBuilder().</span>
+<span class="fc" id="L276">                    fields(realm).</span>
+<span class="fc" id="L277">                    plainAttrs(realm.getPlainAttrs()).</span>
+<span class="fc" id="L278">                    derAttrs(derAttrHandler.getValues(realm)).</span>
+<span class="fc" id="L279">                    build();</span>
+
+<span class="nc" id="L281">            evalConnObjectLink = jexlTools.evaluateExpression(connObjectLink, jexlContext).toString();</span>
+        }
+
+<span class="fc" id="L284">        return getName(evalConnObjectLink, connObjectKey);</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public PreparedAttrs prepareAttrsFromAny(
+            final Any any,
+            final String password,
+            final boolean changePwd,
+            final Boolean enable,
+            final ExternalResource resource,
+            final Provision provision) {
+
+<span class="fc" id="L297">        LOG.debug(&quot;Preparing resource attributes for {} with provision {} for attributes {}&quot;,</span>
+<span class="fc" id="L298">                any, provision, any.getPlainAttrs());</span>
+
+<span class="fc" id="L300">        Set&lt;Attribute&gt; attributes = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L301">        Mutable&lt;String&gt; connObjectKeyValue = new MutableObject&lt;&gt;();</span>
+
+<span class="fc" id="L303">        MappingUtils.getPropagationItems(provision.getMapping().getItems().stream()).forEach(item -&gt; {</span>
+<span class="nc" id="L304">            LOG.debug(&quot;Processing expression '{}'&quot;, item.getIntAttrName());</span>
+
+            try {
+<span class="nc" id="L307">                processPreparedAttr(</span>
+<span class="nc" id="L308">                        prepareAttr(</span>
+                                resource,
+                                provision,
+                                item,
+                                any,
+                                password,
+                                AccountGetter.DEFAULT,
+                                AccountGetter.DEFAULT,
+                                PlainAttrGetter.DEFAULT),
+<span class="nc" id="L317">                        attributes).ifPresent(connObjectKeyValue::setValue);</span>
+<span class="nc" id="L318">            } catch (Exception e) {</span>
+<span class="nc" id="L319">                LOG.error(&quot;Expression '{}' processing failed&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L320">            }</span>
+<span class="nc" id="L321">        });</span>
+
+<span class="fc" id="L323">        MappingUtils.getConnObjectKeyItem(provision).ifPresent(item -&gt; {</span>
+<span class="nc" id="L324">            Attribute connObjectKeyAttr = AttributeUtil.find(item.getExtAttrName(), attributes);</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">            if (connObjectKeyAttr != null) {</span>
+<span class="nc" id="L326">                attributes.remove(connObjectKeyAttr);</span>
+<span class="nc" id="L327">                attributes.add(AttributeBuilder.build(item.getExtAttrName(), connObjectKeyValue.get()));</span>
+            }
+
+<span class="nc" id="L330">            Name name = evaluateNAME(any, provision, connObjectKeyValue.get());</span>
+<span class="nc" id="L331">            attributes.add(name);</span>
+
+<span class="nc" id="L333">            Optional.ofNullable(connObjectKeyValue.get()).</span>
+<span class="nc bnc" id="L334" title="All 4 branches missed.">                    filter(cokv -&gt; connObjectKeyAttr == null &amp;&amp; !cokv.equals(name.getNameValue())).</span>
+<span class="nc" id="L335">                    ifPresent(cokv -&gt; attributes.add(AttributeBuilder.build(item.getExtAttrName(), cokv)));</span>
+<span class="nc" id="L336">        });</span>
+
+<span class="fc" id="L338">        Optional.ofNullable(enable).ifPresent(e -&gt; attributes.add(AttributeBuilder.buildEnabled(e)));</span>
+
+<span class="fc bfc" id="L340" title="All 2 branches covered.">        if (!changePwd) {</span>
+<span class="fc" id="L341">            Optional.ofNullable(AttributeUtil.find(OperationalAttributes.PASSWORD_NAME, attributes)).</span>
+<span class="fc" id="L342">                    ifPresent(attributes::remove);</span>
+        }
+
+<span class="fc" id="L345">        return new PreparedAttrs(connObjectKeyValue.get(), attributes);</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Set&lt;Attribute&gt; prepareAttrsFromLinkedAccount(
+            final User user,
+            final LinkedAccount account,
+            final String password,
+            final boolean changePwd,
+            final Provision provision) {
+
+<span class="fc" id="L357">        LOG.debug(&quot;Preparing resource attributes for linked account {} of user {} with provision {} &quot;</span>
+                + &quot;for user attributes {} with override {}&quot;,
+<span class="fc" id="L359">                account, user, provision, user.getPlainAttrs(), account.getPlainAttrs());</span>
+
+<span class="fc" id="L361">        Set&lt;Attribute&gt; attributes = new HashSet&lt;&gt;();</span>
+
+<span class="fc" id="L363">        MappingUtils.getPropagationItems(provision.getMapping().getItems().stream()).forEach(item -&gt; {</span>
+<span class="nc" id="L364">            LOG.debug(&quot;Processing expression '{}'&quot;, item.getIntAttrName());</span>
+
+            try {
+<span class="nc" id="L367">                processPreparedAttr(</span>
+<span class="nc" id="L368">                        prepareAttr(</span>
+<span class="nc" id="L369">                                account.getResource(),</span>
+                                provision,
+                                item,
+                                user,
+                                password,
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                                acct -&gt; account.getUsername() == null ? AccountGetter.DEFAULT.apply(acct) : account,</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">                                acct -&gt; account.getPassword() == null ? AccountGetter.DEFAULT.apply(acct) : account,</span>
+                                (attributable, schema) -&gt; {
+<span class="nc" id="L377">                                    PlainAttr result = null;</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                                    if (attributable instanceof User) {</span>
+<span class="nc" id="L379">                                        result = account.getPlainAttr(schema).orElse(null);</span>
+                                    }
+<span class="nc bnc" id="L381" title="All 2 branches missed.">                                    if (result == null) {</span>
+<span class="nc" id="L382">                                        result = PlainAttrGetter.DEFAULT.apply(attributable, schema);</span>
+                                    }
+<span class="nc" id="L384">                                    return result;</span>
+                                }),
+                        attributes);
+<span class="nc" id="L387">            } catch (Exception e) {</span>
+<span class="nc" id="L388">                LOG.error(&quot;Expression '{}' processing failed&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L389">            }</span>
+<span class="nc" id="L390">        });</span>
+
+<span class="fc" id="L392">        String connObjectKey = account.getConnObjectKeyValue();</span>
+<span class="fc" id="L393">        MappingUtils.getConnObjectKeyItem(provision).ifPresent(connObjectKeyItem -&gt; {</span>
+<span class="nc" id="L394">            Attribute connObjectKeyExtAttr = AttributeUtil.find(connObjectKeyItem.getExtAttrName(), attributes);</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">            if (connObjectKeyExtAttr != null) {</span>
+<span class="nc" id="L396">                attributes.remove(connObjectKeyExtAttr);</span>
+<span class="nc" id="L397">                attributes.add(AttributeBuilder.build(connObjectKeyItem.getExtAttrName(), connObjectKey));</span>
+            }
+<span class="nc" id="L399">            Name name = evaluateNAME(user, provision, connObjectKey);</span>
+<span class="nc" id="L400">            attributes.add(name);</span>
+<span class="nc bnc" id="L401" title="All 4 branches missed.">            if (!connObjectKey.equals(name.getNameValue()) &amp;&amp; connObjectKeyExtAttr == null) {</span>
+<span class="nc" id="L402">                attributes.add(AttributeBuilder.build(connObjectKeyItem.getExtAttrName(), connObjectKey));</span>
+            }
+<span class="nc" id="L404">        });</span>
+
+<span class="pc bpc" id="L406" title="1 of 2 branches missed.">        if (account.isSuspended() != null) {</span>
+<span class="fc" id="L407">            attributes.add(AttributeBuilder.buildEnabled(BooleanUtils.negate(account.isSuspended())));</span>
+        }
+<span class="fc bfc" id="L409" title="All 2 branches covered.">        if (!changePwd) {</span>
+<span class="fc" id="L410">            Attribute pwdAttr = AttributeUtil.find(OperationalAttributes.PASSWORD_NAME, attributes);</span>
+<span class="pc bpc" id="L411" title="1 of 2 branches missed.">            if (pwdAttr != null) {</span>
+<span class="nc" id="L412">                attributes.remove(pwdAttr);</span>
+            }
+        }
+
+<span class="fc" id="L416">        return attributes;</span>
+    }
+
+    @Override
+    public PreparedAttrs prepareAttrsFromRealm(final Realm realm, final ExternalResource resource) {
+<span class="fc bfc" id="L421" title="All 2 branches covered.">        if (resource.getOrgUnit() == null) {</span>
+<span class="fc" id="L422">            LOG.error(&quot;No mapping configured for Realms&quot;);</span>
+<span class="fc" id="L423">            return new PreparedAttrs(null, Set.of());</span>
+        }
+
+<span class="fc" id="L426">        LOG.debug(&quot;Preparing resource attributes for {} with orgUnit {}&quot;, realm, resource.getOrgUnit());</span>
+
+<span class="fc" id="L428">        Set&lt;Attribute&gt; attributes = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L429">        Mutable&lt;String&gt; connObjectKeyValue = new MutableObject&lt;&gt;();</span>
+
+<span class="fc" id="L431">        MappingUtils.getPropagationItems(resource.getOrgUnit().getItems().stream()).forEach(item -&gt; {</span>
+<span class="nc" id="L432">            LOG.debug(&quot;Processing expression '{}'&quot;, item.getIntAttrName());</span>
+
+            try {
+<span class="nc" id="L435">                processPreparedAttr(</span>
+<span class="nc" id="L436">                        prepareAttr(</span>
+                                resource,
+                                item,
+                                realm),
+<span class="nc" id="L440">                        attributes).ifPresent(connObjectKeyValue::setValue);</span>
+<span class="nc" id="L441">            } catch (Exception e) {</span>
+<span class="nc" id="L442">                LOG.error(&quot;Expression '{}' processing failed&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L443">            }</span>
+<span class="nc" id="L444">        });</span>
+
+<span class="fc" id="L446">        resource.getOrgUnit().getConnObjectKeyItem().ifPresent(item -&gt; {</span>
+<span class="nc" id="L447">            Attribute connObjectKeyAttr = AttributeUtil.find(item.getExtAttrName(), attributes);</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">            if (connObjectKeyAttr != null) {</span>
+<span class="nc" id="L449">                attributes.remove(connObjectKeyAttr);</span>
+<span class="nc" id="L450">                attributes.add(AttributeBuilder.build(item.getExtAttrName(), connObjectKeyValue.get()));</span>
+            }
+
+<span class="nc" id="L453">            Name name = evaluateNAME(realm, resource.getOrgUnit(), connObjectKeyValue.get());</span>
+<span class="nc" id="L454">            attributes.add(name);</span>
+
+<span class="nc" id="L456">            Optional.ofNullable(connObjectKeyValue.get()).</span>
+<span class="nc bnc" id="L457" title="All 4 branches missed.">                    filter(cokv -&gt; connObjectKeyAttr == null &amp;&amp; !cokv.equals(name.getNameValue())).</span>
+<span class="nc" id="L458">                    ifPresent(cokv -&gt; attributes.add(AttributeBuilder.build(item.getExtAttrName(), cokv)));</span>
+<span class="nc" id="L459">        });</span>
+
+<span class="fc" id="L461">        return new PreparedAttrs(connObjectKeyValue.get(), attributes);</span>
+    }
+
+    protected Optional&lt;String&gt; decodePassword(final Account account) {
+        try {
+<span class="pc" id="L466">            return Optional.of(encryptorManager.getInstance().</span>
+<span class="nc" id="L467">                    decode(account.getPassword(), account.getCipherAlgorithm()));</span>
+<span class="fc" id="L468">        } catch (Exception e) {</span>
+<span class="fc" id="L469">            LOG.error(&quot;Could not decode password for {}&quot;, account, e);</span>
+<span class="fc" id="L470">            return Optional.empty();</span>
+        }
+    }
+
+    protected Optional&lt;String&gt; getPasswordAttrValue(final Account account, final String defaultValue) {
+        Optional&lt;String&gt; passwordAttrValue;
+<span class="fc bfc" id="L476" title="All 2 branches covered.">        if (account instanceof LinkedAccount) {</span>
+<span class="fc bfc" id="L477" title="All 2 branches covered.">            passwordAttrValue = account.getPassword() == null</span>
+<span class="fc" id="L478">                    ? Optional.of(defaultValue)</span>
+<span class="fc" id="L479">                    : decodePassword(account);</span>
+        } else {
+<span class="fc bfc" id="L481" title="All 2 branches covered.">            if (StringUtils.isNotBlank(defaultValue)) {</span>
+<span class="fc" id="L482">                passwordAttrValue = Optional.of(defaultValue);</span>
+<span class="pc bpc" id="L483" title="1 of 2 branches missed.">            } else if (account.canDecodeSecrets()) {</span>
+<span class="nc" id="L484">                passwordAttrValue = decodePassword(account);</span>
+            } else {
+<span class="fc" id="L486">                passwordAttrValue = Optional.empty();</span>
+            }
+        }
+
+<span class="fc" id="L490">        return passwordAttrValue;</span>
+    }
+
+    @Override
+    public PreparedAttr prepareAttr(
+            final ExternalResource resource,
+            final Provision provision,
+            final Item item,
+            final Any any,
+            final String password,
+            final AccountGetter usernameAccountGetter,
+            final AccountGetter passwordAccountGetter,
+            final PlainAttrGetter plainAttrGetter) {
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L506">            intAttrName = intAttrNameParser.parse(item.getIntAttrName(), any.getType().getKind());</span>
+<span class="nc" id="L507">        } catch (ParseException e) {</span>
+<span class="nc" id="L508">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L509">            return null;</span>
+<span class="nc" id="L510">        }</span>
+
+<span class="nc" id="L512">        AttrSchemaType schemaType = Optional.ofNullable(intAttrName.getSchemaInfo()).</span>
+<span class="nc" id="L513">                filter(schemaInfo -&gt; schemaInfo.schema() instanceof PlainSchema).</span>
+<span class="nc" id="L514">                map(schemaInfo -&gt; schemaInfo.schema().getType()).</span>
+<span class="nc" id="L515">                orElse(AttrSchemaType.String);</span>
+
+<span class="nc" id="L517">        IntValues intValues = getIntValues(</span>
+                resource, provision, item, intAttrName, schemaType, any, usernameAccountGetter, plainAttrGetter);
+<span class="nc" id="L519">        schemaType = intValues.attrSchemaType();</span>
+<span class="nc" id="L520">        List&lt;PlainAttrValue&gt; values = intValues.values();</span>
+
+<span class="nc" id="L522">        LOG.debug(</span>
+                &quot;&quot;&quot;
+                  Define mapping for: 
+                  * Item {}
+                  * Schema {}
+                  * ClassType {}
+                  * AttrSchemaType {}
+                  * Values {}&quot;&quot;&quot;,
+<span class="nc" id="L530">                item, intAttrName.getSchemaInfo(), schemaType.getType().getName(), schemaType, values);</span>
+
+<span class="nc" id="L532">        List&lt;Object&gt; objValues = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L534" title="All 2 branches missed.">        for (PlainAttrValue value : values) {</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">            if (schemaType == AttrSchemaType.Encrypted</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">                    &amp;&amp; intAttrName.getSchemaInfo().schema() instanceof PlainSchema schema) {</span>
+
+<span class="nc" id="L538">                String decoded = null;</span>
+                try {
+<span class="nc" id="L540">                    decoded = encryptorManager.getInstance(schema.getSecretKey()).</span>
+<span class="nc" id="L541">                            decode(value.getStringValue(), schema.getCipherAlgorithm());</span>
+<span class="nc" id="L542">                } catch (Exception e) {</span>
+<span class="nc" id="L543">                    LOG.warn(&quot;Could not decode value for {} with algorithm {}&quot;,</span>
+<span class="nc" id="L544">                            intAttrName.getSchemaInfo(), schema.getCipherAlgorithm(), e);</span>
+<span class="nc" id="L545">                }</span>
+<span class="nc" id="L546">                objValues.add(Optional.ofNullable(decoded).orElse(value.getStringValue()));</span>
+<span class="nc bnc" id="L547" title="All 2 branches missed.">            } else if (FrameworkUtil.isSupportedAttributeType(schemaType.getType())) {</span>
+<span class="nc" id="L548">                objValues.add(value.getValue());</span>
+            } else {
+<span class="nc" id="L550">                PlainSchema plainSchema = Optional.ofNullable(intAttrName.getSchemaInfo()).</span>
+<span class="nc" id="L551">                        map(IntAttrName.SchemaInfo::schema).</span>
+<span class="nc" id="L552">                        filter(PlainSchema.class::isInstance).map(PlainSchema.class::cast).</span>
+<span class="nc" id="L553">                        orElse(null);</span>
+<span class="nc bnc" id="L554" title="All 4 branches missed.">                if (plainSchema == null || plainSchema.getType() != schemaType) {</span>
+<span class="nc" id="L555">                    objValues.add(value.getValueAsString(schemaType));</span>
+                } else {
+<span class="nc" id="L557">                    objValues.add(value.getValueAsString(plainSchema));</span>
+                }
+            }
+<span class="nc" id="L560">        }</span>
+
+        PreparedAttr result;
+<span class="nc bnc" id="L563" title="All 2 branches missed.">        if (item.isConnObjectKey()) {</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">            result = new PreparedAttr(objValues.isEmpty() ? null : objValues.getFirst().toString(), null);</span>
+<span class="nc bnc" id="L565" title="All 4 branches missed.">        } else if (item.isPassword() &amp;&amp; any instanceof User user) {</span>
+<span class="nc" id="L566">            result = getPasswordAttrValue(passwordAccountGetter.apply(user), password).</span>
+<span class="nc" id="L567">                    map(passwordAttrValue -&gt; new PreparedAttr(</span>
+<span class="nc" id="L568">                    null, AttributeBuilder.buildPassword(passwordAttrValue.toCharArray()))).</span>
+<span class="nc" id="L569">                    orElse(null);</span>
+<span class="nc bnc" id="L570" title="All 2 branches missed.">        } else if (objValues.isEmpty()) {</span>
+<span class="nc" id="L571">            result = new PreparedAttr(</span>
+                    null,
+<span class="nc" id="L573">                    AttributeBuilder.build(item.getExtAttrName()));</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">        } else if (OperationalAttributes.PASSWORD_NAME.equals(item.getExtAttrName())) {</span>
+<span class="nc" id="L575">            result = new PreparedAttr(</span>
+                    null,
+<span class="nc" id="L577">                    AttributeBuilder.buildPassword(objValues.getFirst().toString().toCharArray()));</span>
+        } else {
+<span class="nc" id="L579">            result = new PreparedAttr(</span>
+                    null,
+<span class="nc" id="L581">                    AttributeBuilder.build(item.getExtAttrName(), objValues));</span>
+        }
+
+<span class="nc" id="L584">        return result;</span>
+    }
+
+    @Override
+    public PreparedAttr prepareAttr(
+            final ExternalResource resource,
+            final Item item,
+            final Realm realm) {
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L595">            intAttrName = intAttrNameParser.parse(item.getIntAttrName());</span>
+<span class="nc" id="L596">        } catch (ParseException e) {</span>
+<span class="nc" id="L597">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L598">            return null;</span>
+<span class="nc" id="L599">        }</span>
+
+<span class="nc" id="L601">        AttrSchemaType schemaType = Optional.ofNullable(intAttrName.getSchemaInfo()).</span>
+<span class="nc" id="L602">                filter(schemaInfo -&gt; schemaInfo.schema() instanceof PlainSchema).</span>
+<span class="nc" id="L603">                map(schemaInfo -&gt; schemaInfo.schema().getType()).</span>
+<span class="nc" id="L604">                orElse(AttrSchemaType.String);</span>
+
+<span class="nc" id="L606">        IntValues intValues = getIntValues(resource, item, intAttrName, schemaType, realm);</span>
+<span class="nc" id="L607">        schemaType = intValues.attrSchemaType();</span>
+<span class="nc" id="L608">        List&lt;PlainAttrValue&gt; values = intValues.values();</span>
+
+<span class="nc" id="L610">        LOG.debug(</span>
+                &quot;&quot;&quot;
+                  Define mapping for: 
+                  * Item {}
+                  * Schema {}
+                  * ClassType {}
+                  * AttrSchemaType {}
+                  * Values {}&quot;&quot;&quot;,
+<span class="nc" id="L618">                item, intAttrName.getSchemaInfo(), schemaType.getType().getName(), schemaType, values);</span>
+
+<span class="nc" id="L620">        List&lt;Object&gt; objValues = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L622" title="All 2 branches missed.">        for (PlainAttrValue value : values) {</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">            if (schemaType == AttrSchemaType.Encrypted</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">                    &amp;&amp; intAttrName.getSchemaInfo().schema() instanceof PlainSchema schema) {</span>
+
+<span class="nc" id="L626">                String decoded = null;</span>
+                try {
+<span class="nc" id="L628">                    decoded = encryptorManager.getInstance(schema.getSecretKey()).</span>
+<span class="nc" id="L629">                            decode(value.getStringValue(), schema.getCipherAlgorithm());</span>
+<span class="nc" id="L630">                } catch (Exception e) {</span>
+<span class="nc" id="L631">                    LOG.warn(&quot;Could not decode value for {} with algorithm {}&quot;,</span>
+<span class="nc" id="L632">                            intAttrName.getSchemaInfo(), schema.getCipherAlgorithm(), e);</span>
+<span class="nc" id="L633">                }</span>
+<span class="nc" id="L634">                objValues.add(Optional.ofNullable(decoded).orElse(value.getStringValue()));</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">            } else if (FrameworkUtil.isSupportedAttributeType(schemaType.getType())) {</span>
+<span class="nc" id="L636">                objValues.add(value.getValue());</span>
+            } else {
+<span class="nc" id="L638">                PlainSchema plainSchema = Optional.ofNullable(intAttrName.getSchemaInfo()).</span>
+<span class="nc" id="L639">                        map(IntAttrName.SchemaInfo::schema).</span>
+<span class="nc" id="L640">                        filter(PlainSchema.class::isInstance).map(PlainSchema.class::cast).</span>
+<span class="nc" id="L641">                        orElse(null);</span>
+<span class="nc bnc" id="L642" title="All 4 branches missed.">                if (plainSchema == null || plainSchema.getType() != schemaType) {</span>
+<span class="nc" id="L643">                    objValues.add(value.getValueAsString(schemaType));</span>
+                } else {
+<span class="nc" id="L645">                    objValues.add(value.getValueAsString(plainSchema));</span>
+                }
+            }
+<span class="nc" id="L648">        }</span>
+
+        PreparedAttr result;
+<span class="nc bnc" id="L651" title="All 2 branches missed.">        if (item.isConnObjectKey()) {</span>
+<span class="nc bnc" id="L652" title="All 2 branches missed.">            result = new PreparedAttr(objValues.isEmpty() ? null : objValues.getFirst().toString(), null);</span>
+<span class="nc bnc" id="L653" title="All 2 branches missed.">        } else if (objValues.isEmpty()) {</span>
+<span class="nc" id="L654">            result = new PreparedAttr(</span>
+                    null,
+<span class="nc" id="L656">                    AttributeBuilder.build(item.getExtAttrName()));</span>
+<span class="nc bnc" id="L657" title="All 2 branches missed.">        } else if (OperationalAttributes.PASSWORD_NAME.equals(item.getExtAttrName())) {</span>
+<span class="nc" id="L658">            result = new PreparedAttr(</span>
+                    null,
+<span class="nc" id="L660">                    AttributeBuilder.buildPassword(objValues.iterator().next().toString().toCharArray()));</span>
+        } else {
+<span class="nc" id="L662">            result = new PreparedAttr(</span>
+                    null,
+<span class="nc" id="L664">                    AttributeBuilder.build(item.getExtAttrName(), objValues));</span>
+        }
+
+<span class="nc" id="L667">        return result;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public IntValues getIntValues(
+            final ExternalResource resource,
+            final Provision provision,
+            final Item item,
+            final IntAttrName intAttrName,
+            final AttrSchemaType schemaType,
+            final Any any,
+            final AccountGetter usernameAccountGetter,
+            final PlainAttrGetter plainAttrGetter) {
+
+<span class="fc" id="L682">        LOG.debug(&quot;Get internal values for {} as '{}' on {}&quot;, any, item.getIntAttrName(), resource);</span>
+
+<span class="fc" id="L684">        List&lt;Any&gt; references = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L685" title="1 of 2 branches missed.">        if (intAttrName.getExternalGroup() == null</span>
+<span class="pc bpc" id="L686" title="1 of 2 branches missed.">                &amp;&amp; intAttrName.getExternalAnyObject() == null</span>
+<span class="pc bpc" id="L687" title="1 of 2 branches missed.">                &amp;&amp; intAttrName.getExternalUser() == null) {</span>
+
+<span class="fc" id="L689">            references.add(any);</span>
+        }
+
+<span class="fc" id="L692">        Relationship&lt;?, ?&gt; relationship = null;</span>
+<span class="fc" id="L693">        Membership&lt;?&gt; membership = null;</span>
+
+<span class="pc bpc" id="L695" title="1 of 2 branches missed.">        if (intAttrName.getExternalUser() != null) {</span>
+<span class="nc" id="L696">            userDAO.findByUsername(intAttrName.getExternalUser()).ifPresentOrElse(</span>
+<span class="nc" id="L697">                    references::add,</span>
+<span class="nc" id="L698">                    () -&gt; LOG.warn(&quot;Could not find user {}, ignoring&quot;, intAttrName.getExternalUser()));</span>
+<span class="pc bpc" id="L699" title="1 of 2 branches missed.">        } else if (intAttrName.getExternalGroup() != null) {</span>
+<span class="nc" id="L700">            groupDAO.findByName(intAttrName.getExternalGroup()).ifPresentOrElse(</span>
+<span class="nc" id="L701">                    references::add,</span>
+<span class="nc" id="L702">                    () -&gt; LOG.warn(&quot;Could not find group {}, ignoring&quot;, intAttrName.getExternalGroup()));</span>
+<span class="pc bpc" id="L703" title="1 of 2 branches missed.">        } else if (intAttrName.getExternalAnyObject() != null) {</span>
+<span class="nc" id="L704">            references.addAll(anyObjectDAO.findByName(intAttrName.getExternalAnyObject()));</span>
+<span class="pc bpc" id="L705" title="3 of 4 branches missed.">        } else if (intAttrName.getMembership() != null &amp;&amp; any instanceof Groupable&lt;?, ?, ?&gt; groupable) {</span>
+<span class="nc" id="L706">            membership = groupDAO.findByName(intAttrName.getMembership()).</span>
+<span class="nc" id="L707">                    flatMap(group -&gt; groupable.getMembership(group.getKey())).</span>
+<span class="nc" id="L708">                    orElse(null);</span>
+<span class="pc bpc" id="L709" title="3 of 4 branches missed.">        } else if (intAttrName.getRelationshipInfo() != null &amp;&amp; any instanceof Relatable&lt;?, ?&gt; relatable) {</span>
+<span class="nc" id="L710">            RelationshipType relationshipType = relationshipTypeDAO.findById(</span>
+<span class="nc" id="L711">                    intAttrName.getRelationshipInfo().type()).orElse(null);</span>
+<span class="nc bnc" id="L712" title="All 2 branches missed.">            if (relationshipType == null) {</span>
+<span class="nc" id="L713">                LOG.warn(&quot;Could not find relationship type {}, ignoring&quot;, intAttrName.getRelationshipInfo().type());</span>
+            } else {
+<span class="nc" id="L715">                relationship = anyObjectDAO.findByName(</span>
+<span class="nc" id="L716">                        relationshipType.getRightEndAnyType().getKey(), intAttrName.getRelationshipInfo().anyObject()).</span>
+<span class="nc" id="L717">                        flatMap(otherEnd -&gt; relatable.getRelationship(relationshipType, otherEnd.getKey())).</span>
+<span class="nc" id="L718">                        orElse(null);</span>
+            }
+        }
+<span class="pc bpc" id="L721" title="1 of 2 branches missed.">        if (references.isEmpty()) {</span>
+<span class="nc" id="L722">            LOG.warn(&quot;Could not determine the reference instance for {}&quot;, item.getIntAttrName());</span>
+<span class="nc" id="L723">            return new IntValues(schemaType, List.of());</span>
+        }
+
+<span class="fc" id="L726">        List&lt;PlainAttrValue&gt; values = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L727">        boolean transform = true;</span>
+
+<span class="fc bfc" id="L729" title="All 2 branches covered.">        for (Any ref : references) {</span>
+<span class="fc bfc" id="L730" title="All 2 branches covered.">            if (intAttrName.getField() != null) {</span>
+<span class="fc" id="L731">                PlainAttrValue attrValue = new PlainAttrValue();</span>
+
+<span class="pc bpc" id="L733" title="4 of 8 branches missed.">                switch (intAttrName.getField()) {</span>
+                    case &quot;key&quot; -&gt; {
+<span class="fc" id="L735">                        attrValue.setStringValue(ref.getKey());</span>
+<span class="fc" id="L736">                        values.add(attrValue);</span>
+<span class="fc" id="L737">                    }</span>
+
+                    case &quot;username&quot; -&gt; {
+<span class="nc bnc" id="L740" title="All 2 branches missed.">                        if (ref instanceof Account account) {</span>
+<span class="nc" id="L741">                            attrValue.setStringValue(usernameAccountGetter.apply(account).getUsername());</span>
+<span class="nc" id="L742">                            values.add(attrValue);</span>
+                        }
+<span class="nc" id="L744">                    }</span>
+
+                    case &quot;realm&quot; -&gt; {
+<span class="nc" id="L747">                        attrValue.setStringValue(ref.getRealm().getFullPath());</span>
+<span class="nc" id="L748">                        values.add(attrValue);</span>
+<span class="nc" id="L749">                    }</span>
+
+                    case &quot;password&quot; -&gt; {
+<span class="nc" id="L752">                    }</span>
+
+                    case &quot;uManager&quot;, &quot;gManager&quot; -&gt; {
+<span class="nc bnc" id="L755" title="All 2 branches missed.">                        Mapping uMappingTO = provision.getAnyType().equals(AnyTypeKind.USER.name())</span>
+<span class="nc" id="L756">                                ? provision.getMapping()</span>
+<span class="nc" id="L757">                                : null;</span>
+<span class="nc bnc" id="L758" title="All 2 branches missed.">                        Mapping gMappingTO = provision.getAnyType().equals(AnyTypeKind.GROUP.name())</span>
+<span class="nc" id="L759">                                ? provision.getMapping()</span>
+<span class="nc" id="L760">                                : null;</span>
+
+<span class="nc" id="L762">                        String managerValue = null;</span>
+<span class="nc bnc" id="L763" title="All 4 branches missed.">                        if (ref.getUManager() != null &amp;&amp; uMappingTO != null) {</span>
+<span class="nc" id="L764">                            managerValue = getManagerValue(resource, provision, ref.getUManager());</span>
+                        }
+<span class="nc bnc" id="L766" title="All 4 branches missed.">                        if (ref.getGManager() != null &amp;&amp; gMappingTO != null) {</span>
+<span class="nc" id="L767">                            managerValue = getManagerValue(resource, provision, ref.getGManager());</span>
+                        }
+
+<span class="nc bnc" id="L770" title="All 2 branches missed.">                        if (StringUtils.isNotBlank(managerValue)) {</span>
+<span class="nc" id="L771">                            attrValue.setStringValue(managerValue);</span>
+<span class="nc" id="L772">                            values.add(attrValue);</span>
+                        }
+<span class="nc" id="L774">                    }</span>
+                    case &quot;suspended&quot; -&gt; {
+<span class="fc bfc" id="L776" title="All 2 branches covered.">                        if (ref instanceof User user) {</span>
+<span class="fc" id="L777">                            attrValue.setBooleanValue(user.isSuspended());</span>
+<span class="fc" id="L778">                            values.add(attrValue);</span>
+                        }
+<span class="fc" id="L780">                    }</span>
+
+                    case &quot;mustChangePassword&quot; -&gt; {
+<span class="pc bpc" id="L783" title="1 of 2 branches missed.">                        if (ref instanceof User user) {</span>
+<span class="nc" id="L784">                            attrValue.setBooleanValue(user.isMustChangePassword());</span>
+<span class="nc" id="L785">                            values.add(attrValue);</span>
+                        }
+<span class="fc" id="L787">                    }</span>
+
+                    default -&gt; {
+                        try {
+<span class="nc" id="L791">                            Object fieldValue = FieldUtils.readField(ref, intAttrName.getField(), true);</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">                            if (fieldValue instanceof TemporalAccessor temporalAccessor) {</span>
+                                // needed because ConnId does not natively supports the Date type
+<span class="nc" id="L794">                                attrValue.setStringValue(FormatUtils.format(temporalAccessor));</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">                            } else if (Boolean.TYPE.isInstance(fieldValue)) {</span>
+<span class="nc" id="L796">                                attrValue.setBooleanValue((Boolean) fieldValue);</span>
+<span class="nc bnc" id="L797" title="All 4 branches missed.">                            } else if (Double.TYPE.isInstance(fieldValue) || Float.TYPE.isInstance(fieldValue)) {</span>
+<span class="nc" id="L798">                                attrValue.setDoubleValue((Double) fieldValue);</span>
+<span class="nc bnc" id="L799" title="All 4 branches missed.">                            } else if (Long.TYPE.isInstance(fieldValue) || Integer.TYPE.isInstance(fieldValue)) {</span>
+<span class="nc" id="L800">                                attrValue.setLongValue((Long) fieldValue);</span>
+                            } else {
+<span class="nc" id="L802">                                attrValue.setStringValue(fieldValue.toString());</span>
+                            }
+<span class="nc" id="L804">                            values.add(attrValue);</span>
+<span class="fc" id="L805">                        } catch (Exception e) {</span>
+<span class="fc" id="L806">                            LOG.error(&quot;Could not read value of '{}' from {}&quot;, intAttrName.getField(), ref, e);</span>
+<span class="nc" id="L807">                        }</span>
+                    }
+                }
+                // ignore
+<span class="fc bfc" id="L811" title="All 2 branches covered.">            } else if (intAttrName.getSchemaInfo() != null) {</span>
+<span class="pc bpc" id="L812" title="2 of 3 branches missed.">                switch (intAttrName.getSchemaInfo().type()) {</span>
+                    case PLAIN -&gt; {
+<span class="pc bpc" id="L814" title="2 of 4 branches missed.">                        PlainAttr attr = membership == null &amp;&amp; relationship == null</span>
+<span class="nc" id="L815">                                ? plainAttrGetter.apply(ref, intAttrName.getSchemaInfo().schema().getKey())</span>
+<span class="nc bnc" id="L816" title="All 2 branches missed.">                                : membership == null</span>
+<span class="nc" id="L817">                                        ? ((Relatable&lt;?, ?&gt;) ref).getPlainAttr(</span>
+<span class="nc" id="L818">                                                intAttrName.getSchemaInfo().schema().getKey(), relationship).</span>
+<span class="nc" id="L819">                                                orElse(null)</span>
+<span class="nc" id="L820">                                        : ((Groupable&lt;?, ?, ?&gt;) ref).getPlainAttr(</span>
+<span class="nc" id="L821">                                                intAttrName.getSchemaInfo().schema().getKey(), membership).orElse(null);</span>
+<span class="nc bnc" id="L822" title="All 2 branches missed.">                        if (attr != null) {</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">                            if (attr.getUniqueValue() != null) {</span>
+<span class="nc" id="L824">                                values.add(clonePlainAttrValue(attr.getUniqueValue()));</span>
+<span class="nc bnc" id="L825" title="All 2 branches missed.">                            } else if (attr.getValues() != null) {</span>
+<span class="nc" id="L826">                                attr.getValues().forEach(value -&gt; values.add(clonePlainAttrValue(value)));</span>
+                            }
+                        }
+<span class="nc" id="L829">                    }</span>
+
+                    case DERIVED -&gt; {
+<span class="nc" id="L832">                        DerSchema derSchema = (DerSchema) intAttrName.getSchemaInfo().schema();</span>
+<span class="nc bnc" id="L833" title="All 4 branches missed.">                        String derValue = membership == null &amp;&amp; relationship == null</span>
+<span class="nc" id="L834">                                ? derAttrHandler.getValue(ref, derSchema)</span>
+<span class="nc bnc" id="L835" title="All 2 branches missed.">                                : membership == null</span>
+<span class="nc" id="L836">                                        ? derAttrHandler.getValue((Relatable&lt;?, ?&gt;) ref, relationship, derSchema)</span>
+<span class="nc" id="L837">                                        : derAttrHandler.getValue((Groupable&lt;?, ?, ?&gt;) ref, membership, derSchema);</span>
+<span class="nc bnc" id="L838" title="All 2 branches missed.">                        if (derValue != null) {</span>
+<span class="nc" id="L839">                            PlainAttrValue attrValue = new PlainAttrValue();</span>
+<span class="nc" id="L840">                            attrValue.setStringValue(derValue);</span>
+<span class="nc" id="L841">                            values.add(attrValue);</span>
+                        }
+<span class="nc" id="L843">                    }</span>
+
+                    default -&gt; {
+                    }
+                }
+            }
+<span class="fc" id="L849">        }</span>
+
+<span class="fc" id="L851">        LOG.debug(&quot;Internal values: {}&quot;, values);</span>
+
+<span class="fc" id="L853">        IntValues transformed = new IntValues(schemaType, values);</span>
+<span class="pc bpc" id="L854" title="1 of 2 branches missed.">        if (transform) {</span>
+            for (ItemTransformer transformer
+<span class="pc bpc" id="L856" title="1 of 2 branches missed.">                    : MappingUtils.getItemTransformers(AuthContextUtils.getDomain(), item, getTransformers(item))) {</span>
+
+<span class="nc" id="L858">                transformed = transformer.beforePropagation(</span>
+<span class="nc" id="L859">                        item, any, transformed.attrSchemaType(), transformed.values());</span>
+<span class="nc" id="L860">            }</span>
+<span class="fc" id="L861">            LOG.debug(&quot;Transformed values: {}&quot;, values);</span>
+        } else {
+<span class="nc" id="L863">            LOG.debug(&quot;No transformation occurred&quot;);</span>
+        }
+
+<span class="fc" id="L866">        return transformed;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public IntValues getIntValues(
+            final ExternalResource resource,
+            final Item item,
+            final IntAttrName intAttrName,
+            final AttrSchemaType schemaType,
+            final Realm realm) {
+
+<span class="fc" id="L878">        LOG.debug(&quot;Get internal values for {} as '{}' on {}&quot;, realm, item.getIntAttrName(), resource);</span>
+
+<span class="fc" id="L880">        List&lt;PlainAttrValue&gt; values = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L881">        boolean transform = true;</span>
+
+<span class="fc bfc" id="L883" title="All 2 branches covered.">        if (intAttrName.getField() != null) {</span>
+<span class="fc" id="L884">            PlainAttrValue attrValue = new PlainAttrValue();</span>
+
+<span class="fc bfc" id="L886" title="All 4 branches covered.">            switch (intAttrName.getField()) {</span>
+                case &quot;key&quot; -&gt; {
+<span class="fc" id="L888">                    attrValue.setStringValue(realm.getKey());</span>
+<span class="fc" id="L889">                    values.add(attrValue);</span>
+<span class="fc" id="L890">                }</span>
+
+                case &quot;name&quot; -&gt; {
+<span class="fc" id="L893">                    attrValue.setStringValue(realm.getName());</span>
+<span class="fc" id="L894">                    values.add(attrValue);</span>
+<span class="fc" id="L895">                }</span>
+
+                case &quot;fullPath&quot; -&gt; {
+<span class="fc" id="L898">                    attrValue.setStringValue(realm.getFullPath());</span>
+<span class="fc" id="L899">                    values.add(attrValue);</span>
+<span class="fc" id="L900">                }</span>
+
+                default -&gt; {
+                }
+            }
+<span class="fc bfc" id="L905" title="All 2 branches covered.">        } else if (intAttrName.getSchemaInfo() != null) {</span>
+<span class="pc bpc" id="L906" title="2 of 3 branches missed.">            switch (intAttrName.getSchemaInfo().type()) {</span>
+                case PLAIN -&gt; {
+<span class="fc" id="L908">                    realm.getPlainAttr(intAttrName.getSchemaInfo().schema().getKey()).ifPresent(attr -&gt; {</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">                        if (attr.getUniqueValue() != null) {</span>
+<span class="nc" id="L910">                            values.add(clonePlainAttrValue(attr.getUniqueValue()));</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">                        } else if (attr.getValues() != null) {</span>
+<span class="nc" id="L912">                            attr.getValues().forEach(value -&gt; values.add(clonePlainAttrValue(value)));</span>
+                        }
+<span class="nc" id="L914">                    });</span>
+<span class="fc" id="L915">                }</span>
+
+                case DERIVED -&gt; {
+<span class="nc" id="L918">                    Optional.ofNullable(derAttrHandler.getValue(</span>
+<span class="nc" id="L919">                            realm, (DerSchema) intAttrName.getSchemaInfo().schema())).</span>
+<span class="nc" id="L920">                            ifPresent(derValue -&gt; {</span>
+<span class="nc" id="L921">                                PlainAttrValue attrValue = new PlainAttrValue();</span>
+<span class="nc" id="L922">                                attrValue.setStringValue(derValue);</span>
+<span class="nc" id="L923">                                values.add(attrValue);</span>
+<span class="nc" id="L924">                            });</span>
+<span class="nc" id="L925">                }</span>
+
+                default -&gt; {
+                }
+            }
+        }
+
+<span class="fc" id="L932">        LOG.debug(&quot;Internal values: {}&quot;, values);</span>
+
+<span class="fc" id="L934">        IntValues transformed = new IntValues(schemaType, values);</span>
+<span class="pc bpc" id="L935" title="1 of 2 branches missed.">        if (transform) {</span>
+            for (ItemTransformer transformer
+<span class="pc bpc" id="L937" title="1 of 2 branches missed.">                    : MappingUtils.getItemTransformers(AuthContextUtils.getDomain(), item, getTransformers(item))) {</span>
+
+<span class="nc" id="L939">                transformed = transformer.beforePropagation(</span>
+<span class="nc" id="L940">                        item, realm, transformed.attrSchemaType(), transformed.values());</span>
+<span class="nc" id="L941">            }</span>
+<span class="fc" id="L942">            LOG.debug(&quot;Transformed values: {}&quot;, values);</span>
+        } else {
+<span class="nc" id="L944">            LOG.debug(&quot;No transformation occurred&quot;);</span>
+        }
+
+<span class="fc" id="L947">        return transformed;</span>
+    }
+
+    protected String getManagerValue(
+            final ExternalResource resource,
+            final Provision provision,
+            final Any any) {
+
+<span class="fc" id="L955">        Optional&lt;Item&gt; connObjectKeyItem = MappingUtils.getConnObjectKeyItem(provision);</span>
+
+<span class="fc" id="L957">        PreparedAttr preparedAttr = null;</span>
+<span class="fc bfc" id="L958" title="All 2 branches covered.">        if (connObjectKeyItem.isPresent()) {</span>
+<span class="pc" id="L959">            preparedAttr = prepareAttr(</span>
+                    resource,
+                    provision,
+<span class="fc" id="L962">                    connObjectKeyItem.get(),</span>
+                    any,
+                    null,
+                    AccountGetter.DEFAULT,
+                    AccountGetter.DEFAULT,
+                    PlainAttrGetter.DEFAULT);
+        }
+
+<span class="fc" id="L970">        return Optional.ofNullable(preparedAttr).</span>
+<span class="pc" id="L971">                map(attr -&gt; evaluateNAME(any, provision, attr.connObjectLink()).getNameValue()).orElse(null);</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Optional&lt;String&gt; getConnObjectKeyValue(
+            final Any any,
+            final ExternalResource resource,
+            final Provision provision) {
+
+<span class="fc" id="L981">        Optional&lt;Item&gt; connObjectKeyItem = provision.getMapping().getConnObjectKeyItem();</span>
+<span class="fc bfc" id="L982" title="All 2 branches covered.">        if (connObjectKeyItem.isEmpty()) {</span>
+<span class="nc" id="L983">            LOG.error(&quot;Unable to locate conn object key item for {}&quot;, any.getType().getKey());</span>
+<span class="nc" id="L984">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L987">        Item item = connObjectKeyItem.get();</span>
+        IntValues intValues;
+        try {
+<span class="pc" id="L990">            intValues = getIntValues(</span>
+                    resource,
+                    provision,
+                    item,
+<span class="nc" id="L994">                    intAttrNameParser.parse(item.getIntAttrName(), any.getType().getKind()),</span>
+                    AttrSchemaType.String,
+                    any,
+                    AccountGetter.DEFAULT,
+                    PlainAttrGetter.DEFAULT);
+<span class="nc" id="L999">        } catch (ParseException e) {</span>
+<span class="nc" id="L1000">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L1001">            intValues = new IntValues(AttrSchemaType.String, List.of());</span>
+<span class="nc" id="L1002">        }</span>
+<span class="nc bnc" id="L1003" title="All 2 branches missed.">        return intValues.values().isEmpty()</span>
+<span class="nc" id="L1004">                ? Optional.empty()</span>
+<span class="nc" id="L1005">                : Optional.of(intValues.values().getFirst().getValueAsString());</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Optional&lt;String&gt; getConnObjectKeyValue(final Realm realm, final ExternalResource resource) {
+<span class="fc bfc" id="L1011" title="All 2 branches covered.">        if (resource.getOrgUnit() == null) {</span>
+<span class="fc" id="L1012">            LOG.error(&quot;No mapping configured for Realms&quot;);</span>
+<span class="fc" id="L1013">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L1016">        Optional&lt;Item&gt; connObjectKeyItem = resource.getOrgUnit().getConnObjectKeyItem();</span>
+<span class="fc bfc" id="L1017" title="All 2 branches covered.">        if (connObjectKeyItem.isEmpty()) {</span>
+<span class="fc" id="L1018">            LOG.error(&quot;Unable to locate conn object key item for Realms&quot;);</span>
+<span class="fc" id="L1019">            return Optional.empty();</span>
+        }
+
+<span class="fc" id="L1022">        Item item = connObjectKeyItem.get();</span>
+        IntValues intValues;
+        try {
+<span class="pc" id="L1025">            intValues = getIntValues(</span>
+                    resource,
+                    item,
+<span class="nc" id="L1028">                    intAttrNameParser.parse(item.getIntAttrName()),</span>
+                    AttrSchemaType.String,
+                    realm);
+<span class="nc" id="L1031">        } catch (ParseException e) {</span>
+<span class="nc" id="L1032">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L1033">            intValues = new IntValues(AttrSchemaType.String, List.of());</span>
+<span class="nc" id="L1034">        }</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">        return intValues.values().isEmpty()</span>
+<span class="nc" id="L1036">                ? Optional.empty()</span>
+<span class="nc" id="L1037">                : Optional.of(intValues.values().getFirst().getValueAsString());</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public void setIntValues(final Item item, final Attribute attr, final AnyTO anyTO) {
+<span class="fc" id="L1043">        List&lt;Object&gt; values = null;</span>
+<span class="fc bfc" id="L1044" title="All 2 branches covered.">        if (attr != null) {</span>
+<span class="fc" id="L1045">            values = attr.getValue();</span>
+            for (ItemTransformer transformer
+<span class="pc bpc" id="L1047" title="1 of 2 branches missed.">                    : MappingUtils.getItemTransformers(AuthContextUtils.getDomain(), item, getTransformers(item))) {</span>
+<span class="nc" id="L1048">                values = transformer.beforePull(item, anyTO, values);</span>
+<span class="nc" id="L1049">            }</span>
+        }
+<span class="fc" id="L1051">        values = Optional.ofNullable(values).orElseGet(List::of);</span>
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L1055">            intAttrName = intAttrNameParser.parse(item.getIntAttrName(), AnyTypeKind.fromTOClass(anyTO.getClass()));</span>
+<span class="nc" id="L1056">        } catch (ParseException e) {</span>
+<span class="nc" id="L1057">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L1058">            return;</span>
+<span class="nc" id="L1059">        }</span>
+
+<span class="nc bnc" id="L1061" title="All 6 branches missed.">        if (intAttrName.getField() != null &amp;&amp; !values.isEmpty() &amp;&amp; values.getFirst() != null) {</span>
+<span class="nc bnc" id="L1062" title="All 7 branches missed.">            switch (intAttrName.getField()) {</span>
+                case &quot;password&quot; -&gt; {
+<span class="nc bnc" id="L1064" title="All 2 branches missed.">                    if (anyTO instanceof UserTO userTO) {</span>
+<span class="nc" id="L1065">                        userTO.setPassword(ConnObjectUtils.getPassword(values.getFirst()));</span>
+                    }
+<span class="nc" id="L1067">                }</span>
+
+                case &quot;username&quot; -&gt; {
+<span class="nc bnc" id="L1070" title="All 2 branches missed.">                    if (anyTO instanceof UserTO userTO) {</span>
+<span class="nc" id="L1071">                        userTO.setUsername(values.getFirst().toString());</span>
+                    }
+<span class="nc" id="L1073">                }</span>
+
+                case &quot;name&quot; -&gt; {
+<span class="nc bnc" id="L1076" title="All 3 branches missed.">                    switch (anyTO) {</span>
+<span class="nc" id="L1077">                        case GroupTO groupTO -&gt;</span>
+<span class="nc" id="L1078">                            groupTO.setName(values.getFirst().toString());</span>
+<span class="nc" id="L1079">                        case AnyObjectTO anyObjectTO -&gt;</span>
+<span class="nc" id="L1080">                            anyObjectTO.setName(values.getFirst().toString());</span>
+                        default -&gt; {
+                        }
+                    }
+<span class="nc" id="L1084">                }</span>
+
+                case &quot;mustChangePassword&quot; -&gt; {
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">                    if (anyTO instanceof UserTO userTO) {</span>
+<span class="nc" id="L1088">                        userTO.setMustChangePassword(BooleanUtils.toBoolean(values.getFirst().toString()));</span>
+                    }
+<span class="nc" id="L1090">                }</span>
+
+                case &quot;uManager&quot; -&gt; {
+<span class="nc" id="L1093">                    anyTO.setUManager(values.getFirst().toString());</span>
+<span class="nc" id="L1094">                }</span>
+
+                case &quot;gManager&quot; -&gt; {
+<span class="nc" id="L1097">                    anyTO.setGManager(values.getFirst().toString());</span>
+<span class="nc" id="L1098">                }</span>
+
+                default -&gt; {
+                }
+<span class="nc" id="L1102">            }</span>
+<span class="nc bnc" id="L1103" title="All 4 branches missed.">        } else if (intAttrName.getSchemaInfo() != null &amp;&amp; attr != null) {</span>
+            GroupableRelatableTO groupableTO;
+            Group group;
+<span class="nc bnc" id="L1106" title="All 2 branches missed.">            if (anyTO instanceof final GroupableRelatableTO groupableRelatableTO</span>
+<span class="nc bnc" id="L1107" title="All 2 branches missed.">                    &amp;&amp; intAttrName.getMembership() != null) {</span>
+
+<span class="nc" id="L1109">                groupableTO = groupableRelatableTO;</span>
+<span class="nc" id="L1110">                group = groupDAO.findByName(intAttrName.getMembership()).orElse(null);</span>
+            } else {
+<span class="nc" id="L1112">                groupableTO = null;</span>
+<span class="nc" id="L1113">                group = null;</span>
+            }
+
+<span class="nc bnc" id="L1116" title="All 3 branches missed.">            switch (intAttrName.getSchemaInfo().type()) {</span>
+                case PLAIN -&gt; {
+<span class="nc" id="L1118">                    Attr attrTO = new Attr();</span>
+<span class="nc" id="L1119">                    attrTO.setSchema(intAttrName.getSchemaInfo().schema().getKey());</span>
+
+<span class="nc" id="L1121">                    PlainSchema schema = (PlainSchema) intAttrName.getSchemaInfo().schema();</span>
+
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">                    for (Object value : values) {</span>
+<span class="nc bnc" id="L1124" title="All 2 branches missed.">                        AttrSchemaType schemaType = schema == null ? AttrSchemaType.String : schema.getType();</span>
+<span class="nc bnc" id="L1125" title="All 2 branches missed.">                        if (value != null) {</span>
+<span class="nc bnc" id="L1126" title="All 2 branches missed.">                            if (schemaType == AttrSchemaType.Binary) {</span>
+<span class="nc" id="L1127">                                attrTO.getValues().add(Base64.getEncoder().encodeToString((byte[]) value));</span>
+                            } else {
+<span class="nc" id="L1129">                                attrTO.getValues().add(value.toString());</span>
+                            }
+                        }
+<span class="nc" id="L1132">                    }</span>
+
+<span class="nc bnc" id="L1134" title="All 4 branches missed.">                    if (groupableTO == null || group == null) {</span>
+<span class="nc" id="L1135">                        anyTO.getPlainAttrs().add(attrTO);</span>
+                    } else {
+<span class="nc" id="L1137">                        MembershipTO membership = groupableTO.getMembership(group.getKey()).orElseGet(() -&gt; {</span>
+<span class="nc" id="L1138">                            MembershipTO newMemb = new MembershipTO.Builder(group.getKey()).build();</span>
+<span class="nc" id="L1139">                            groupableTO.getMemberships().add(newMemb);</span>
+<span class="nc" id="L1140">                            return newMemb;</span>
+                        });
+<span class="nc" id="L1142">                        membership.getPlainAttrs().add(attrTO);</span>
+                    }
+<span class="nc" id="L1144">                }</span>
+
+                case DERIVED -&gt; {
+<span class="nc" id="L1147">                    Attr attrTO = new Attr();</span>
+<span class="nc" id="L1148">                    attrTO.setSchema(intAttrName.getSchemaInfo().schema().getKey());</span>
+<span class="nc bnc" id="L1149" title="All 4 branches missed.">                    if (groupableTO == null || group == null) {</span>
+<span class="nc" id="L1150">                        anyTO.getDerAttrs().add(attrTO);</span>
+                    } else {
+<span class="nc" id="L1152">                        MembershipTO membership = groupableTO.getMembership(group.getKey()).orElseGet(() -&gt; {</span>
+<span class="nc" id="L1153">                            MembershipTO newMemb = new MembershipTO.Builder(group.getKey()).build();</span>
+<span class="nc" id="L1154">                            groupableTO.getMemberships().add(newMemb);</span>
+<span class="nc" id="L1155">                            return newMemb;</span>
+                        });
+<span class="nc" id="L1157">                        membership.getDerAttrs().add(attrTO);</span>
+                    }
+<span class="nc" id="L1159">                }</span>
+
+                default -&gt; {
+                }
+            }
+        }
+<span class="nc" id="L1165">    }</span>
+
+    @Override
+    public void setIntValues(final Item item, final Attribute attr, final RealmTO realmTO) {
+<span class="fc" id="L1169">        List&lt;Object&gt; values = null;</span>
+<span class="fc bfc" id="L1170" title="All 2 branches covered.">        if (attr != null) {</span>
+<span class="fc" id="L1171">            values = attr.getValue();</span>
+            for (ItemTransformer transformer
+<span class="pc bpc" id="L1173" title="1 of 2 branches missed.">                    : MappingUtils.getItemTransformers(AuthContextUtils.getDomain(), item, getTransformers(item))) {</span>
+
+<span class="nc" id="L1175">                values = transformer.beforePull(item, realmTO, values);</span>
+<span class="nc" id="L1176">            }</span>
+        }
+<span class="fc" id="L1178">        values = Optional.ofNullable(values).orElseGet(List::of);</span>
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L1182">            intAttrName = intAttrNameParser.parse(item.getIntAttrName());</span>
+<span class="nc" id="L1183">        } catch (ParseException e) {</span>
+<span class="nc" id="L1184">            LOG.error(&quot;Invalid intAttrName '{}' specified, ignoring&quot;, item.getIntAttrName(), e);</span>
+<span class="nc" id="L1185">            return;</span>
+<span class="nc" id="L1186">        }</span>
+
+<span class="nc bnc" id="L1188" title="All 2 branches missed.">        if (intAttrName.getField() != null) {</span>
+<span class="nc bnc" id="L1189" title="All 3 branches missed.">            switch (intAttrName.getField()) {</span>
+                case &quot;name&quot; -&gt; {
+<span class="nc bnc" id="L1191" title="All 4 branches missed.">                    realmTO.setName(values.isEmpty() || values.getFirst() == null</span>
+<span class="nc" id="L1192">                            ? null</span>
+<span class="nc" id="L1193">                            : values.getFirst().toString());</span>
+<span class="nc" id="L1194">                }</span>
+
+                case &quot;fullpath&quot; -&gt; {
+<span class="nc" id="L1197">                    String parentFullPath = StringUtils.substringBeforeLast(values.getFirst().toString(), &quot;/&quot;);</span>
+<span class="nc" id="L1198">                    realmSearchDAO.findByFullPath(parentFullPath).ifPresentOrElse(</span>
+<span class="nc" id="L1199">                            parent -&gt; realmTO.setParent(parent.getFullPath()),</span>
+<span class="nc" id="L1200">                            () -&gt; LOG.warn(&quot;Could not find Realm with path {}, ignoring&quot;, parentFullPath));</span>
+<span class="nc" id="L1201">                }</span>
+
+                default -&gt; {
+                }
+<span class="nc" id="L1205">            }</span>
+<span class="nc bnc" id="L1206" title="All 4 branches missed.">        } else if (intAttrName.getSchemaInfo() != null &amp;&amp; attr != null) {</span>
+<span class="nc bnc" id="L1207" title="All 3 branches missed.">            switch (intAttrName.getSchemaInfo().type()) {</span>
+                case PLAIN -&gt; {
+<span class="nc" id="L1209">                    Attr attrTO = new Attr();</span>
+<span class="nc" id="L1210">                    attrTO.setSchema(intAttrName.getSchemaInfo().schema().getKey());</span>
+
+<span class="nc" id="L1212">                    PlainSchema schema = (PlainSchema) intAttrName.getSchemaInfo().schema();</span>
+
+<span class="nc bnc" id="L1214" title="All 2 branches missed.">                    for (Object value : values) {</span>
+<span class="nc bnc" id="L1215" title="All 2 branches missed.">                        AttrSchemaType schemaType = schema == null ? AttrSchemaType.String : schema.getType();</span>
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">                        if (value != null) {</span>
+<span class="nc bnc" id="L1217" title="All 2 branches missed.">                            if (schemaType == AttrSchemaType.Binary) {</span>
+<span class="nc" id="L1218">                                attrTO.getValues().add(Base64.getEncoder().encodeToString((byte[]) value));</span>
+                            } else {
+<span class="nc" id="L1220">                                attrTO.getValues().add(value.toString());</span>
+                            }
+                        }
+<span class="nc" id="L1223">                    }</span>
+
+<span class="nc" id="L1225">                    realmTO.getPlainAttrs().add(attrTO);</span>
+<span class="nc" id="L1226">                }</span>
+
+                case DERIVED -&gt; {
+<span class="nc" id="L1229">                    Attr attrTO = new Attr();</span>
+<span class="nc" id="L1230">                    attrTO.setSchema(intAttrName.getSchemaInfo().schema().getKey());</span>
+<span class="nc" id="L1231">                    realmTO.getDerAttrs().add(attrTO);</span>
+<span class="nc" id="L1232">                }</span>
+
+                default -&gt; {
+                }
+            }
+        }
+<span class="nc" id="L1238">    }</span>
+
+    @Override
+    public boolean hasMustChangePassword(final Provision provision) {
+<span class="fc" id="L1242">        return Optional.ofNullable(provision.getMapping()).</span>
+<span class="pc" id="L1243">                map(mapping -&gt; mapping.getItems().stream().</span>
+<span class="nc" id="L1244">                anyMatch(item -&gt; &quot;mustChangePassword&quot;.equals(item.getIntAttrName()))).</span>
+<span class="fc" id="L1245">                orElse(false);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

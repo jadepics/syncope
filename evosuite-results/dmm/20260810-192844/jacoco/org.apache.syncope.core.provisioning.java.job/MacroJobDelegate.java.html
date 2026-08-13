@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MacroJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">MacroJobDelegate.java</span></div><h1>MacroJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import jakarta.annotation.Resource;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ValidationException;
+import jakarta.validation.Validator;
+import java.io.Serializable;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.commons.jexl3.MapContext;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.command.CommandArgs;
+import org.apache.syncope.common.lib.form.FormProperty;
+import org.apache.syncope.common.lib.form.SyncopeForm;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.entity.task.FormPropertyDef;
+import org.apache.syncope.core.persistence.api.entity.task.MacroTask;
+import org.apache.syncope.core.persistence.api.entity.task.MacroTaskCommand;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.utils.FormatUtils;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.apache.syncope.core.provisioning.api.macro.Command;
+import org.apache.syncope.core.provisioning.api.macro.MacroActions;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.security.concurrent.DelegatingSecurityContextCallable;
+import org.springframework.util.ReflectionUtils;
+
+<span class="nc" id="L69">public class MacroJobDelegate extends AbstractSchedTaskJobDelegate&lt;MacroTask&gt; implements StoppableJobDelegate {</span>
+
+    public static final String MACRO_TASK_FORM_JOBDETAIL_KEY = &quot;macroTaskForm&quot;;
+
+    @Autowired
+    protected ImplementationDAO implementationDAO;
+
+    @Autowired
+    protected Validator validator;
+
+    @Resource(name = &quot;batchExecutor&quot;)
+    protected AsyncTaskExecutor taskExecutor;
+
+    @Autowired
+    protected JexlTools jexlTools;
+
+<span class="nc" id="L85">    protected volatile boolean stopRequested = false;</span>
+
+<span class="nc" id="L87">    protected final Map&lt;String, MacroActions&gt; perContextActions = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L89">    protected final Map&lt;String, Command&lt;?&gt;&gt; perContextCommands = new ConcurrentHashMap&lt;&gt;();</span>
+
+    protected Optional&lt;JexlContext&gt; check(
+            final SyncopeForm macroTaskForm,
+            final Optional&lt;MacroActions&gt; actions,
+            final StringBuilder output) throws JobExecutionException {
+
+<span class="nc bnc" id="L96" title="All 2 branches missed.">        if (macroTaskForm == null) {</span>
+<span class="nc" id="L97">            return Optional.empty();</span>
+        }
+
+        // check if there is any required property with no value provided
+<span class="nc" id="L101">        Set&lt;String&gt; missingFormProperties = task.getFormPropertyDefs().stream().</span>
+<span class="nc" id="L102">                filter(FormPropertyDef::isRequired).</span>
+<span class="nc" id="L103">                map(fpd -&gt; Pair.of(</span>
+<span class="nc" id="L104">                fpd.getName(),</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">                macroTaskForm.getProperty(fpd.getName()).map(p -&gt; p.getValue() != null))).</span>
+<span class="nc" id="L106">                filter(pair -&gt; pair.getRight().isEmpty()).</span>
+<span class="nc" id="L107">                map(Pair::getLeft).</span>
+<span class="nc" id="L108">                collect(Collectors.toSet());</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (!missingFormProperties.isEmpty()) {</span>
+<span class="nc" id="L110">            throw new JobExecutionException(&quot;Required form properties missing: &quot; + missingFormProperties);</span>
+        }
+
+        // build the JEXL context where variables are mapped to property values, built according to the defined type
+<span class="nc" id="L114">        Map&lt;String, Object&gt; vars = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        for (FormPropertyDef fpd : task.getFormPropertyDefs()) {</span>
+<span class="nc" id="L116">            String value = macroTaskForm.getProperty(fpd.getName()).map(FormProperty::getValue).orElse(null);</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">            if (value == null) {</span>
+<span class="nc" id="L118">                continue;</span>
+            }
+
+<span class="nc bnc" id="L121" title="All 9 branches missed.">            switch (fpd.getType()) {</span>
+                case String -&gt; {
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                    if (Optional.ofNullable(fpd.getStringRegEx()).</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                            map(pattern -&gt; !pattern.matcher(value).matches()).</span>
+<span class="nc" id="L125">                            orElse(false)) {</span>
+
+<span class="nc" id="L127">                        throw new JobExecutionException(&quot;RegEx not matching for &quot; + fpd.getName() + &quot;: &quot; + value);</span>
+                    }
+
+<span class="nc" id="L130">                    vars.put(fpd.getName(), value);</span>
+<span class="nc" id="L131">                }</span>
+
+                case Password -&gt;
+<span class="nc" id="L134">                    vars.put(fpd.getName(), value);</span>
+
+                case Boolean -&gt;
+<span class="nc" id="L137">                    vars.put(fpd.getName(), BooleanUtils.toBoolean(value));</span>
+
+                case Date -&gt; {
+                    try {
+<span class="nc bnc" id="L141" title="All 2 branches missed.">                        vars.put(fpd.getName(), StringUtils.isBlank(fpd.getDatePattern())</span>
+<span class="nc" id="L142">                                ? FormatUtils.parseDate(value)</span>
+<span class="nc" id="L143">                                : FormatUtils.parseDate(value, fpd.getDatePattern()));</span>
+<span class="nc" id="L144">                    } catch (DateTimeParseException e) {</span>
+<span class="nc" id="L145">                        throw new JobExecutionException(&quot;Unparseable date &quot; + fpd.getName() + &quot;: &quot; + value, e);</span>
+<span class="nc" id="L146">                    }</span>
+                }
+
+                case Long -&gt;
+<span class="nc" id="L150">                    vars.put(fpd.getName(), NumberUtils.toLong(value));</span>
+
+                case Enum -&gt; {
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                    if (!fpd.getEnumValues().containsKey(value)) {</span>
+<span class="nc" id="L154">                        throw new JobExecutionException(&quot;Not allowed for &quot; + fpd.getName() + &quot;: &quot; + value);</span>
+                    }
+
+<span class="nc" id="L157">                    vars.put(fpd.getName(), value);</span>
+<span class="nc" id="L158">                }</span>
+
+                case Dropdown -&gt; {
+<span class="nc bnc" id="L161" title="All 2 branches missed.">                    if (!fpd.isDropdownFreeForm()) {</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">                        List&lt;String&gt; values = fpd.isDropdownSingleSelection()</span>
+<span class="nc" id="L163">                                ? List.of(value)</span>
+<span class="nc" id="L164">                                : List.of(value.split(&quot;;&quot;));</span>
+
+<span class="nc" id="L166">                        if (!actions.map(a -&gt; a.getDropdownValues(fpd.getName()).keySet()).</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">                                orElseGet(Set::of).containsAll(values)) {</span>
+
+<span class="nc" id="L169">                            throw new JobExecutionException(&quot;Not allowed for &quot; + fpd.getName() + &quot;: &quot; + values);</span>
+                        }
+                    }
+
+<span class="nc" id="L173">                    vars.put(fpd.getName(), value);</span>
+<span class="nc" id="L174">                }</span>
+
+                case Binary -&gt;
+<span class="nc" id="L177">                    vars.put(fpd.getName(), Base64.getDecoder().decode(value));</span>
+
+                default -&gt; {
+                }
+            }
+<span class="nc" id="L182">        }</span>
+
+        // if validator is defined, validate the provided form
+        try {
+<span class="nc" id="L186">            actions.ifPresent(a -&gt; a.validate(macroTaskForm, vars));</span>
+<span class="nc" id="L187">        } catch (ValidationException e) {</span>
+<span class="nc" id="L188">            throw new JobExecutionException(&quot;Invalid form submitted for task &quot; + task.getKey(), e);</span>
+<span class="nc" id="L189">        }</span>
+
+<span class="nc" id="L191">        output.append(&quot;Form parameter values: &quot;).append(vars).append(&quot;\n\n&quot;);</span>
+
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        return vars.isEmpty() ? Optional.empty() : Optional.of(new MapContext(vars));</span>
+    }
+
+    protected void run(
+            final List&lt;Pair&lt;Command&lt;CommandArgs&gt;, CommandArgs&gt;&gt; commands,
+            final Optional&lt;MacroActions&gt; actions,
+            final Map&lt;String, Serializable&gt; ctx,
+            final StringBuilder output,
+            final boolean dryRun)
+            throws JobExecutionException {
+
+<span class="nc" id="L204">        Future&lt;Mutable&lt;Pair&lt;String, Throwable&gt;&gt;&gt; future = taskExecutor.submit(</span>
+                new DelegatingSecurityContextCallable&lt;&gt;(() -&gt; {
+
+<span class="nc" id="L207">                    Mutable&lt;Pair&lt;String, Throwable&gt;&gt; error = new MutableObject&lt;&gt;();</span>
+
+<span class="nc bnc" id="L209" title="All 6 branches missed.">                    for (int i = 0; i &lt; commands.size() &amp;&amp; !stopRequested &amp;&amp; error.get() == null; i++) {</span>
+<span class="nc" id="L210">                        Pair&lt;Command&lt;CommandArgs&gt;, CommandArgs&gt; command = commands.get(i);</span>
+
+                        try {
+<span class="nc" id="L213">                            String args = POJOHelper.serialize(command.getRight());</span>
+<span class="nc" id="L214">                            output.append(&quot;Command[&quot;).append(command.getLeft().getClass().getName()).append(&quot;]: &quot;).</span>
+<span class="nc" id="L215">                                    append(args).append(&quot;\n&quot;);</span>
+
+<span class="nc bnc" id="L217" title="All 2 branches missed.">                            if (!dryRun) {</span>
+<span class="nc" id="L218">                                command.getRight().setCtx(ctx);</span>
+
+<span class="nc" id="L220">                                actions.ifPresent(a -&gt; a.beforeCommand(</span>
+<span class="nc" id="L221">                                        command.getLeft(), command.getRight()));</span>
+
+<span class="nc" id="L223">                                Command.Result cmdResult = command.getLeft().run(command.getRight());</span>
+<span class="nc" id="L224">                                ctx.putAll(cmdResult.values());</span>
+
+<span class="nc" id="L226">                                actions.ifPresent(a -&gt; a.afterCommand(</span>
+<span class="nc" id="L227">                                        command.getLeft(), command.getRight(), cmdResult));</span>
+
+<span class="nc" id="L229">                                output.append(cmdResult.message());</span>
+                            }
+<span class="nc" id="L231">                        } catch (Throwable t) {</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">                            if (task.isContinueOnError()) {</span>
+<span class="nc" id="L233">                                output.append(&quot;Continuing on error: &lt;&quot;).append(t.getMessage()).append('&gt;');</span>
+
+<span class="nc" id="L235">                                LOG.error(&quot;While running {} with args {}, continuing on error&quot;,</span>
+<span class="nc" id="L236">                                        command.getLeft().getClass().getName(), command.getRight(), t);</span>
+                            } else {
+<span class="nc" id="L238">                                error.setValue(Pair.of(AopUtils.getTargetClass(command.getLeft()).getName(), t));</span>
+                            }
+<span class="nc" id="L240">                        }</span>
+<span class="nc" id="L241">                        output.append(&quot;\n\n&quot;);</span>
+                    }
+
+<span class="nc" id="L244">                    return error;</span>
+                }));
+
+        try {
+<span class="nc" id="L248">            Mutable&lt;Pair&lt;String, Throwable&gt;&gt; error = future.get();</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (error.get() != null) {</span>
+<span class="nc" id="L250">                throw new JobExecutionException(&quot;While running &quot;</span>
+<span class="nc" id="L251">                        + error.get().getLeft(), error.get().getRight());</span>
+            }
+<span class="nc" id="L253">        } catch (ExecutionException | InterruptedException e) {</span>
+<span class="nc" id="L254">            throw new JobExecutionException(&quot;While waiting for macro commands completion&quot;, e);</span>
+<span class="nc" id="L255">        }</span>
+
+<span class="nc bnc" id="L257" title="All 2 branches missed.">        if (stopRequested) {</span>
+<span class="nc" id="L258">            output.append(&quot;\nStop was requested&quot;);</span>
+        }
+<span class="nc" id="L260">        output.append(&quot;COMPLETED&quot;);</span>
+<span class="nc" id="L261">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L265">        stopRequested = true;</span>
+<span class="nc" id="L266">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    @Override
+    protected String doExecute(final JobExecutionContext context) throws JobExecutionException {
+        Optional&lt;MacroActions&gt; actions;
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (task.getMacroActions() == null) {</span>
+<span class="nc" id="L273">            actions = Optional.empty();</span>
+        } else {
+            try {
+<span class="nc" id="L276">                actions = Optional.of(ImplementationManager.build(</span>
+<span class="nc" id="L277">                        context.getDomain(),</span>
+<span class="nc" id="L278">                        task.getMacroActions(),</span>
+<span class="nc" id="L279">                        () -&gt; perContextActions.get(task.getMacroActions().getKey()),</span>
+<span class="nc" id="L280">                        instance -&gt; perContextActions.put(task.getMacroActions().getKey(), instance)));</span>
+<span class="nc" id="L281">            } catch (Exception e) {</span>
+<span class="nc" id="L282">                throw new JobExecutionException(&quot;Could not build &quot; + task.getMacroActions().getKey(), e);</span>
+<span class="nc" id="L283">            }</span>
+        }
+
+<span class="nc" id="L286">        StringBuilder output = new StringBuilder();</span>
+
+<span class="nc" id="L288">        SyncopeForm macroTaskForm = (SyncopeForm) context.getData().get(MACRO_TASK_FORM_JOBDETAIL_KEY);</span>
+<span class="nc" id="L289">        Optional&lt;JexlContext&gt; jexlContext = check(macroTaskForm, actions, output);</span>
+
+<span class="nc" id="L291">        Map&lt;String, Serializable&gt; ctx = new HashMap&lt;&gt;();</span>
+
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        actions.filter(a -&gt; !context.isDryRun()).ifPresent(a -&gt; a.beforeAll(ctx));</span>
+
+<span class="nc" id="L295">        List&lt;Pair&lt;Command&lt;CommandArgs&gt;, CommandArgs&gt;&gt; commands = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        for (MacroTaskCommand command : task.getCommands()) {</span>
+            Command&lt;CommandArgs&gt; runnable;
+            try {
+<span class="nc" id="L299">                runnable = (Command&lt;CommandArgs&gt;) ImplementationManager.build(</span>
+<span class="nc" id="L300">                        context.getDomain(),</span>
+<span class="nc" id="L301">                        command.getCommand(),</span>
+<span class="nc" id="L302">                        () -&gt; perContextCommands.get(command.getCommand().getKey()),</span>
+<span class="nc" id="L303">                        instance -&gt; perContextCommands.put(command.getCommand().getKey(), instance));</span>
+<span class="nc" id="L304">            } catch (Exception e) {</span>
+<span class="nc" id="L305">                throw new JobExecutionException(&quot;Could not build &quot; + command.getCommand().getKey(), e);</span>
+<span class="nc" id="L306">            }</span>
+
+            CommandArgs args;
+<span class="nc bnc" id="L309" title="All 2 branches missed.">            if (command.getArgs() == null) {</span>
+                try {
+<span class="nc" id="L311">                    args = ImplementationManager.emptyArgs(context.getDomain(), command.getCommand());</span>
+<span class="nc" id="L312">                } catch (Exception e) {</span>
+<span class="nc" id="L313">                    throw new JobExecutionException(&quot;While getting empty args from &quot; + command.getKey(), e);</span>
+<span class="nc" id="L314">                }</span>
+            } else {
+<span class="nc" id="L316">                args = command.getArgs();</span>
+
+<span class="nc" id="L318">                jexlContext.ifPresent(jc -&gt; ReflectionUtils.doWithFields(args.getClass(),</span>
+                        field -&gt; {
+<span class="nc bnc" id="L320" title="All 2 branches missed.">                            if (String.class.equals(field.getType())) {</span>
+<span class="nc" id="L321">                                field.setAccessible(true);</span>
+<span class="nc" id="L322">                                Object value = field.get(args);</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                                if (value instanceof final String s) {</span>
+<span class="nc" id="L324">                                    field.set(args, jexlTools.evaluateTemplate(s, jc));</span>
+                                }
+                            }
+<span class="nc" id="L327">                        },</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">                        field -&gt; !field.isSynthetic()));</span>
+
+<span class="nc" id="L330">                Set&lt;ConstraintViolation&lt;Object&gt;&gt; violations = validator.validate(args);</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">                if (!violations.isEmpty()) {</span>
+<span class="nc" id="L332">                    LOG.error(&quot;While validating {}: {}&quot;, args, violations);</span>
+
+<span class="nc" id="L334">                    throw new JobExecutionException(</span>
+<span class="nc" id="L335">                            &quot;While running &quot; + command.getKey(),</span>
+<span class="nc" id="L336">                            new IllegalArgumentException(violations.stream().</span>
+<span class="nc" id="L337">                                    map(v -&gt; v.getPropertyPath() + &quot;: &quot; + v.getMessage()).</span>
+<span class="nc" id="L338">                                    collect(Collectors.joining(&quot;,&quot;))));</span>
+                }
+            }
+
+<span class="nc" id="L342">            commands.add(Pair.of(runnable, args));</span>
+<span class="nc" id="L343">        }</span>
+
+<span class="nc" id="L345">        run(commands, actions, ctx, output, context.isDryRun());</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        return actions.filter(a -&gt; !context.isDryRun()).map(a -&gt; a.afterAll(ctx, output)).orElse(output).toString();</span>
+    }
+
+    @Override
+    protected boolean hasToBeRegistered(final TaskExec&lt;?&gt; execution) {
+<span class="nc" id="L351">        return task.isSaveExecs();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

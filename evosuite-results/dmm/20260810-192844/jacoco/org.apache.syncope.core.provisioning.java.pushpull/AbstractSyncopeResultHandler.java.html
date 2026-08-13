@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractSyncopeResultHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">AbstractSyncopeResultHandler.java</span></div><h1>AbstractSyncopeResultHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.task.ProvisioningTask;
+import org.apache.syncope.core.provisioning.api.WorkflowResult;
+import org.apache.syncope.core.provisioning.api.data.AnyObjectDataBinder;
+import org.apache.syncope.core.provisioning.api.data.GroupDataBinder;
+import org.apache.syncope.core.provisioning.api.data.UserDataBinder;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningActions;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopeResultHandler;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.apache.syncope.core.workflow.api.AnyObjectWorkflowAdapter;
+import org.apache.syncope.core.workflow.api.GroupWorkflowAdapter;
+import org.apache.syncope.core.workflow.api.UserWorkflowAdapter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L44">public abstract class AbstractSyncopeResultHandler&lt;T extends ProvisioningTask&lt;?&gt;, A extends ProvisioningActions&gt;</span>
+        implements SyncopeResultHandler&lt;T, A&gt; {
+
+<span class="nc" id="L47">    protected static final Logger LOG = LoggerFactory.getLogger(SyncopeResultHandler.class);</span>
+
+    /**
+     * Propagation manager.
+     */
+    @Autowired
+    protected PropagationManager propagationManager;
+
+    /**
+     * Task executor.
+     */
+    @Autowired
+    protected PropagationTaskExecutor taskExecutor;
+
+    @Autowired
+    protected AnyObjectWorkflowAdapter awfAdapter;
+
+    /**
+     * User workflow adapter.
+     */
+    @Autowired
+    protected UserWorkflowAdapter uwfAdapter;
+
+    /**
+     * Group workflow adapter.
+     */
+    @Autowired
+    protected GroupWorkflowAdapter gwfAdapter;
+
+    @Autowired
+    protected AnyObjectDataBinder anyObjectDataBinder;
+
+    @Autowired
+    protected UserDataBinder userDataBinder;
+
+    @Autowired
+    protected GroupDataBinder groupDataBinder;
+
+    @Autowired
+    protected AnyUtilsFactory anyUtilsFactory;
+
+    @Autowired
+    protected SecurityProperties securityProperties;
+
+    /**
+     * Provisioning profile.
+     */
+    protected ProvisioningProfile&lt;T, A&gt; profile;
+
+<span class="nc" id="L96">    protected volatile boolean stopRequested = false;</span>
+
+    protected abstract AnyUtils anyUtils();
+
+    protected abstract AnyTO getAnyTO(Any any);
+
+    protected abstract WorkflowResult&lt;? extends AnyUR&gt; update(AnyUR req);
+
+    @Override
+    public void setProfile(final ProvisioningProfile&lt;T, A&gt; profile) {
+<span class="nc" id="L106">        this.profile = profile;</span>
+<span class="nc" id="L107">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L111">        stopRequested = true;</span>
+<span class="nc" id="L112">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

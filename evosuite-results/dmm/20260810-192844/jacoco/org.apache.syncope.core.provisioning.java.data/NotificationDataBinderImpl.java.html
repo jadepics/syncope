@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NotificationDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">NotificationDataBinderImpl.java</span></div><h1>NotificationDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.text.ParseException;
+import java.util.regex.Matcher;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.NotificationTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.MailTemplateDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyAbout;
+import org.apache.syncope.core.persistence.api.entity.Entity;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.MailTemplate;
+import org.apache.syncope.core.persistence.api.entity.Notification;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.data.NotificationDataBinder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class NotificationDataBinderImpl implements NotificationDataBinder {
+
+<span class="nc" id="L44">    protected static final Logger LOG = LoggerFactory.getLogger(NotificationDataBinder.class);</span>
+
+    protected final MailTemplateDAO mailTemplateDAO;
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final EntityFactory entityFactory;
+
+    protected final IntAttrNameParser intAttrNameParser;
+
+    public NotificationDataBinderImpl(
+            final MailTemplateDAO mailTemplateDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+            final EntityFactory entityFactory,
+<span class="nc" id="L61">            final IntAttrNameParser intAttrNameParser) {</span>
+
+<span class="nc" id="L63">        this.mailTemplateDAO = mailTemplateDAO;</span>
+<span class="nc" id="L64">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L65">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L66">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L67">        this.intAttrNameParser = intAttrNameParser;</span>
+<span class="nc" id="L68">    }</span>
+
+    @Override
+    public NotificationTO getNotificationTO(final Notification notification) {
+<span class="nc" id="L72">        NotificationTO notificationTO = new NotificationTO();</span>
+<span class="nc" id="L73">        notificationTO.setKey(notification.getKey());</span>
+<span class="nc" id="L74">        notificationTO.setTemplate(notification.getTemplate().getKey());</span>
+<span class="nc" id="L75">        notificationTO.getEvents().addAll(notification.getEvents());</span>
+<span class="nc" id="L76">        notificationTO.setRecipientsFIQL(notification.getRecipientsFIQL());</span>
+<span class="nc" id="L77">        notificationTO.getStaticRecipients().addAll(notification.getStaticRecipients());</span>
+<span class="nc" id="L78">        notificationTO.setRecipientAttrName(notification.getRecipientAttrName());</span>
+<span class="nc" id="L79">        notificationTO.setSelfAsRecipient(notification.isSelfAsRecipient());</span>
+<span class="nc" id="L80">        notificationTO.setSender(notification.getSender());</span>
+<span class="nc" id="L81">        notificationTO.setSubject(notification.getSubject());</span>
+<span class="nc" id="L82">        notificationTO.setTraceLevel(notification.getTraceLevel());</span>
+<span class="nc" id="L83">        notificationTO.setActive(notification.isActive());</span>
+
+<span class="nc" id="L85">        notification.getAbouts().forEach(about -&gt; notificationTO.getAbouts().</span>
+<span class="nc" id="L86">                put(about.getAnyType().getKey(), about.get()));</span>
+
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (notification.getRecipientsProvider() != null) {</span>
+<span class="nc" id="L89">            notificationTO.setRecipientsProvider(notification.getRecipientsProvider().getKey());</span>
+        }
+
+<span class="nc" id="L92">        return notificationTO;</span>
+    }
+
+    @Override
+    public Notification create(final NotificationTO notificationTO) {
+<span class="nc" id="L97">        Notification result = entityFactory.newEntity(Notification.class);</span>
+<span class="nc" id="L98">        update(result, notificationTO);</span>
+<span class="nc" id="L99">        return result;</span>
+    }
+
+    @Override
+    public void update(final Notification notification, final NotificationTO notificationTO) {
+<span class="nc" id="L104">        notification.setRecipientsFIQL(notificationTO.getRecipientsFIQL());</span>
+
+<span class="nc" id="L106">        notification.getStaticRecipients().clear();</span>
+<span class="nc" id="L107">        notification.getStaticRecipients().addAll(notificationTO.getStaticRecipients());</span>
+
+<span class="nc" id="L109">        notification.setRecipientAttrName(notificationTO.getRecipientAttrName());</span>
+<span class="nc" id="L110">        notification.setSelfAsRecipient(notificationTO.isSelfAsRecipient());</span>
+<span class="nc" id="L111">        notification.setSender(notificationTO.getSender());</span>
+<span class="nc" id="L112">        notification.setSubject(notificationTO.getSubject());</span>
+<span class="nc" id="L113">        notification.setTraceLevel(notificationTO.getTraceLevel());</span>
+<span class="nc" id="L114">        notification.setActive(notificationTO.isActive());</span>
+
+<span class="nc" id="L116">        notification.getEvents().clear();</span>
+<span class="nc" id="L117">        notification.getEvents().addAll(notificationTO.getEvents());</span>
+
+<span class="nc" id="L119">        SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+<span class="nc" id="L121">        MailTemplate template = mailTemplateDAO.findById(notificationTO.getTemplate()).orElse(null);</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (template == null) {</span>
+<span class="nc" id="L123">            sce.getElements().add(&quot;template&quot;);</span>
+        }
+<span class="nc" id="L125">        notification.setTemplate(template);</span>
+
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        if (notification.getEvents().isEmpty()) {</span>
+<span class="nc" id="L128">            sce.getElements().add(&quot;events&quot;);</span>
+        }
+
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        if (!notification.getStaticRecipients().isEmpty()) {</span>
+<span class="nc" id="L132">            notification.getStaticRecipients().forEach(mail -&gt; {</span>
+<span class="nc" id="L133">                Matcher matcher = Entity.EMAIL_PATTERN.matcher(mail);</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">                if (!matcher.matches()) {</span>
+<span class="nc" id="L135">                    LOG.error(&quot;Invalid mail address: {}&quot;, mail);</span>
+<span class="nc" id="L136">                    sce.getElements().add(&quot;staticRecipients: &quot; + mail);</span>
+                }
+<span class="nc" id="L138">            });</span>
+        }
+
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (!sce.isEmpty()) {</span>
+<span class="nc" id="L142">            throw sce;</span>
+        }
+
+        // 1. add or update all (valid) abouts from TO
+<span class="nc" id="L146">        notificationTO.getAbouts().entrySet().stream().</span>
+<span class="nc" id="L147">                filter(entry -&gt; StringUtils.isNotBlank(entry.getValue())).</span>
+<span class="nc" id="L148">                forEach(entry -&gt; anyTypeDAO.findById(entry.getKey()).ifPresentOrElse(</span>
+                anyType -&gt; {
+<span class="nc" id="L150">                    AnyAbout about = notification.getAbout(anyType).orElse(null);</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">                    if (about == null) {</span>
+<span class="nc" id="L152">                        about = entityFactory.newEntity(AnyAbout.class);</span>
+<span class="nc" id="L153">                        about.setAnyType(anyType);</span>
+<span class="nc" id="L154">                        about.setNotification(notification);</span>
+
+<span class="nc" id="L156">                        notification.add(about);</span>
+                    }
+<span class="nc" id="L158">                    about.set(entry.getValue());</span>
+<span class="nc" id="L159">                },</span>
+<span class="nc" id="L160">                () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, entry.getKey())));</span>
+
+        // 2. remove all abouts not contained in the TO
+<span class="nc" id="L163">        notification.getAbouts().</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">                removeIf(anyAbout -&gt; !notificationTO.getAbouts().containsKey(anyAbout.getAnyType().getKey()));</span>
+
+        // 3. verify recipientAttrName
+        try {
+<span class="nc" id="L168">            intAttrNameParser.parse(notification.getRecipientAttrName(), AnyTypeKind.USER);</span>
+<span class="nc" id="L169">        } catch (ParseException e) {</span>
+<span class="nc" id="L170">            SyncopeClientException invalidRequest = SyncopeClientException.build(ClientExceptionType.InvalidRequest);</span>
+<span class="nc" id="L171">            invalidRequest.getElements().add(e.getMessage());</span>
+<span class="nc" id="L172">            throw invalidRequest;</span>
+<span class="nc" id="L173">        }</span>
+
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        if (notificationTO.getRecipientsProvider() == null) {</span>
+<span class="nc" id="L176">            notification.setRecipientsProvider(null);</span>
+        } else {
+<span class="nc" id="L178">            implementationDAO.findById(notificationTO.getRecipientsProvider()).ifPresentOrElse(</span>
+<span class="nc" id="L179">                    notification::setRecipientsProvider,</span>
+<span class="nc" id="L180">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L181">                        Implementation.class.getSimpleName(), notificationTO.getRecipientsProvider()));</span>
+        }
+<span class="nc" id="L183">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

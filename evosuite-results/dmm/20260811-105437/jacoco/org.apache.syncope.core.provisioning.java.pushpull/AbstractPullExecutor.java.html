@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractPullExecutor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">AbstractPullExecutor.java</span></div><h1>AbstractPullExecutor.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.commons.lang3.tuple.MutablePair;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.task.ProvisioningTask;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.provisioning.api.ProvisionSorter;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.RealmPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullExecutor;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.identityconnectors.framework.common.objects.Name;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ConfigurableApplicationContext;
+
+<span class="nc" id="L49">abstract class AbstractPullExecutor&lt;T extends ProvisioningTask&lt;T&gt;&gt;</span>
+        extends AbstractProvisioningJobDelegate&lt;T&gt;
+        implements SyncopePullExecutor {
+
+    @Autowired
+    protected PlainSchemaDAO plainSchemaDAO;
+
+    @Autowired
+    protected InboundMatcher inboundMatcher;
+
+    @Autowired
+    protected PlainAttrValidationManager validator;
+
+    @Autowired
+    protected ConfigurableApplicationContext ctx;
+
+<span class="nc" id="L65">    protected final Map&lt;String, SyncToken&gt; latestSyncTokens = Collections.synchronizedMap(new HashMap&lt;&gt;());</span>
+
+<span class="nc" id="L67">    private final Map&lt;String, MutablePair&lt;Integer, String&gt;&gt; handled = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L69">    protected final Map&lt;String, InboundActions&gt; perContextActions = new ConcurrentHashMap&lt;&gt;();</span>
+
+    protected ProvisionSorter provisionSorter;
+
+    protected ProvisioningProfile&lt;PullTask, InboundActions&gt; profile;
+
+    protected PullResultHandlerDispatcher dispatcher;
+
+    protected PullResultHandlerDispatcher buildDispatcher() {
+<span class="nc" id="L78">        return ctx.getBeanFactory().createBean(PullResultHandlerDispatcher.class).</span>
+<span class="nc" id="L79">                init(profile, this);</span>
+    }
+
+    protected RealmPullResultHandler buildRealmHandler() {
+<span class="nc" id="L83">        return ctx.getBeanFactory().createBean(DefaultRealmPullResultHandler.class);</span>
+    }
+
+    protected AnyPullResultHandler buildAnyObjectHandler() {
+<span class="nc" id="L87">        return ctx.getBeanFactory().createBean(DefaultAnyObjectPullResultHandler.class);</span>
+    }
+
+    protected AnyPullResultHandler buildUserHandler() {
+<span class="nc" id="L91">        return ctx.getBeanFactory().createBean(DefaultUserPullResultHandler.class);</span>
+    }
+
+    protected AnyPullResultHandler buildGroupHandler() {
+<span class="nc" id="L95">        return ctx.getBeanFactory().createBean(DefaultGroupPullResultHandler.class);</span>
+    }
+
+    protected List&lt;InboundActions&gt; getInboundActions(final String domain, final List&lt;? extends Implementation&gt; impls) {
+<span class="nc" id="L99">        List&lt;InboundActions&gt; result = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L101">        impls.forEach(impl -&gt; {</span>
+            try {
+<span class="nc" id="L103">                result.add(ImplementationManager.build(</span>
+                        domain,
+                        impl,
+<span class="nc" id="L106">                        () -&gt; perContextActions.get(impl.getKey()),</span>
+<span class="nc" id="L107">                        instance -&gt; perContextActions.put(impl.getKey(), instance)));</span>
+<span class="nc" id="L108">            } catch (Exception e) {</span>
+<span class="nc" id="L109">                LOG.warn(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L110">            }</span>
+<span class="nc" id="L111">        });</span>
+
+<span class="nc" id="L113">        return result;</span>
+    }
+
+    @Override
+    protected void init(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context) throws JobExecutionException {
+
+<span class="nc" id="L122">        super.init(taskType, taskKey, context);</span>
+
+<span class="nc" id="L124">        provisionSorter = getProvisionSorter(context.getDomain(), task);</span>
+
+<span class="nc" id="L126">        latestSyncTokens.clear();</span>
+<span class="nc" id="L127">    }</span>
+
+    @Override
+    public void setLatestSyncToken(final String objectClass, final SyncToken latestSyncToken) {
+<span class="nc" id="L131">        latestSyncTokens.put(objectClass, latestSyncToken);</span>
+<span class="nc" id="L132">    }</span>
+
+    @Override
+    public void reportHandled(final String objectClass, final Name name) {
+<span class="nc" id="L136">        synchronized (handled) {</span>
+<span class="nc" id="L137">            MutablePair&lt;Integer, String&gt; pair = Optional.ofNullable(handled.get(objectClass)).orElseGet(() -&gt; {</span>
+<span class="nc" id="L138">                MutablePair&lt;Integer, String&gt; p = MutablePair.of(0, null);</span>
+<span class="nc" id="L139">                handled.put(objectClass, p);</span>
+<span class="nc" id="L140">                return p;</span>
+            });
+<span class="nc" id="L142">            pair.setLeft(pair.getLeft() + 1);</span>
+<span class="nc" id="L143">            pair.setRight(name.getNameValue());</span>
+
+<span class="nc bnc" id="L145" title="All 2 branches missed.">            if (!handled.isEmpty()) {</span>
+<span class="nc" id="L146">                StringBuilder builder = new StringBuilder(&quot;Processed:\n&quot;);</span>
+<span class="nc" id="L147">                handled.forEach((k, v) -&gt; builder.append(' ').append(v.getLeft()).append('\t').</span>
+<span class="nc" id="L148">                        append(k).</span>
+<span class="nc" id="L149">                        append(&quot; / latest: &quot;).append(v.getRight()).</span>
+<span class="nc" id="L150">                        append('\n'));</span>
+<span class="nc" id="L151">                setStatus(builder.toString());</span>
+            }
+<span class="nc" id="L153">        }</span>
+<span class="nc" id="L154">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -1,0 +1,620 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UserDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">UserDataBinderImpl.java</span></div><h1>UserDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.time.OffsetDateTime;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.common.keymaster.client.api.StandardConfParams;
+import org.apache.syncope.common.lib.AnyOperations;
+import org.apache.syncope.common.lib.Attr;
+import org.apache.syncope.common.lib.EntityTOUtils;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.request.PasswordPatch;
+import org.apache.syncope.common.lib.request.StringPatchItem;
+import org.apache.syncope.common.lib.request.UserCR;
+import org.apache.syncope.common.lib.request.UserUR;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.LinkedAccountTO;
+import org.apache.syncope.common.lib.to.RelationshipTO;
+import org.apache.syncope.common.lib.to.UserTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.CipherAlgorithm;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.Mfa;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyChecker;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.DelegationDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.RoleDAO;
+import org.apache.syncope.core.persistence.api.dao.SecurityQuestionDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.Delegation;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.Role;
+import org.apache.syncope.core.persistence.api.entity.user.LinkedAccount;
+import org.apache.syncope.core.persistence.api.entity.user.SecurityQuestion;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.UserWorkflowResult;
+import org.apache.syncope.core.provisioning.api.UserWorkflowResult.PropagationInfo;
+import org.apache.syncope.core.provisioning.api.data.UserDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.springframework.transaction.annotation.Transactional;
+
+@Transactional(rollbackFor = { Throwable.class })
+public class UserDataBinderImpl extends AnyDataBinder implements UserDataBinder {
+
+    protected final RoleDAO roleDAO;
+
+    protected final SecurityQuestionDAO securityQuestionDAO;
+
+    protected final AccessTokenDAO accessTokenDAO;
+
+    protected final DelegationDAO delegationDAO;
+
+    protected final ConfParamOps confParamOps;
+
+    protected final SecurityProperties securityProperties;
+
+    public UserDataBinderImpl(
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final RoleDAO roleDAO,
+            final SecurityQuestionDAO securityQuestionDAO,
+            final AccessTokenDAO accessTokenDAO,
+            final DelegationDAO delegationDAO,
+            final ConfParamOps confParamOps,
+            final SecurityProperties securityProperties,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L134">        super(anyTypeDAO,</span>
+                realmSearchDAO,
+                anyTypeClassDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                plainSchemaDAO,
+                resourceDAO,
+                relationshipTypeDAO,
+                anyChecker,
+                entityFactory,
+                anyUtilsFactory,
+                derAttrHandler,
+                mappingManager,
+                intAttrNameParser,
+                outboundMatcher,
+                validator,
+                jexlTools);
+
+<span class="nc" id="L153">        this.roleDAO = roleDAO;</span>
+<span class="nc" id="L154">        this.securityQuestionDAO = securityQuestionDAO;</span>
+<span class="nc" id="L155">        this.accessTokenDAO = accessTokenDAO;</span>
+<span class="nc" id="L156">        this.delegationDAO = delegationDAO;</span>
+<span class="nc" id="L157">        this.confParamOps = confParamOps;</span>
+<span class="nc" id="L158">        this.securityProperties = securityProperties;</span>
+<span class="nc" id="L159">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public UserTO getAuthenticatedUserTO() {
+        UserTO authUserTO;
+
+<span class="nc" id="L166">        String authUsername = AuthContextUtils.getUsername();</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        if (securityProperties.getAnonymousUser().equals(authUsername)) {</span>
+<span class="nc" id="L168">            authUserTO = new UserTO();</span>
+<span class="nc" id="L169">            authUserTO.setKey(null);</span>
+<span class="nc" id="L170">            authUserTO.setUsername(securityProperties.getAnonymousUser());</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        } else if (securityProperties.getAdminUser().equals(authUsername)) {</span>
+<span class="nc" id="L172">            authUserTO = new UserTO();</span>
+<span class="nc" id="L173">            authUserTO.setKey(null);</span>
+<span class="nc" id="L174">            authUserTO.setUsername(securityProperties.getAdminUser());</span>
+        } else {
+<span class="nc" id="L176">            User authUser = userDAO.findByUsername(authUsername).</span>
+<span class="nc" id="L177">                    orElseThrow(() -&gt; new NotFoundException(&quot;User&quot; + authUsername));</span>
+<span class="nc" id="L178">            authUserTO = getUserTO(authUser, true);</span>
+        }
+
+<span class="nc" id="L181">        return authUserTO;</span>
+    }
+
+    protected SyncopeClientException addToSyncopeClientException(
+            final SyncopeClientCompositeException scce,
+            final RuntimeException e) {
+
+<span class="nc" id="L188">        SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.NotFound);</span>
+<span class="nc" id="L189">        sce.getElements().add(e.getMessage());</span>
+<span class="nc" id="L190">        scce.addException(sce);</span>
+<span class="nc" id="L191">        return scce;</span>
+    }
+
+    protected void setPassword(
+            final User user,
+            final String password,
+            final SyncopeClientCompositeException scce) {
+
+        try {
+<span class="nc" id="L200">            setCipherAlgorithm(user);</span>
+<span class="nc" id="L201">            user.setPassword(password);</span>
+<span class="nc" id="L202">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L203">            throw addToSyncopeClientException(scce, e);</span>
+<span class="nc" id="L204">        }</span>
+<span class="nc" id="L205">    }</span>
+
+    protected void setSecurityAnswer(
+            final User user,
+            final String securityAnswer,
+            final SyncopeClientCompositeException scce) {
+
+        try {
+<span class="nc" id="L213">            setCipherAlgorithm(user);</span>
+<span class="nc" id="L214">            user.setSecurityAnswer(securityAnswer);</span>
+<span class="nc" id="L215">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L216">            throw addToSyncopeClientException(scce, e);</span>
+<span class="nc" id="L217">        }</span>
+<span class="nc" id="L218">    }</span>
+
+    protected void setCipherAlgorithm(final User user) {
+<span class="nc bnc" id="L221" title="All 2 branches missed.">        if (user.getCipherAlgorithm() == null) {</span>
+<span class="nc" id="L222">            user.setCipherAlgorithm(CipherAlgorithm.valueOf(confParamOps.get(AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L223">                    StandardConfParams.PASSWORD_CIPHER_ALGORITHM, CipherAlgorithm.AES.name(), String.class)));</span>
+        }
+<span class="nc" id="L225">    }</span>
+
+    protected void linkedAccount(
+            final UserTO anyTO,
+            final User user,
+            final LinkedAccountTO accountTO,
+            final SyncopeClientException invalidValues) {
+
+<span class="nc" id="L233">        ExternalResource resource = resourceDAO.findById(accountTO.getResource()).orElse(null);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if (resource == null) {</span>
+<span class="nc" id="L235">            LOG.debug(&quot;Ignoring invalid resource {}&quot;, accountTO.getResource());</span>
+<span class="nc" id="L236">            return;</span>
+        }
+
+<span class="nc" id="L239">        LinkedAccount account = user.getLinkedAccount(resource.getKey(), accountTO.getConnObjectKeyValue()).</span>
+<span class="nc" id="L240">                map(LinkedAccount.class::cast).orElseGet(() -&gt; {</span>
+<span class="nc" id="L241">            LinkedAccount acct = entityFactory.newEntity(LinkedAccount.class);</span>
+<span class="nc" id="L242">            acct.setOwner(user);</span>
+<span class="nc" id="L243">            user.add(acct);</span>
+
+<span class="nc" id="L245">            acct.setConnObjectKeyValue(accountTO.getConnObjectKeyValue());</span>
+<span class="nc" id="L246">            acct.setResource(resource);</span>
+
+<span class="nc" id="L248">            return acct;</span>
+        });
+
+<span class="nc" id="L251">        account.setUsername(accountTO.getUsername());</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (StringUtils.isBlank(accountTO.getPassword())) {</span>
+<span class="nc" id="L253">            account.setEncodedPassword(null, null);</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        } else if (!accountTO.getPassword().equals(account.getPassword())) {</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            if (account.getCipherAlgorithm() == null) {</span>
+<span class="nc" id="L256">                account.setCipherAlgorithm(CipherAlgorithm.AES);</span>
+            }
+<span class="nc" id="L258">            account.setPassword(accountTO.getPassword());</span>
+        }
+<span class="nc" id="L260">        account.setSuspended(accountTO.isSuspended());</span>
+
+<span class="nc" id="L262">        new HashSet&lt;&gt;(account.getPlainAttrs()).forEach(account::remove);</span>
+<span class="nc" id="L263">        accountTO.getPlainAttrs().stream().</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">                filter(attrTO -&gt; !attrTO.getValues().isEmpty()).</span>
+<span class="nc" id="L265">                forEach(attrTO -&gt; getPlainSchema(attrTO.getSchema()).ifPresent(schema -&gt; {</span>
+
+<span class="nc" id="L267">            PlainAttr attr = new PlainAttr();</span>
+<span class="nc" id="L268">            attr.setPlainSchema(schema);</span>
+<span class="nc" id="L269">            fillAttr(anyTO, attrTO.getValues(), schema, attr, invalidValues);</span>
+
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            if (!attr.getValuesAsStrings().isEmpty()) {</span>
+<span class="nc" id="L272">                account.add(attr);</span>
+            }
+<span class="nc" id="L274">        }));</span>
+<span class="nc" id="L275">    }</span>
+
+    @Override
+    public void create(final User user, final UserCR userCR) {
+<span class="nc" id="L279">        UserTO anyTO = new UserTO();</span>
+<span class="nc" id="L280">        EntityTOUtils.toAnyTO(userCR, anyTO);</span>
+
+<span class="nc" id="L282">        AnyUtils anyUtils = anyUtilsFactory.getInstance(AnyTypeKind.USER);</span>
+
+<span class="nc" id="L284">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+        // set username
+<span class="nc" id="L287">        user.setUsername(userCR.getUsername());</span>
+
+        // set password
+<span class="nc bnc" id="L290" title="All 4 branches missed.">        if (StringUtils.isBlank(userCR.getPassword()) || !userCR.isStorePassword()) {</span>
+<span class="nc" id="L291">            LOG.debug(&quot;Password was not provided or not required to be stored&quot;);</span>
+        } else {
+<span class="nc" id="L293">            setPassword(user, userCR.getPassword(), scce);</span>
+<span class="nc" id="L294">            user.setChangePwdDate(OffsetDateTime.now());</span>
+        }
+
+<span class="nc" id="L297">        user.setMustChangePassword(userCR.isMustChangePassword());</span>
+
+        // security question / answer
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (userCR.getSecurityQuestion() != null) {</span>
+<span class="nc" id="L301">            securityQuestionDAO.findById(userCR.getSecurityQuestion()).ifPresent(user::setSecurityQuestion);</span>
+        }
+<span class="nc" id="L303">        setSecurityAnswer(user, userCR.getSecurityAnswer(), scce);</span>
+
+        // roles
+<span class="nc" id="L306">        userCR.getRoles().forEach(roleKey -&gt; roleDAO.findById(roleKey).ifPresentOrElse(</span>
+<span class="nc" id="L307">                user::add,</span>
+<span class="nc" id="L308">                () -&gt; LOG.warn(&quot;Ignoring unknown role with id {}&quot;, roleKey)));</span>
+
+        // realm
+<span class="nc" id="L311">        Realm realm = realmSearchDAO.findByFullPath(userCR.getRealm()).orElse(null);</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        if (realm == null) {</span>
+<span class="nc" id="L313">            SyncopeClientException noRealm = SyncopeClientException.build(ClientExceptionType.InvalidRealm);</span>
+<span class="nc" id="L314">            noRealm.getElements().add(&quot;Invalid or null realm specified: &quot; + userCR.getRealm());</span>
+<span class="nc" id="L315">            scce.addException(noRealm);</span>
+        }
+<span class="nc" id="L317">        user.setRealm(realm);</span>
+
+        // attributes, resources and relationships
+<span class="nc" id="L320">        fill(anyTO, user, userCR, anyUtilsFactory.getInstance(AnyTypeKind.USER), scce);</span>
+
+        // memberships
+<span class="nc" id="L323">        memberships(userCR.getMemberships(), anyTO, user, anyUtils, scce);</span>
+
+        // linked accounts
+<span class="nc" id="L326">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+<span class="nc" id="L327">        userCR.getLinkedAccounts().forEach(acct -&gt; linkedAccount(anyTO, user, acct, invalidValues));</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">        if (!invalidValues.isEmpty()) {</span>
+<span class="nc" id="L329">            scce.addException(invalidValues);</span>
+        }
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L334">            throw scce;</span>
+        }
+<span class="nc" id="L336">    }</span>
+
+    protected boolean isPasswordMapped(final ExternalResource resource) {
+<span class="nc" id="L339">        return resource.getProvisionByAnyType(AnyTypeKind.USER.name()).</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">                filter(provision -&gt; provision.getMapping() != null).</span>
+<span class="nc" id="L341">                map(provision -&gt; provision.getMapping().getItems().stream().anyMatch(Item::isPassword)).</span>
+<span class="nc" id="L342">                orElse(false);</span>
+    }
+
+    @Override
+    public UserWorkflowResult.PropagationInfo update(final User toBeUpdated, final UserUR userUR) {
+<span class="nc" id="L347">        processAuxClasses(toBeUpdated, userUR);</span>
+
+        // Re-merge any pending change from workflow tasks
+<span class="nc" id="L350">        User user = userDAO.save(toBeUpdated);</span>
+
+<span class="nc" id="L352">        UserTO anyTO = AnyOperations.patch(getUserTO(user, true), userUR);</span>
+
+<span class="nc" id="L354">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L355">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+
+<span class="nc" id="L357">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+<span class="nc" id="L359">        AnyUtils anyUtils = anyUtilsFactory.getInstance(AnyTypeKind.USER);</span>
+
+        // password
+<span class="nc" id="L362">        String password = null;</span>
+<span class="nc" id="L363">        Set&lt;String&gt; changePwdRes = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">        if (userUR.getPassword() != null) {</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">            if (userUR.getPassword().getOperation() == PatchOperation.DELETE) {</span>
+<span class="nc" id="L366">                user.setEncodedPassword(null, null);</span>
+
+<span class="nc" id="L368">                changePwdRes.addAll(userUR.getPassword().getResources());</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">            } else if (StringUtils.isNotBlank(userUR.getPassword().getValue())) {</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">                if (userUR.getPassword().isOnSyncope()) {</span>
+<span class="nc" id="L371">                    setPassword(user, userUR.getPassword().getValue(), scce);</span>
+<span class="nc" id="L372">                    user.setChangePwdDate(OffsetDateTime.now());</span>
+                }
+
+<span class="nc" id="L375">                password = userUR.getPassword().getValue();</span>
+<span class="nc" id="L376">                changePwdRes.addAll(userUR.getPassword().getResources());</span>
+            }
+
+<span class="nc bnc" id="L379" title="All 2 branches missed.">            if (!changePwdRes.isEmpty()) {</span>
+<span class="nc" id="L380">                propByRes.addAll(ResourceOperation.UPDATE, userUR.getPassword().getResources());</span>
+            }
+        }
+
+        // Save projection on Resources (before update)
+<span class="nc" id="L385">        Map&lt;String, ConnObject&gt; beforeOnResources =</span>
+<span class="nc" id="L386">                onResources(user, userDAO.findAllResourceKeys(user.getKey()), password, changePwdRes);</span>
+
+        // realm
+<span class="nc" id="L389">        setRealm(user, userUR);</span>
+
+        // username
+<span class="nc bnc" id="L392" title="All 4 branches missed.">        if (userUR.getUsername() != null &amp;&amp; StringUtils.isNotBlank(userUR.getUsername().getValue())) {</span>
+<span class="nc" id="L393">            String oldUsername = user.getUsername();</span>
+<span class="nc" id="L394">            user.setUsername(userUR.getUsername().getValue());</span>
+
+<span class="nc bnc" id="L396" title="All 2 branches missed.">            if (oldUsername.equals(AuthContextUtils.getUsername())) {</span>
+<span class="nc" id="L397">                AuthContextUtils.updateUsername(userUR.getUsername().getValue());</span>
+            }
+
+<span class="nc" id="L400">            accessTokenDAO.findByOwner(oldUsername).ifPresent(accessToken -&gt; {</span>
+<span class="nc" id="L401">                accessToken.setOwner(userUR.getUsername().getValue());</span>
+<span class="nc" id="L402">                accessTokenDAO.save(accessToken);</span>
+<span class="nc" id="L403">            });</span>
+        }
+
+        // security question / answer:
+<span class="nc bnc" id="L407" title="All 2 branches missed.">        if (userUR.getSecurityQuestion() != null) {</span>
+<span class="nc bnc" id="L408" title="All 2 branches missed.">            if (userUR.getSecurityQuestion().getValue() == null) {</span>
+<span class="nc" id="L409">                user.setSecurityQuestion(null);</span>
+<span class="nc" id="L410">                user.setSecurityAnswer(null);</span>
+            } else {
+<span class="nc" id="L412">                securityQuestionDAO.findById(userUR.getSecurityQuestion().getValue()).</span>
+<span class="nc" id="L413">                        ifPresent(securityQuestion -&gt; {</span>
+<span class="nc" id="L414">                            user.setSecurityQuestion(securityQuestion);</span>
+<span class="nc" id="L415">                            setSecurityAnswer(user, userUR.getSecurityAnswer().getValue(), scce);</span>
+<span class="nc" id="L416">                        });</span>
+            }
+        }
+
+        // roles
+<span class="nc bnc" id="L421" title="All 2 branches missed.">        for (StringPatchItem patch : userUR.getRoles()) {</span>
+<span class="nc" id="L422">            roleDAO.findById(patch.getValue()).ifPresentOrElse(</span>
+                    role -&gt; {
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                        switch (patch.getOperation()) {</span>
+                            case ADD_REPLACE:
+<span class="nc" id="L426">                                user.add(role);</span>
+<span class="nc" id="L427">                                break;</span>
+
+                            case DELETE:
+                            default:
+<span class="nc" id="L431">                                user.getRoles().remove(role);</span>
+                        }
+<span class="nc" id="L433">                    },</span>
+<span class="nc" id="L434">                    () -&gt; LOG.warn(&quot;Ignoring unknown role with key {}&quot;, patch.getValue()));</span>
+<span class="nc" id="L435">        }</span>
+
+        // attributes, resources and relationships
+<span class="nc" id="L438">        fill(anyTO, user, userUR, propByRes, anyUtils, scce);</span>
+
+<span class="nc" id="L440">        SyncopeClientException invalidValues = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+
+        // memberships
+<span class="nc" id="L443">        memberships(</span>
+<span class="nc" id="L444">                userUR.getMemberships(),</span>
+                anyTO,
+                user,
+                group -&gt; {
+                    // SYNCOPE-686: if password is invertible and we are adding resources with password mapping,
+                    // ensure that they are counted for password propagation
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                    if (toBeUpdated.canDecodeSecrets()) {</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">                        if (userUR.getPassword() == null) {</span>
+<span class="nc" id="L452">                            userUR.setPassword(new PasswordPatch());</span>
+                        }
+<span class="nc" id="L454">                        group.getResources().stream().</span>
+<span class="nc" id="L455">                                filter(this::isPasswordMapped).</span>
+<span class="nc" id="L456">                                forEach(resource -&gt; userUR.getPassword().getResources().add(resource.getKey()));</span>
+                    }
+<span class="nc" id="L458">                },</span>
+                propByRes,
+                anyUtils,
+                scce);
+
+        // linked accounts
+<span class="nc bnc" id="L464" title="All 2 branches missed.">        userUR.getLinkedAccounts().stream().filter(patch -&gt; patch.getLinkedAccountTO() != null).forEach(patch -&gt; {</span>
+<span class="nc bnc" id="L465" title="All 3 branches missed.">            switch (patch.getOperation()) {</span>
+                case DELETE -&gt; {
+<span class="nc" id="L467">                    user.getLinkedAccount(</span>
+<span class="nc" id="L468">                            patch.getLinkedAccountTO().getResource(),</span>
+<span class="nc" id="L469">                            patch.getLinkedAccountTO().getConnObjectKeyValue()).ifPresentOrElse(</span>
+                            account -&gt; {
+<span class="nc" id="L471">                                user.getLinkedAccounts().remove(account);</span>
+<span class="nc" id="L472">                                account.setOwner(null);</span>
+
+<span class="nc" id="L474">                                propByLinkedAccount.add(</span>
+                                        ResourceOperation.DELETE,
+<span class="nc" id="L476">                                        Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue()));</span>
+<span class="nc" id="L477">                            },</span>
+<span class="nc" id="L478">                            () -&gt; LOG.debug(&quot;No linked acccount ({},{}) was found, nothing to delete&quot;,</span>
+<span class="nc" id="L479">                                    patch.getLinkedAccountTO().getResource(),</span>
+<span class="nc" id="L480">                                    patch.getLinkedAccountTO().getConnObjectKeyValue()));</span>
+<span class="nc" id="L481">                }</span>
+
+                case ADD_REPLACE -&gt; {
+<span class="nc" id="L484">                    linkedAccount(</span>
+                            anyTO,
+                            user,
+<span class="nc" id="L487">                            patch.getLinkedAccountTO(),</span>
+                            invalidValues);
+<span class="nc" id="L489">                }</span>
+
+                default -&gt; {
+                }
+            }
+<span class="nc" id="L494">        });</span>
+<span class="nc" id="L495">        user.getLinkedAccounts().forEach(account -&gt; propByLinkedAccount.add(</span>
+                ResourceOperation.CREATE,
+<span class="nc" id="L497">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue())));</span>
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L500" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L501">            throw scce;</span>
+        }
+
+        // Re-merge any pending change from above
+<span class="nc" id="L505">        User saved = userDAO.save(user);</span>
+
+        // Build final information for next stage (propagation)
+<span class="nc" id="L508">        Map&lt;String, ConnObject&gt; afterOnResources =</span>
+<span class="nc" id="L509">                onResources(saved, userDAO.findAllResourceKeys(saved.getKey()), password, changePwdRes);</span>
+<span class="nc" id="L510">        propByRes.merge(propByRes(beforeOnResources, afterOnResources));</span>
+
+<span class="nc bnc" id="L512" title="All 2 branches missed.">        if (userUR.getMustChangePassword() != null) {</span>
+<span class="nc" id="L513">            user.setMustChangePassword(userUR.getMustChangePassword().getValue());</span>
+
+<span class="nc" id="L515">            propByRes.addAll(</span>
+                    ResourceOperation.UPDATE,
+<span class="nc" id="L517">                    anyUtils.getAllResources(saved).stream().</span>
+<span class="nc" id="L518">                            map(resource -&gt; resource.getProvisionByAnyType(saved.getType().getKey()).</span>
+<span class="nc" id="L519">                            filter(mappingManager::hasMustChangePassword).</span>
+<span class="nc" id="L520">                            map(provision -&gt; resource.getKey()).</span>
+<span class="nc" id="L521">                            orElse(null)).</span>
+<span class="nc" id="L522">                            filter(Objects::nonNull).</span>
+<span class="nc" id="L523">                            toList());</span>
+        }
+
+<span class="nc" id="L526">        return new PropagationInfo(propByRes, propByLinkedAccount);</span>
+    }
+
+    @Transactional
+    @Override
+    public void setMfa(final String username, final Mfa mfa) {
+<span class="nc" id="L532">        User user = userDAO.findByUsername(username).</span>
+<span class="nc" id="L533">                orElseThrow(() -&gt; new NotFoundException(&quot;User &quot; + username));</span>
+
+<span class="nc" id="L535">        user.setMfa(mfa);</span>
+<span class="nc" id="L536">        userDAO.save(user);</span>
+<span class="nc" id="L537">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public LinkedAccountTO getLinkedAccountTO(final LinkedAccount account) {
+<span class="nc" id="L542">        LinkedAccountTO accountTO = new LinkedAccountTO.Builder(</span>
+<span class="nc" id="L543">                account.getKey(), account.getResource().getKey(), account.getConnObjectKeyValue()).</span>
+<span class="nc" id="L544">                username(account.getUsername()).</span>
+<span class="nc" id="L545">                suspended(BooleanUtils.isTrue(account.isSuspended())).</span>
+<span class="nc" id="L546">                build();</span>
+
+<span class="nc" id="L548">        account.getPlainAttrs().forEach(plainAttr -&gt; accountTO.getPlainAttrs().add(</span>
+<span class="nc" id="L549">                new Attr.Builder(plainAttr.getSchema()).values(plainAttr.getValuesAsStrings()).build()));</span>
+
+<span class="nc" id="L551">        return accountTO;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public UserTO getUserTO(final User user, final boolean details) {
+<span class="nc" id="L557">        UserTO userTO = new UserTO();</span>
+<span class="nc" id="L558">        userTO.setKey(user.getKey());</span>
+<span class="nc" id="L559">        userTO.setUsername(user.getUsername());</span>
+<span class="nc" id="L560">        userTO.setStatus(user.getStatus());</span>
+<span class="nc" id="L561">        userTO.setSuspended(BooleanUtils.isTrue(user.isSuspended()));</span>
+<span class="nc" id="L562">        userTO.setMustChangePassword(user.isMustChangePassword());</span>
+
+<span class="nc" id="L564">        Optional.ofNullable(user.getSecurityQuestion()).</span>
+<span class="nc" id="L565">                map(SecurityQuestion::getKey).</span>
+<span class="nc" id="L566">                ifPresent(userTO::setSecurityQuestion);</span>
+
+<span class="nc" id="L568">        userTO.setCreationDate(user.getCreationDate());</span>
+<span class="nc" id="L569">        userTO.setCreator(user.getCreator());</span>
+<span class="nc" id="L570">        userTO.setCreationDate(user.getCreationDate());</span>
+<span class="nc" id="L571">        userTO.setCreationContext(user.getCreationContext());</span>
+<span class="nc" id="L572">        userTO.setLastModifier(user.getLastModifier());</span>
+<span class="nc" id="L573">        userTO.setLastChangeDate(user.getLastChangeDate());</span>
+<span class="nc" id="L574">        userTO.setLastChangeContext(user.getLastChangeContext());</span>
+
+<span class="nc" id="L576">        userTO.setChangePwdDate(user.getChangePwdDate());</span>
+<span class="nc" id="L577">        userTO.setFailedLogins(user.getFailedLogins());</span>
+<span class="nc" id="L578">        userTO.setLastLoginDate(user.getLastLoginDate());</span>
+
+<span class="nc" id="L580">        fillTO(user, userTO, derAttrHandler.getValues(user), userDAO.findAllResources(user));</span>
+
+<span class="nc bnc" id="L582" title="All 2 branches missed.">        if (details) {</span>
+            // roles
+<span class="nc" id="L584">            userTO.getRoles().addAll(user.getRoles().stream().map(Role::getKey).toList());</span>
+
+            // relationships
+<span class="nc" id="L587">            userTO.getRelationships().addAll(user.getRelationships().stream().</span>
+<span class="nc" id="L588">                    map(relationship -&gt; getRelationshipTO(user.getPlainAttrs(relationship),</span>
+<span class="nc" id="L589">                    derAttrHandler.getValues(user, relationship),</span>
+<span class="nc" id="L590">                    relationship.getType().getKey(),</span>
+                    RelationshipTO.End.LEFT,
+<span class="nc" id="L592">                    relationship.getRightEnd())).toList());</span>
+
+            // memberships
+<span class="nc" id="L595">            userTO.getMemberships().addAll(user.getMemberships().stream().</span>
+<span class="nc" id="L596">                    map(membership -&gt; getMembershipTO(user.getPlainAttrs(membership),</span>
+<span class="nc" id="L597">                    derAttrHandler.getValues((Groupable&lt;?, ?, ?&gt;) user, membership),</span>
+<span class="nc" id="L598">                    membership)).toList());</span>
+
+            // linked accounts
+<span class="nc" id="L601">            userTO.getLinkedAccounts().addAll(</span>
+<span class="nc" id="L602">                    user.getLinkedAccounts().stream().map(this::getLinkedAccountTO).toList());</span>
+
+            // delegations
+<span class="nc" id="L605">            userTO.getDelegatingDelegations().addAll(</span>
+<span class="nc" id="L606">                    delegationDAO.findByDelegating(user).stream().map(Delegation::getKey).toList());</span>
+<span class="nc" id="L607">            userTO.getDelegatedDelegations().addAll(</span>
+<span class="nc" id="L608">                    delegationDAO.findByDelegated(user).stream().map(Delegation::getKey).toList());</span>
+        }
+
+<span class="nc" id="L611">        return userTO;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public UserTO getUserTO(final String key) {
+<span class="nc" id="L617">        return getUserTO(userDAO.authFind(key), true);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

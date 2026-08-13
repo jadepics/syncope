@@ -1,0 +1,550 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractPushResultHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">AbstractPushResultHandler.java</span></div><h1>AbstractPushResultHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.request.StringPatchItem;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.types.ExecStatus;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.task.PushTask;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.event.AfterHandlingEvent;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPushResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.IgnoreProvisionException;
+import org.apache.syncope.core.provisioning.api.pushpull.PushActions;
+import org.apache.syncope.core.provisioning.java.job.AfterHandlingJob;
+import org.apache.syncope.core.provisioning.java.job.SyncopeTaskScheduler;
+import org.apache.syncope.core.provisioning.java.propagation.DefaultPropagationReporter;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L65">public abstract class AbstractPushResultHandler extends AbstractSyncopeResultHandler&lt;PushTask, PushActions&gt;</span>
+        implements AnyPushResultHandler {
+
+    protected static void reportPropagation(final ProvisioningReport result, final PropagationReporter reporter) {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        if (!reporter.getStatuses().isEmpty()) {</span>
+<span class="nc" id="L70">            result.setStatus(toProvisioningReportStatus(reporter.getStatuses().getFirst().getStatus()));</span>
+<span class="nc" id="L71">            result.setMessage(reporter.getStatuses().getFirst().getFailureReason());</span>
+        }
+<span class="nc" id="L73">    }</span>
+
+    protected static ResourceOperation toResourceOperation(final UnmatchingRule rule) {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        return switch (rule) {</span>
+            case ASSIGN, PROVISION -&gt;
+<span class="nc" id="L78">                ResourceOperation.CREATE;</span>
+            default -&gt;
+<span class="nc" id="L80">                ResourceOperation.NONE;</span>
+        };
+    }
+
+    protected static ResourceOperation toResourceOperation(final MatchingRule rule) {
+<span class="nc bnc" id="L85" title="All 3 branches missed.">        return switch (rule) {</span>
+            case UPDATE -&gt;
+<span class="nc" id="L87">                ResourceOperation.UPDATE;</span>
+            case DEPROVISION, UNASSIGN -&gt;
+<span class="nc" id="L89">                ResourceOperation.DELETE;</span>
+            default -&gt;
+<span class="nc" id="L91">                ResourceOperation.NONE;</span>
+        };
+    }
+
+    protected static ProvisioningReport.Status toProvisioningReportStatus(final ExecStatus status) {
+<span class="nc bnc" id="L96" title="All 3 branches missed.">        switch (status) {</span>
+            case FAILURE:
+<span class="nc" id="L98">                return ProvisioningReport.Status.FAILURE;</span>
+
+            case SUCCESS:
+<span class="nc" id="L101">                return ProvisioningReport.Status.SUCCESS;</span>
+
+            case CREATED:
+            case NOT_ATTEMPTED:
+            default:
+<span class="nc" id="L106">                return ProvisioningReport.Status.IGNORE;</span>
+        }
+    }
+
+    @Autowired
+    protected OutboundMatcher outboundMatcher;
+
+    /**
+     * Notification Manager.
+     */
+    @Autowired
+    protected NotificationManager notificationManager;
+
+    /**
+     * Audit Manager.
+     */
+    @Autowired
+    protected AuditManager auditManager;
+
+    @Autowired
+    protected MappingManager mappingManager;
+
+    @Autowired
+    protected SyncopeTaskScheduler scheduler;
+
+    protected abstract String getName(Any any);
+
+    protected void update(
+            final Any any,
+            final Boolean enable,
+            final ConnectorObject beforeObj,
+            final ProvisioningReport result) {
+
+<span class="nc" id="L139">        List&lt;String&gt; ownedResources = anyUtils().getAllResources(any).stream().</span>
+<span class="nc" id="L140">                map(ExternalResource::getKey).toList();</span>
+
+<span class="nc" id="L142">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(ownedResources);</span>
+<span class="nc" id="L143">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L145">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L146">        propByRes.add(ResourceOperation.UPDATE, profile.getTask().getResource().getKey());</span>
+<span class="nc" id="L147">        propByRes.addOldConnObjectKey(profile.getTask().getResource().getKey(), beforeObj.getUid().getUidValue());</span>
+
+<span class="nc" id="L149">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUpdateTasks(</span>
+                null,
+<span class="nc" id="L151">                any.getType().getKind(),</span>
+<span class="nc" id="L152">                any.getKey(),</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                any instanceof User ? List.of(profile.getTask().getResource().getKey()) : List.of(),</span>
+                enable,
+                propByRes,
+                null,
+                noPropResources);
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L159">            taskInfos.getFirst().setBeforeObj(Optional.of(beforeObj));</span>
+<span class="nc" id="L160">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L161">            taskExecutor.execute(taskInfos.getFirst(), reporter, securityProperties.getAdminUser());</span>
+<span class="nc" id="L162">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L164">    }</span>
+
+    protected void deprovision(final Any any, final ConnectorObject beforeObj, final ProvisioningReport result) {
+<span class="nc" id="L167">        AnyTO before = getAnyTO(any);</span>
+
+<span class="nc" id="L169">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(before.getResources());</span>
+<span class="nc" id="L170">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L172">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L173">        propByRes.add(ResourceOperation.DELETE, profile.getTask().getResource().getKey());</span>
+<span class="nc" id="L174">        propByRes.addOldConnObjectKey(profile.getTask().getResource().getKey(), beforeObj.getUid().getUidValue());</span>
+
+<span class="nc" id="L176">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+<span class="nc" id="L177">                any.getType().getKind(),</span>
+<span class="nc" id="L178">                any.getKey(),</span>
+                propByRes,
+                null,
+                noPropResources);
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L183">            taskInfos.getFirst().setBeforeObj(Optional.of(beforeObj));</span>
+<span class="nc" id="L184">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L185">            taskExecutor.execute(taskInfos.getFirst(), reporter, securityProperties.getAdminUser());</span>
+<span class="nc" id="L186">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L188">    }</span>
+
+    protected void provision(final Any any, final Boolean enable, final ProvisioningReport result) {
+<span class="nc" id="L191">        AnyTO before = getAnyTO(any);</span>
+
+<span class="nc" id="L193">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(before.getResources());</span>
+<span class="nc" id="L194">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L196">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L197">        propByRes.add(ResourceOperation.CREATE, profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L199">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getCreateTasks(</span>
+<span class="nc" id="L200">                any.getType().getKind(),</span>
+<span class="nc" id="L201">                any.getKey(),</span>
+                enable,
+                propByRes,
+                noPropResources);
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L206">            taskInfos.getFirst().setBeforeObj(Optional.empty());</span>
+<span class="nc" id="L207">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L208">            taskExecutor.execute(taskInfos.getFirst(), reporter, securityProperties.getAdminUser());</span>
+<span class="nc" id="L209">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L211">    }</span>
+
+    protected void link(final Any any, final boolean unlink, final ProvisioningReport result) {
+<span class="nc" id="L214">        AnyUR req = anyUtils().newAnyUR(any.getKey());</span>
+<span class="nc" id="L215">        req.getResources().add(new StringPatchItem.Builder().</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">                operation(unlink ? PatchOperation.DELETE : PatchOperation.ADD_REPLACE).</span>
+<span class="nc" id="L217">                value(profile.getTask().getResource().getKey()).build());</span>
+
+<span class="nc" id="L219">        update(req);</span>
+
+<span class="nc" id="L221">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L222">    }</span>
+
+    protected void unassign(final Any any, final ConnectorObject beforeObj, final ProvisioningReport result) {
+<span class="nc" id="L225">        AnyUR req = anyUtils().newAnyUR(any.getKey());</span>
+<span class="nc" id="L226">        req.getResources().add(new StringPatchItem.Builder().</span>
+<span class="nc" id="L227">                operation(PatchOperation.DELETE).</span>
+<span class="nc" id="L228">                value(profile.getTask().getResource().getKey()).build());</span>
+
+<span class="nc" id="L230">        update(req);</span>
+
+<span class="nc" id="L232">        deprovision(any, beforeObj, result);</span>
+<span class="nc" id="L233">    }</span>
+
+    protected void assign(final Any any, final Boolean enabled, final ProvisioningReport result) {
+<span class="nc" id="L236">        AnyUR req = anyUtils().newAnyUR(any.getKey());</span>
+<span class="nc" id="L237">        req.getResources().add(new StringPatchItem.Builder().</span>
+<span class="nc" id="L238">                operation(PatchOperation.ADD_REPLACE).</span>
+<span class="nc" id="L239">                value(profile.getTask().getResource().getKey()).build());</span>
+
+<span class="nc" id="L241">        update(req);</span>
+
+<span class="nc" id="L243">        provision(any, enabled, result);</span>
+<span class="nc" id="L244">    }</span>
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public boolean handle(final Any any) {
+        try {
+<span class="nc" id="L250">            Provision provision = profile.getTask().getResource().</span>
+<span class="nc" id="L251">                    getProvisionByAnyType(any.getType().getKey()).orElse(null);</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (provision == null) {</span>
+<span class="nc" id="L253">                throw new JobExecutionException(&quot;No provision found on &quot; + profile.getTask().getResource() + &quot; for &quot;</span>
+<span class="nc" id="L254">                        + any.getType().getKey());</span>
+            }
+
+<span class="nc" id="L257">            doHandle(any, provision);</span>
+
+<span class="nc bnc" id="L259" title="All 2 branches missed.">            if (stopRequested) {</span>
+<span class="nc" id="L260">                LOG.debug(&quot;Stop was requested&quot;);</span>
+<span class="nc" id="L261">                return false;</span>
+            }
+
+<span class="nc" id="L264">            return true;</span>
+<span class="nc" id="L265">        } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L266">            ProvisioningReport ignoreResult = profile.getResults().stream().</span>
+<span class="nc" id="L267">                    filter(report -&gt; any.getKey().equalsIgnoreCase(report.getKey())).</span>
+<span class="nc" id="L268">                    findFirst().</span>
+<span class="nc" id="L269">                    orElse(null);</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">            if (ignoreResult == null) {</span>
+<span class="nc" id="L271">                ignoreResult = new ProvisioningReport();</span>
+<span class="nc" id="L272">                ignoreResult.setKey(any.getKey());</span>
+<span class="nc" id="L273">                ignoreResult.setAnyType(Optional.ofNullable(any).map(any1 -&gt; any1.getType().getKey()).orElse(null));</span>
+
+<span class="nc" id="L275">                profile.getResults().add(ignoreResult);</span>
+            }
+
+<span class="nc" id="L278">            ignoreResult.setOperation(ResourceOperation.NONE);</span>
+<span class="nc" id="L279">            ignoreResult.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L280">            ignoreResult.setMessage(e.getMessage());</span>
+
+<span class="nc" id="L282">            LOG.warn(&quot;Ignoring during push&quot;, e);</span>
+<span class="nc" id="L283">            return true;</span>
+<span class="nc" id="L284">        } catch (JobExecutionException e) {</span>
+<span class="nc" id="L285">            LOG.error(&quot;Push failed&quot;, e);</span>
+<span class="nc" id="L286">            return false;</span>
+        }
+    }
+
+    protected void doHandle(final Any any, final Provision provision) throws JobExecutionException {
+<span class="nc" id="L291">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L292">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L294">        result.setKey(any.getKey());</span>
+<span class="nc" id="L295">        result.setAnyType(any.getType().getKey());</span>
+<span class="nc" id="L296">        result.setName(getName(any));</span>
+
+<span class="nc" id="L298">        LOG.debug(&quot;Pushing {} with key {} towards {}&quot;,</span>
+<span class="nc" id="L299">                any.getType().getKind(), any.getKey(), profile.getTask().getResource());</span>
+
+        // Try to read remote object BEFORE any actual operation
+<span class="nc" id="L302">        Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L303">        profile.getActions().forEach(action -&gt; moreAttrsToGet.addAll(action.moreAttrsToGet(profile, any)));</span>
+<span class="nc" id="L304">        List&lt;ConnectorObject&gt; connObjs = outboundMatcher.match(</span>
+<span class="nc" id="L305">                profile.getConnector(),</span>
+                any,
+<span class="nc" id="L307">                profile.getTask().getResource(),</span>
+                provision,
+<span class="nc" id="L309">                Optional.of(moreAttrsToGet.toArray(String[]::new)));</span>
+<span class="nc" id="L310">        LOG.debug(&quot;Match(es) found for {} as {}: {}&quot;, any, provision.getObjectClass(), connObjs);</span>
+
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        if (connObjs.size() &gt; 1) {</span>
+<span class="nc bnc" id="L313" title="All 4 branches missed.">            switch (profile.getConflictResolutionAction()) {</span>
+                case IGNORE:
+<span class="nc" id="L315">                    throw new IgnoreProvisionException(&quot;More than one match found for &quot;</span>
+<span class="nc" id="L316">                            + any.getKey() + &quot;: &quot; + connObjs);</span>
+
+                case FIRSTMATCH:
+<span class="nc" id="L319">                    connObjs = connObjs.subList(0, 1);</span>
+<span class="nc" id="L320">                    break;</span>
+
+                case LASTMATCH:
+<span class="nc" id="L323">                    connObjs = connObjs.subList(connObjs.size() - 1, connObjs.size());</span>
+<span class="nc" id="L324">                    break;</span>
+
+                default:
+            }
+        }
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        ConnectorObject beforeObj = connObjs.isEmpty() ? null : connObjs.getFirst();</span>
+
+<span class="nc bnc" id="L331" title="All 2 branches missed.">        if (profile.isDryRun()) {</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            if (beforeObj == null) {</span>
+<span class="nc" id="L333">                result.setOperation(toResourceOperation(profile.getTask().getUnmatchingRule()));</span>
+            } else {
+<span class="nc" id="L335">                result.setOperation(toResourceOperation(profile.getTask().getMatchingRule()));</span>
+            }
+<span class="nc" id="L337">            result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+        } else {
+<span class="nc bnc" id="L339" title="All 2 branches missed.">            String operation = beforeObj == null</span>
+<span class="nc" id="L340">                    ? UnmatchingRule.toOp(profile.getTask().getUnmatchingRule())</span>
+<span class="nc" id="L341">                    : MatchingRule.toOp(profile.getTask().getMatchingRule());</span>
+
+<span class="nc" id="L343">            boolean notificationsAvailable = notificationManager.notificationsAvailable(</span>
+<span class="nc" id="L344">                    AuthContextUtils.getDomain(),</span>
+                    OpEvent.CategoryType.PUSH,
+<span class="nc" id="L346">                    any.getType().getKind().name(),</span>
+<span class="nc" id="L347">                    profile.getTask().getResource().getKey(),</span>
+                    operation);
+<span class="nc" id="L349">            boolean auditRequested = auditManager.auditRequested(</span>
+<span class="nc" id="L350">                    AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L351">                    AuthContextUtils.getUsername(),</span>
+                    OpEvent.CategoryType.PUSH,
+<span class="nc" id="L353">                    any.getType().getKind().name(),</span>
+<span class="nc" id="L354">                    profile.getTask().getResource().getKey(),</span>
+                    operation);
+
+<span class="nc" id="L357">            Object output = null;</span>
+<span class="nc" id="L358">            OpEvent.Outcome resultStatus = null;</span>
+
+<span class="nc bnc" id="L360" title="All 4 branches missed.">            Boolean enable = any instanceof User user &amp;&amp; profile.getTask().isSyncStatus()</span>
+<span class="nc" id="L361">                    ? BooleanUtils.negate(user.isSuspended())</span>
+<span class="nc" id="L362">                    : null;</span>
+            try {
+<span class="nc bnc" id="L364" title="All 2 branches missed.">                if (beforeObj == null) {</span>
+<span class="nc" id="L365">                    result.setOperation(toResourceOperation(profile.getTask().getUnmatchingRule()));</span>
+
+<span class="nc bnc" id="L367" title="All 5 branches missed.">                    switch (profile.getTask().getUnmatchingRule()) {</span>
+                        case ASSIGN -&gt; {
+<span class="nc bnc" id="L369" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L370">                                action.beforeAssign(profile, any);</span>
+<span class="nc" id="L371">                            }</span>
+
+<span class="nc bnc" id="L373" title="All 2 branches missed.">                            if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L374">                                LOG.debug(&quot;PushTask not configured for create&quot;);</span>
+<span class="nc" id="L375">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L377">                                assign(any, enable, result);</span>
+                            }
+<span class="nc" id="L379">                        }</span>
+
+                        case PROVISION -&gt; {
+<span class="nc bnc" id="L382" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L383">                                action.beforeProvision(profile, any);</span>
+<span class="nc" id="L384">                            }</span>
+
+<span class="nc bnc" id="L386" title="All 2 branches missed.">                            if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L387">                                LOG.debug(&quot;PushTask not configured for create&quot;);</span>
+<span class="nc" id="L388">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L390">                                provision(any, enable, result);</span>
+                            }
+<span class="nc" id="L392">                        }</span>
+
+                        case UNLINK -&gt; {
+<span class="nc bnc" id="L395" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L396">                                action.beforeUnlink(profile, any);</span>
+<span class="nc" id="L397">                            }</span>
+
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L400">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L401">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L403">                                link(any, true, result);</span>
+                            }
+<span class="nc" id="L405">                        }</span>
+
+                        case IGNORE -&gt; {
+<span class="nc" id="L408">                            LOG.debug(&quot;Ignored any: {}&quot;, any);</span>
+<span class="nc" id="L409">                            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L410">                        }</span>
+
+                        default -&gt; {
+<span class="nc" id="L413">                        }</span>
+                    }
+                    // do nothing
+                } else {
+<span class="nc" id="L417">                    result.setOperation(toResourceOperation(profile.getTask().getMatchingRule()));</span>
+
+<span class="nc bnc" id="L419" title="All 7 branches missed.">                    switch (profile.getTask().getMatchingRule()) {</span>
+                        case UPDATE -&gt; {
+<span class="nc bnc" id="L421" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L422">                                action.beforeUpdate(profile, any);</span>
+<span class="nc" id="L423">                            }</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L425">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L426">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L428">                                update(any, enable, beforeObj, result);</span>
+                            }
+<span class="nc" id="L430">                        }</span>
+
+                        case DEPROVISION -&gt; {
+<span class="nc bnc" id="L433" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L434">                                action.beforeDeprovision(profile, any);</span>
+<span class="nc" id="L435">                            }</span>
+
+<span class="nc bnc" id="L437" title="All 2 branches missed.">                            if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L438">                                LOG.debug(&quot;PushTask not configured for delete&quot;);</span>
+<span class="nc" id="L439">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L441">                                deprovision(any, beforeObj, result);</span>
+                            }
+<span class="nc" id="L443">                        }</span>
+
+                        case UNASSIGN -&gt; {
+<span class="nc bnc" id="L446" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L447">                                action.beforeUnassign(profile, any);</span>
+<span class="nc" id="L448">                            }</span>
+
+<span class="nc bnc" id="L450" title="All 2 branches missed.">                            if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L451">                                LOG.debug(&quot;PushTask not configured for delete&quot;);</span>
+<span class="nc" id="L452">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L454">                                unassign(any, beforeObj, result);</span>
+                            }
+<span class="nc" id="L456">                        }</span>
+
+                        case LINK -&gt; {
+<span class="nc bnc" id="L459" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L460">                                action.beforeLink(profile, any);</span>
+<span class="nc" id="L461">                            }</span>
+
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L464">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L465">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L467">                                link(any, false, result);</span>
+                            }
+<span class="nc" id="L469">                        }</span>
+
+                        case UNLINK -&gt; {
+<span class="nc bnc" id="L472" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L473">                                action.beforeUnlink(profile, any);</span>
+<span class="nc" id="L474">                            }</span>
+
+<span class="nc bnc" id="L476" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L477">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L478">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L480">                                link(any, true, result);</span>
+                            }
+<span class="nc" id="L482">                        }</span>
+
+                        case IGNORE -&gt; {
+<span class="nc" id="L485">                            LOG.debug(&quot;Ignored any: {}&quot;, any);</span>
+<span class="nc" id="L486">                            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L487">                        }</span>
+
+                        default -&gt; {
+                        }
+                    }
+                    // do nothing
+                }
+
+<span class="nc bnc" id="L495" title="All 2 branches missed.">                for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L496">                    action.after(profile, any, result);</span>
+<span class="nc" id="L497">                }</span>
+
+<span class="nc bnc" id="L499" title="All 2 branches missed.">                if (result.getStatus() == null) {</span>
+<span class="nc" id="L500">                    result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+                }
+
+<span class="nc bnc" id="L503" title="All 4 branches missed.">                if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L504">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L505">                    output = outboundMatcher.match(</span>
+<span class="nc" id="L506">                            profile.getConnector(),</span>
+                            any,
+<span class="nc" id="L508">                            profile.getTask().getResource(),</span>
+                            provision,
+<span class="nc" id="L510">                            Optional.of(moreAttrsToGet.toArray(String[]::new)));</span>
+                }
+<span class="nc" id="L512">            } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L513">                throw e;</span>
+<span class="nc" id="L514">            } catch (Exception e) {</span>
+<span class="nc" id="L515">                result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L516">                result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+
+<span class="nc bnc" id="L518" title="All 4 branches missed.">                if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L519">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L520">                    output = e;</span>
+                }
+
+<span class="nc" id="L523">                LOG.warn(&quot;Error pushing {} towards {}&quot;, any, profile.getTask().getResource(), e);</span>
+
+<span class="nc bnc" id="L525" title="All 2 branches missed.">                for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L526">                    action.onError(profile, any, result, e);</span>
+<span class="nc" id="L527">                }</span>
+
+<span class="nc" id="L529">                throw new JobExecutionException(e);</span>
+            } finally {
+<span class="nc bnc" id="L531" title="All 4 branches missed.">                if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L532">                    Map&lt;String, Object&gt; jobMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L533">                    jobMap.put(AfterHandlingEvent.JOBMAP_KEY, new AfterHandlingEvent(</span>
+<span class="nc" id="L534">                            AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L535">                            AuthContextUtils.getWho(),</span>
+                            OpEvent.CategoryType.PUSH,
+<span class="nc" id="L537">                            any.getType().getKind().name(),</span>
+<span class="nc" id="L538">                            profile.getTask().getResource().getKey(),</span>
+                            operation,
+                            resultStatus,
+                            beforeObj,
+                            output,
+<span class="nc" id="L543">                            getAnyTO(any)));</span>
+<span class="nc" id="L544">                    AfterHandlingJob.schedule(scheduler, jobMap);</span>
+                }
+            }
+        }
+<span class="nc" id="L548">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

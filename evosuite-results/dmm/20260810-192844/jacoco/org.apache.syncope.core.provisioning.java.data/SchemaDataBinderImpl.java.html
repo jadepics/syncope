@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SchemaDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">SchemaDataBinderImpl.java</span></div><h1>SchemaDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.Optional;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.DerSchemaTO;
+import org.apache.syncope.common.lib.to.PlainSchemaTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.DerSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.DerSchema;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.provisioning.api.data.SchemaDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class SchemaDataBinderImpl implements SchemaDataBinder {
+
+<span class="nc" id="L50">    protected static final Logger LOG = LoggerFactory.getLogger(SchemaDataBinder.class);</span>
+
+    protected final AnyTypeClassDAO anyTypeClassDAO;
+
+    protected final PlainSchemaDAO plainSchemaDAO;
+
+    protected final DerSchemaDAO derSchemaDAO;
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final EntityFactory entityFactory;
+
+    protected final AnyUtilsFactory anyUtilsFactory;
+
+    protected final JexlTools jexlTools;
+
+    public SchemaDataBinderImpl(
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final DerSchemaDAO derSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+<span class="nc" id="L79">            final JexlTools jexlTools) {</span>
+
+<span class="nc" id="L81">        this.anyTypeClassDAO = anyTypeClassDAO;</span>
+<span class="nc" id="L82">        this.plainSchemaDAO = plainSchemaDAO;</span>
+<span class="nc" id="L83">        this.derSchemaDAO = derSchemaDAO;</span>
+<span class="nc" id="L84">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L85">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L86">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L87">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L88">        this.anyUtilsFactory = anyUtilsFactory;</span>
+<span class="nc" id="L89">        this.jexlTools = jexlTools;</span>
+<span class="nc" id="L90">    }</span>
+
+    // --------------- PLAIN -----------------
+    protected PlainSchema fill(final PlainSchema schema, final PlainSchemaTO schemaTO) {
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (!jexlTools.isExpressionValid(schemaTO.getMandatoryCondition())) {</span>
+<span class="nc" id="L95">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+<span class="nc" id="L96">            sce.getElements().add(schemaTO.getMandatoryCondition());</span>
+<span class="nc" id="L97">            throw sce;</span>
+        }
+
+<span class="nc" id="L100">        schema.setKey(schemaTO.getKey());</span>
+<span class="nc" id="L101">        schema.setType(schemaTO.getType());</span>
+<span class="nc" id="L102">        schema.setCipherAlgorithm(schemaTO.getCipherAlgorithm());</span>
+<span class="nc" id="L103">        schema.setConversionPattern(schemaTO.getConversionPattern());</span>
+<span class="nc" id="L104">        schema.getEnumValues().clear();</span>
+<span class="nc" id="L105">        schema.getEnumValues().putAll(schemaTO.getEnumValues());</span>
+
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        if (schemaTO.getDropdownValueProvider() == null) {</span>
+<span class="nc" id="L108">            schema.setDropdownValueProvider(null);</span>
+        } else {
+<span class="nc" id="L110">            implementationDAO.findById(schemaTO.getDropdownValueProvider()).ifPresentOrElse(</span>
+<span class="nc" id="L111">                    schema::setDropdownValueProvider,</span>
+<span class="nc" id="L112">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L113">                            Implementation.class.getSimpleName(), schemaTO.getDropdownValueProvider()));</span>
+        }
+
+<span class="nc" id="L116">        schema.setMandatoryCondition(schemaTO.getMandatoryCondition());</span>
+<span class="nc" id="L117">        schema.setMimeType(schemaTO.getMimeType());</span>
+<span class="nc" id="L118">        schema.setMultivalue(schemaTO.isMultivalue());</span>
+<span class="nc" id="L119">        schema.setReadonly(schemaTO.isReadonly());</span>
+<span class="nc" id="L120">        schema.setSecretKey(schemaTO.getSecretKey());</span>
+<span class="nc" id="L121">        schema.setUniqueConstraint(schemaTO.isUniqueConstraint());</span>
+
+<span class="nc" id="L123">        schema.getLabels().clear();</span>
+<span class="nc" id="L124">        schema.getLabels().putAll(schemaTO.getLabels());</span>
+
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        if (schemaTO.getValidator() == null) {</span>
+<span class="nc" id="L127">            schema.setValidator(null);</span>
+        } else {
+<span class="nc" id="L129">            implementationDAO.findById(schemaTO.getValidator()).ifPresentOrElse(</span>
+<span class="nc" id="L130">                    schema::setValidator,</span>
+<span class="nc" id="L131">                    () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;,</span>
+<span class="nc" id="L132">                            Implementation.class.getSimpleName(), schemaTO.getValidator()));</span>
+        }
+
+<span class="nc" id="L135">        PlainSchema saved = plainSchemaDAO.save(schema);</span>
+
+<span class="nc" id="L137">        Mutable&lt;AnyTypeClass&gt; atc = new MutableObject&lt;&gt;();</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (schemaTO.getAnyTypeClass() != null</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">                &amp;&amp; (saved.getAnyTypeClass() == null</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">                || !schemaTO.getAnyTypeClass().equals(saved.getAnyTypeClass().getKey()))) {</span>
+
+<span class="nc" id="L142">            anyTypeClassDAO.findById(schemaTO.getAnyTypeClass()).ifPresentOrElse(</span>
+                    anyTypeClass -&gt; {
+<span class="nc" id="L144">                        anyTypeClass.add(saved);</span>
+<span class="nc" id="L145">                        saved.setAnyTypeClass(anyTypeClass);</span>
+
+<span class="nc" id="L147">                        atc.setValue(anyTypeClass);</span>
+<span class="nc" id="L148">                    },</span>
+<span class="nc" id="L149">                    () -&gt; LOG.debug(&quot;Invalid {}{}, ignoring...&quot;,</span>
+<span class="nc" id="L150">                            AnyTypeClass.class.getSimpleName(), schemaTO.getAnyTypeClass()));</span>
+<span class="nc bnc" id="L151" title="All 4 branches missed.">        } else if (schemaTO.getAnyTypeClass() == null &amp;&amp; saved.getAnyTypeClass() != null) {</span>
+<span class="nc" id="L152">            saved.getAnyTypeClass().getPlainSchemas().remove(saved);</span>
+<span class="nc" id="L153">            saved.setAnyTypeClass(null);</span>
+
+<span class="nc" id="L155">            atc.setValue(saved.getAnyTypeClass());</span>
+        }
+
+<span class="nc" id="L158">        PlainSchema filled = plainSchemaDAO.save(saved);</span>
+<span class="nc" id="L159">        Optional.ofNullable(atc.get()).ifPresent(anyTypeClassDAO::save);</span>
+<span class="nc" id="L160">        return filled;</span>
+    }
+
+    @Override
+    public PlainSchema create(final PlainSchemaTO schemaTO) {
+<span class="nc" id="L165">        return fill(entityFactory.newEntity(PlainSchema.class), schemaTO);</span>
+    }
+
+    @Override
+    public PlainSchema update(final PlainSchemaTO schemaTO, final PlainSchema schema) {
+<span class="nc" id="L170">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        if (plainSchemaDAO.hasAttrs(schema)) {</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            if (schema.getType() != schemaTO.getType()) {</span>
+<span class="nc" id="L174">                SyncopeClientException e = SyncopeClientException.build(ClientExceptionType.InvalidPlainSchema);</span>
+<span class="nc" id="L175">                e.getElements().add(&quot;Cannot change type since &quot; + schema.getKey() + &quot; has attributes&quot;);</span>
+
+<span class="nc" id="L177">                scce.addException(e);</span>
+            }
+<span class="nc bnc" id="L179" title="All 2 branches missed.">            if (schema.isUniqueConstraint() != schemaTO.isUniqueConstraint()) {</span>
+<span class="nc" id="L180">                SyncopeClientException e = SyncopeClientException.build(ClientExceptionType.InvalidPlainSchema);</span>
+<span class="nc" id="L181">                e.getElements().add(&quot;Cannot alter unique contraint since &quot; + schema.getKey() + &quot; has attributes&quot;);</span>
+
+<span class="nc" id="L183">                scce.addException(e);</span>
+            }
+        }
+
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L188">            throw scce;</span>
+        }
+
+<span class="nc" id="L191">        return fill(schema, schemaTO);</span>
+    }
+
+    @Override
+    public PlainSchemaTO getPlainSchemaTO(final String key) {
+<span class="nc" id="L196">        PlainSchema schema = plainSchemaDAO.findById(key).</span>
+<span class="nc" id="L197">                orElseThrow(() -&gt; new NotFoundException(&quot;PlainSchema &quot; + key));</span>
+
+<span class="nc" id="L199">        PlainSchemaTO schemaTO = new PlainSchemaTO();</span>
+<span class="nc" id="L200">        schemaTO.setKey(schema.getKey());</span>
+<span class="nc" id="L201">        schemaTO.setType(schema.getType());</span>
+<span class="nc" id="L202">        schemaTO.setCipherAlgorithm(schema.getCipherAlgorithm());</span>
+<span class="nc" id="L203">        schemaTO.setConversionPattern(schema.getConversionPattern());</span>
+<span class="nc" id="L204">        schemaTO.getEnumValues().putAll(schema.getEnumValues());</span>
+<span class="nc" id="L205">        Optional.ofNullable(schema.getDropdownValueProvider()).</span>
+<span class="nc" id="L206">                ifPresent(v -&gt; schemaTO.setDropdownValueProvider(v.getKey()));</span>
+<span class="nc" id="L207">        schemaTO.setMandatoryCondition(schema.getMandatoryCondition());</span>
+<span class="nc" id="L208">        schemaTO.setMimeType(schema.getMimeType());</span>
+<span class="nc" id="L209">        schemaTO.setMultivalue(schema.isMultivalue());</span>
+<span class="nc" id="L210">        schemaTO.setReadonly(schema.isReadonly());</span>
+<span class="nc" id="L211">        schemaTO.setSecretKey(schema.getSecretKey());</span>
+<span class="nc" id="L212">        schemaTO.setUniqueConstraint(schema.isUniqueConstraint());</span>
+<span class="nc" id="L213">        schemaTO.getLabels().putAll(schema.getLabels());</span>
+<span class="nc" id="L214">        Optional.ofNullable(schema.getAnyTypeClass()).</span>
+<span class="nc" id="L215">                ifPresent(v -&gt; schemaTO.setAnyTypeClass(v.getKey()));</span>
+<span class="nc" id="L216">        Optional.ofNullable(schema.getValidator()).</span>
+<span class="nc" id="L217">                ifPresent(v -&gt; schemaTO.setValidator(v.getKey()));</span>
+
+<span class="nc" id="L219">        return schemaTO;</span>
+    }
+
+    // --------------- DERIVED -----------------
+    protected DerSchema fill(final DerSchema schema, final DerSchemaTO schemaTO) {
+<span class="nc" id="L224">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+<span class="nc bnc" id="L226" title="All 2 branches missed.">        if (StringUtils.isBlank(schemaTO.getExpression())) {</span>
+<span class="nc" id="L227">            SyncopeClientException requiredValuesMissing =</span>
+<span class="nc" id="L228">                    SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+<span class="nc" id="L229">            requiredValuesMissing.getElements().add(&quot;expression&quot;);</span>
+
+<span class="nc" id="L231">            scce.addException(requiredValuesMissing);</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        } else if (!jexlTools.isExpressionValid(schemaTO.getExpression())) {</span>
+<span class="nc" id="L233">            SyncopeClientException e = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+<span class="nc" id="L234">            e.getElements().add(schemaTO.getExpression());</span>
+
+<span class="nc" id="L236">            scce.addException(e);</span>
+        }
+
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L240">            throw scce;</span>
+        }
+
+<span class="nc" id="L243">        schema.setKey(schemaTO.getKey());</span>
+<span class="nc" id="L244">        schema.setExpression(schemaTO.getExpression());</span>
+
+<span class="nc" id="L246">        schema.getLabels().clear();</span>
+<span class="nc" id="L247">        schema.getLabels().putAll(schemaTO.getLabels());</span>
+
+<span class="nc" id="L249">        DerSchema saved = derSchemaDAO.save(schema);</span>
+
+<span class="nc" id="L251">        Mutable&lt;AnyTypeClass&gt; atc = new MutableObject&lt;&gt;();</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (schemaTO.getAnyTypeClass() != null</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">                &amp;&amp; (saved.getAnyTypeClass() == null</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">                || !schemaTO.getAnyTypeClass().equals(saved.getAnyTypeClass().getKey()))) {</span>
+
+<span class="nc" id="L256">            anyTypeClassDAO.findById(schemaTO.getAnyTypeClass()).ifPresentOrElse(</span>
+                    anyTypeClass -&gt; {
+<span class="nc" id="L258">                        anyTypeClass.add(saved);</span>
+<span class="nc" id="L259">                        saved.setAnyTypeClass(anyTypeClass);</span>
+
+<span class="nc" id="L261">                        atc.setValue(anyTypeClass);</span>
+<span class="nc" id="L262">                    },</span>
+<span class="nc" id="L263">                    () -&gt; LOG.debug(&quot;Invalid {}{}, ignoring...&quot;,</span>
+<span class="nc" id="L264">                            AnyTypeClass.class.getSimpleName(), schemaTO.getAnyTypeClass()));</span>
+<span class="nc bnc" id="L265" title="All 4 branches missed.">        } else if (schemaTO.getAnyTypeClass() == null &amp;&amp; saved.getAnyTypeClass() != null) {</span>
+<span class="nc" id="L266">            saved.getAnyTypeClass().getDerSchemas().remove(saved);</span>
+<span class="nc" id="L267">            saved.setAnyTypeClass(null);</span>
+
+<span class="nc" id="L269">            atc.setValue(saved.getAnyTypeClass());</span>
+        }
+
+<span class="nc" id="L272">        DerSchema filled = derSchemaDAO.save(saved);</span>
+<span class="nc" id="L273">        Optional.ofNullable(atc.get()).ifPresent(anyTypeClassDAO::save);</span>
+<span class="nc" id="L274">        return filled;</span>
+    }
+
+    @Override
+    public DerSchema create(final DerSchemaTO schemaTO) {
+<span class="nc" id="L279">        return fill(entityFactory.newEntity(DerSchema.class), schemaTO);</span>
+    }
+
+    @Override
+    public DerSchema update(final DerSchemaTO schemaTO, final DerSchema schema) {
+<span class="nc" id="L284">        return fill(schema, schemaTO);</span>
+    }
+
+    @Override
+    public DerSchemaTO getDerSchemaTO(final String key) {
+<span class="nc" id="L289">        DerSchema schema = derSchemaDAO.findById(key).</span>
+<span class="nc" id="L290">                orElseThrow(() -&gt; new NotFoundException(&quot;DerSchema &quot; + key));</span>
+
+<span class="nc" id="L292">        DerSchemaTO schemaTO = new DerSchemaTO();</span>
+<span class="nc" id="L293">        schemaTO.setKey(schema.getKey());</span>
+<span class="nc" id="L294">        schemaTO.setExpression(schema.getExpression());</span>
+<span class="nc" id="L295">        schemaTO.getLabels().putAll(schema.getLabels());</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        schemaTO.setAnyTypeClass(schema.getAnyTypeClass() == null ? null : schema.getAnyTypeClass().getKey());</span>
+<span class="nc" id="L297">        return schemaTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

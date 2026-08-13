@@ -1,0 +1,493 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultRealmPushResultHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">DefaultRealmPushResultHandler.java</span></div><h1>DefaultRealmPushResultHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.to.RealmTO;
+import org.apache.syncope.common.lib.types.ExecStatus;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.task.PushTask;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.TimeoutException;
+import org.apache.syncope.core.provisioning.api.event.AfterHandlingEvent;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.provisioning.api.pushpull.IgnoreProvisionException;
+import org.apache.syncope.core.provisioning.api.pushpull.PushActions;
+import org.apache.syncope.core.provisioning.api.pushpull.RealmPushResultHandler;
+import org.apache.syncope.core.provisioning.java.job.AfterHandlingJob;
+import org.apache.syncope.core.provisioning.java.job.SyncopeTaskScheduler;
+import org.apache.syncope.core.provisioning.java.propagation.DefaultPropagationReporter;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L64">public class DefaultRealmPushResultHandler</span>
+        extends AbstractRealmResultHandler&lt;PushTask, PushActions&gt;
+        implements RealmPushResultHandler {
+
+    protected static ResourceOperation toResourceOperation(final UnmatchingRule rule) {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        return switch (rule) {</span>
+            case ASSIGN, PROVISION -&gt;
+<span class="nc" id="L71">                ResourceOperation.CREATE;</span>
+            default -&gt;
+<span class="nc" id="L73">                ResourceOperation.NONE;</span>
+        };
+    }
+
+    protected static ResourceOperation toResourceOperation(final MatchingRule rule) {
+<span class="nc bnc" id="L78" title="All 3 branches missed.">        return switch (rule) {</span>
+            case UPDATE -&gt;
+<span class="nc" id="L80">                ResourceOperation.UPDATE;</span>
+            case DEPROVISION, UNASSIGN -&gt;
+<span class="nc" id="L82">                ResourceOperation.DELETE;</span>
+            default -&gt;
+<span class="nc" id="L84">                ResourceOperation.NONE;</span>
+        };
+    }
+
+    protected static ProvisioningReport.Status toProvisioningReportStatus(final ExecStatus status) {
+<span class="nc bnc" id="L89" title="All 3 branches missed.">        switch (status) {</span>
+            case FAILURE:
+<span class="nc" id="L91">                return ProvisioningReport.Status.FAILURE;</span>
+
+            case SUCCESS:
+<span class="nc" id="L94">                return ProvisioningReport.Status.SUCCESS;</span>
+
+            case CREATED:
+            case NOT_ATTEMPTED:
+            default:
+<span class="nc" id="L99">                return ProvisioningReport.Status.IGNORE;</span>
+        }
+    }
+
+    @Autowired
+    private MappingManager mappingManager;
+
+    @Autowired
+    private SyncopeTaskScheduler scheduler;
+
+    @Transactional(readOnly = true)
+    @Override
+    public boolean handle(final Realm realm) {
+        try {
+<span class="nc" id="L113">            doHandle(realm);</span>
+
+<span class="nc bnc" id="L115" title="All 2 branches missed.">            if (stopRequested) {</span>
+<span class="nc" id="L116">                LOG.debug(&quot;Stop was requested&quot;);</span>
+<span class="nc" id="L117">                return false;</span>
+            }
+
+<span class="nc" id="L120">            return true;</span>
+<span class="nc" id="L121">        } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L122">            ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L123">            result.setOperation(ResourceOperation.NONE);</span>
+<span class="nc" id="L124">            result.setAnyType(SyncopeConstants.REALM_ANYTYPE);</span>
+<span class="nc" id="L125">            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L126">            result.setKey(realm.getKey());</span>
+<span class="nc" id="L127">            profile.getResults().add(result);</span>
+
+<span class="nc" id="L129">            LOG.warn(&quot;Ignoring during push&quot;, e);</span>
+<span class="nc" id="L130">            return true;</span>
+<span class="nc" id="L131">        } catch (JobExecutionException e) {</span>
+<span class="nc" id="L132">            LOG.error(&quot;Push failed&quot;, e);</span>
+<span class="nc" id="L133">            return false;</span>
+        }
+    }
+
+    private static void reportPropagation(final ProvisioningReport result, final PropagationReporter reporter) {
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (!reporter.getStatuses().isEmpty()) {</span>
+<span class="nc" id="L139">            result.setStatus(toProvisioningReportStatus(reporter.getStatuses().getFirst().getStatus()));</span>
+<span class="nc" id="L140">            result.setMessage(reporter.getStatuses().getFirst().getFailureReason());</span>
+        }
+<span class="nc" id="L142">    }</span>
+
+    private Realm update(final RealmTO realmTO, final ConnectorObject beforeObj, final ProvisioningReport result) {
+<span class="nc" id="L145">        Realm realm = realmSearchDAO.findByFullPath(realmTO.getFullPath()).</span>
+<span class="nc" id="L146">                orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + realmTO.getFullPath()));</span>
+
+<span class="nc" id="L148">        List&lt;PropagationManager.PropagationAttrs&gt; beforeAttrs = propagationManager.prepareAttrs(realm);</span>
+
+<span class="nc" id="L150">        PropagationByResource&lt;String&gt; propByRes = binder.update(realm, realmTO);</span>
+<span class="nc" id="L151">        realm = realmDAO.save(realm);</span>
+
+<span class="nc" id="L153">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.setAttributeDeltas(</span>
+<span class="nc" id="L154">                propagationManager.createTasks(realm, propByRes, null),</span>
+                beforeAttrs);
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L157">            taskInfos.getFirst().setBeforeObj(Optional.ofNullable(beforeObj));</span>
+<span class="nc" id="L158">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L159">            taskExecutor.execute(taskInfos.getFirst(), reporter, securityProperties.getAdminUser());</span>
+<span class="nc" id="L160">            reportPropagation(result, reporter);</span>
+        }
+
+<span class="nc" id="L163">        return realm;</span>
+    }
+
+    private void deprovision(final Realm realm, final ConnectorObject beforeObj, final ProvisioningReport result) {
+<span class="nc" id="L167">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(</span>
+<span class="nc" id="L168">                realm.getResources().stream().map(ExternalResource::getKey).toList());</span>
+<span class="nc" id="L169">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L171">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L172">        propByRes.addAll(</span>
+                ResourceOperation.DELETE,
+<span class="nc" id="L174">                realm.getResources().stream().map(ExternalResource::getKey).toList());</span>
+
+<span class="nc" id="L176">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.createTasks(realm, propByRes, noPropResources);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L178">            taskInfos.getFirst().setBeforeObj(Optional.ofNullable(beforeObj));</span>
+<span class="nc" id="L179">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L180">            taskExecutor.execute(taskInfos.getFirst(), reporter, securityProperties.getAdminUser());</span>
+<span class="nc" id="L181">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L183">    }</span>
+
+    private void provision(final Realm realm, final ProvisioningReport result) {
+<span class="nc" id="L186">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(</span>
+<span class="nc" id="L187">                realm.getResources().stream().map(ExternalResource::getKey).toList());</span>
+<span class="nc" id="L188">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L190">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L191">        propByRes.add(ResourceOperation.CREATE, profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L193">        PropagationReporter reporter = taskExecutor.execute(</span>
+<span class="nc" id="L194">                propagationManager.createTasks(realm, propByRes, noPropResources),</span>
+<span class="nc" id="L195">                false, securityProperties.getAdminUser());</span>
+<span class="nc" id="L196">        reportPropagation(result, reporter);</span>
+<span class="nc" id="L197">    }</span>
+
+    private void link(final Realm realm, final boolean unlink, final ProvisioningReport result) {
+<span class="nc" id="L200">        RealmTO realmTO = binder.getRealmTO(realm, true);</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (unlink) {</span>
+<span class="nc" id="L202">            realmTO.getResources().remove(profile.getTask().getResource().getKey());</span>
+        } else {
+<span class="nc" id="L204">            realmTO.getResources().add(profile.getTask().getResource().getKey());</span>
+        }
+
+<span class="nc" id="L207">        update(realmTO, null, result);</span>
+<span class="nc" id="L208">    }</span>
+
+    private void unassign(final Realm realm, final ConnectorObject beforeObj, final ProvisioningReport result) {
+<span class="nc" id="L211">        RealmTO realmTO = binder.getRealmTO(realm, true);</span>
+<span class="nc" id="L212">        realmTO.getResources().remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L214">        deprovision(update(realmTO, beforeObj, result), beforeObj, result);</span>
+<span class="nc" id="L215">    }</span>
+
+    private void assign(final Realm realm, final ProvisioningReport result) {
+<span class="nc" id="L218">        RealmTO realmTO = binder.getRealmTO(realm, true);</span>
+<span class="nc" id="L219">        realmTO.getResources().add(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L221">        provision(update(realmTO, null, result), result);</span>
+<span class="nc" id="L222">    }</span>
+
+    protected ConnectorObject getRemoteObject(
+            final ObjectClass objectClass,
+            final String connObjectKey,
+            final String connObjectKeyValue,
+            final boolean ignoreCaseMatch,
+            final Stream&lt;Item&gt; mapItems) {
+
+<span class="nc" id="L231">        ConnectorObject obj = null;</span>
+        try {
+<span class="nc" id="L233">            obj = profile.getConnector().getObject(</span>
+                    objectClass,
+<span class="nc" id="L235">                    AttributeBuilder.build(connObjectKey, connObjectKeyValue),</span>
+                    ignoreCaseMatch,
+<span class="nc" id="L237">                    MappingUtils.buildOperationOptions(mapItems));</span>
+<span class="nc" id="L238">        } catch (TimeoutException toe) {</span>
+<span class="nc" id="L239">            LOG.debug(&quot;Request timeout&quot;, toe);</span>
+<span class="nc" id="L240">            throw toe;</span>
+<span class="nc" id="L241">        } catch (RuntimeException ignore) {</span>
+<span class="nc" id="L242">            LOG.debug(&quot;While resolving {}&quot;, connObjectKeyValue, ignore);</span>
+<span class="nc" id="L243">        }</span>
+
+<span class="nc" id="L245">        return obj;</span>
+    }
+
+    private void doHandle(final Realm realm) throws JobExecutionException {
+<span class="nc" id="L249">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L250">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L252">        result.setKey(realm.getKey());</span>
+<span class="nc" id="L253">        result.setAnyType(SyncopeConstants.REALM_ANYTYPE);</span>
+<span class="nc" id="L254">        result.setName(realm.getFullPath());</span>
+
+<span class="nc" id="L256">        LOG.debug(&quot;Propagating Realm with key {} towards {}&quot;, realm.getKey(), profile.getTask().getResource());</span>
+
+<span class="nc" id="L258">        Object output = null;</span>
+<span class="nc" id="L259">        OpEvent.Outcome resultStatus = null;</span>
+
+        // Try to read remote object BEFORE any actual operation
+<span class="nc" id="L262">        OrgUnit orgUnit = profile.getTask().getResource().getOrgUnit();</span>
+<span class="nc" id="L263">        Optional&lt;Item&gt; connObjectKey = orgUnit.getConnObjectKeyItem();</span>
+<span class="nc" id="L264">        Optional&lt;String&gt; connObjecKeyValue = mappingManager.getConnObjectKeyValue(</span>
+<span class="nc" id="L265">                realm, profile.getTask().getResource());</span>
+
+<span class="nc" id="L267">        ConnectorObject beforeObj = null;</span>
+<span class="nc bnc" id="L268" title="All 4 branches missed.">        if (connObjectKey.isPresent() &amp;&amp; connObjecKeyValue.isPresent()) {</span>
+<span class="nc" id="L269">            beforeObj = getRemoteObject(</span>
+<span class="nc" id="L270">                    new ObjectClass(orgUnit.getObjectClass()),</span>
+<span class="nc" id="L271">                    connObjectKey.get().getExtAttrName(),</span>
+<span class="nc" id="L272">                    connObjecKeyValue.get(),</span>
+<span class="nc" id="L273">                    orgUnit.isIgnoreCaseMatch(),</span>
+<span class="nc" id="L274">                    orgUnit.getItems().stream());</span>
+        } else {
+<span class="nc" id="L276">            LOG.debug(&quot;OrgUnitItem {} or its value {} are null&quot;, connObjectKey, connObjecKeyValue);</span>
+        }
+
+<span class="nc bnc" id="L279" title="All 2 branches missed.">        if (profile.isDryRun()) {</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">            if (beforeObj == null) {</span>
+<span class="nc" id="L281">                result.setOperation(toResourceOperation(profile.getTask().getUnmatchingRule()));</span>
+            } else {
+<span class="nc" id="L283">                result.setOperation(toResourceOperation(profile.getTask().getMatchingRule()));</span>
+            }
+<span class="nc" id="L285">            result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+        } else {
+<span class="nc bnc" id="L287" title="All 2 branches missed.">            String operation = beforeObj == null</span>
+<span class="nc" id="L288">                    ? UnmatchingRule.toOp(profile.getTask().getUnmatchingRule())</span>
+<span class="nc" id="L289">                    : MatchingRule.toOp(profile.getTask().getMatchingRule());</span>
+
+<span class="nc" id="L291">            boolean notificationsAvailable = notificationManager.notificationsAvailable(</span>
+<span class="nc" id="L292">                    AuthContextUtils.getDomain(),</span>
+                    OpEvent.CategoryType.PUSH,
+<span class="nc" id="L294">                    SyncopeConstants.REALM_ANYTYPE.toLowerCase(),</span>
+<span class="nc" id="L295">                    profile.getTask().getResource().getKey(),</span>
+                    operation);
+<span class="nc" id="L297">            boolean auditRequested = auditManager.auditRequested(</span>
+<span class="nc" id="L298">                    AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L299">                    AuthContextUtils.getUsername(),</span>
+                    OpEvent.CategoryType.PUSH,
+<span class="nc" id="L301">                    SyncopeConstants.REALM_ANYTYPE.toLowerCase(),</span>
+<span class="nc" id="L302">                    profile.getTask().getResource().getKey(),</span>
+                    operation);
+            try {
+<span class="nc bnc" id="L305" title="All 2 branches missed.">                if (beforeObj == null) {</span>
+<span class="nc" id="L306">                    result.setOperation(toResourceOperation(profile.getTask().getUnmatchingRule()));</span>
+
+<span class="nc bnc" id="L308" title="All 5 branches missed.">                    switch (profile.getTask().getUnmatchingRule()) {</span>
+                        case ASSIGN -&gt; {
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L311">                                action.beforeAssign(profile, realm);</span>
+<span class="nc" id="L312">                            }</span>
+
+<span class="nc bnc" id="L314" title="All 2 branches missed.">                            if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L315">                                LOG.debug(&quot;PushTask not configured for create&quot;);</span>
+<span class="nc" id="L316">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L318">                                assign(realm, result);</span>
+                            }
+<span class="nc" id="L320">                        }</span>
+
+                        case PROVISION -&gt; {
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L324">                                action.beforeProvision(profile, realm);</span>
+<span class="nc" id="L325">                            }</span>
+
+<span class="nc bnc" id="L327" title="All 2 branches missed.">                            if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L328">                                LOG.debug(&quot;PushTask not configured for create&quot;);</span>
+<span class="nc" id="L329">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L331">                                provision(realm, result);</span>
+                            }
+<span class="nc" id="L333">                        }</span>
+
+                        case UNLINK -&gt; {
+<span class="nc bnc" id="L336" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L337">                                action.beforeUnlink(profile, realm);</span>
+<span class="nc" id="L338">                            }</span>
+
+<span class="nc bnc" id="L340" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L341">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L342">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L344">                                link(realm, true, result);</span>
+                            }
+<span class="nc" id="L346">                        }</span>
+
+                        case IGNORE -&gt; {
+<span class="nc" id="L349">                            LOG.debug(&quot;Ignored any: {}&quot;, realm);</span>
+<span class="nc" id="L350">                            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L351">                        }</span>
+
+                        default -&gt; {
+<span class="nc" id="L354">                        }</span>
+                    }
+                    // do nothing
+                } else {
+<span class="nc" id="L358">                    result.setOperation(toResourceOperation(profile.getTask().getMatchingRule()));</span>
+
+<span class="nc bnc" id="L360" title="All 7 branches missed.">                    switch (profile.getTask().getMatchingRule()) {</span>
+                        case UPDATE -&gt; {
+<span class="nc bnc" id="L362" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L363">                                action.beforeUpdate(profile, realm);</span>
+<span class="nc" id="L364">                            }</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L366">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L367">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L369">                                update(binder.getRealmTO(realm, true), beforeObj, result);</span>
+                            }
+<span class="nc" id="L371">                        }</span>
+
+                        case DEPROVISION -&gt; {
+<span class="nc bnc" id="L374" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L375">                                action.beforeDeprovision(profile, realm);</span>
+<span class="nc" id="L376">                            }</span>
+
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                            if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L379">                                LOG.debug(&quot;PushTask not configured for delete&quot;);</span>
+<span class="nc" id="L380">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L382">                                deprovision(realm, beforeObj, result);</span>
+                            }
+<span class="nc" id="L384">                        }</span>
+
+                        case UNASSIGN -&gt; {
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L388">                                action.beforeUnassign(profile, realm);</span>
+<span class="nc" id="L389">                            }</span>
+
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                            if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L392">                                LOG.debug(&quot;PushTask not configured for delete&quot;);</span>
+<span class="nc" id="L393">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L395">                                unassign(realm, beforeObj, result);</span>
+                            }
+<span class="nc" id="L397">                        }</span>
+
+                        case LINK -&gt; {
+<span class="nc bnc" id="L400" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L401">                                action.beforeLink(profile, realm);</span>
+<span class="nc" id="L402">                            }</span>
+
+<span class="nc bnc" id="L404" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L405">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L406">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L408">                                link(realm, false, result);</span>
+                            }
+<span class="nc" id="L410">                        }</span>
+
+                        case UNLINK -&gt; {
+<span class="nc bnc" id="L413" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L414">                                action.beforeUnlink(profile, realm);</span>
+<span class="nc" id="L415">                            }</span>
+
+<span class="nc bnc" id="L417" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L418">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L419">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L421">                                link(realm, true, result);</span>
+                            }
+<span class="nc" id="L423">                        }</span>
+
+                        case IGNORE -&gt; {
+<span class="nc" id="L426">                            LOG.debug(&quot;Ignored any: {}&quot;, realm);</span>
+<span class="nc" id="L427">                            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L428">                        }</span>
+
+                        default -&gt; {
+                        }
+                    }
+                    // do nothing
+                }
+
+<span class="nc bnc" id="L436" title="All 2 branches missed.">                for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L437">                    action.after(profile, realm, result);</span>
+<span class="nc" id="L438">                }</span>
+
+<span class="nc bnc" id="L440" title="All 2 branches missed.">                if (result.getStatus() == null) {</span>
+<span class="nc" id="L441">                    result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+                }
+
+<span class="nc bnc" id="L444" title="All 4 branches missed.">                if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L445">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc bnc" id="L446" title="All 4 branches missed.">                    if (connObjectKey.isPresent() &amp;&amp; connObjecKeyValue.isPresent()) {</span>
+<span class="nc" id="L447">                        output = getRemoteObject(</span>
+<span class="nc" id="L448">                                new ObjectClass(orgUnit.getObjectClass()),</span>
+<span class="nc" id="L449">                                connObjectKey.get().getExtAttrName(),</span>
+<span class="nc" id="L450">                                connObjecKeyValue.get(),</span>
+<span class="nc" id="L451">                                orgUnit.isIgnoreCaseMatch(),</span>
+<span class="nc" id="L452">                                orgUnit.getItems().stream());</span>
+                    }
+                }
+<span class="nc" id="L455">            } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L456">                throw e;</span>
+<span class="nc" id="L457">            } catch (Exception e) {</span>
+<span class="nc" id="L458">                result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L459">                result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+
+<span class="nc bnc" id="L461" title="All 4 branches missed.">                if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L462">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L463">                    output = e;</span>
+                }
+
+<span class="nc" id="L466">                LOG.warn(&quot;Error pushing {} towards {}&quot;, realm, profile.getTask().getResource(), e);</span>
+
+<span class="nc bnc" id="L468" title="All 2 branches missed.">                for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L469">                    action.onError(profile, realm, result, e);</span>
+<span class="nc" id="L470">                }</span>
+
+<span class="nc" id="L472">                throw new JobExecutionException(e);</span>
+            } finally {
+<span class="nc bnc" id="L474" title="All 4 branches missed.">                if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L475">                    Map&lt;String, Object&gt; jobMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L476">                    jobMap.put(AfterHandlingEvent.JOBMAP_KEY, new AfterHandlingEvent(</span>
+<span class="nc" id="L477">                            AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L478">                            AuthContextUtils.getWho(),</span>
+                            OpEvent.CategoryType.PUSH,
+<span class="nc" id="L480">                            SyncopeConstants.REALM_ANYTYPE.toLowerCase(),</span>
+<span class="nc" id="L481">                            profile.getTask().getResource().getKey(),</span>
+                            operation,
+                            resultStatus,
+                            beforeObj,
+                            output,
+<span class="nc" id="L486">                            binder.getRealmTO(realm, true)));</span>
+<span class="nc" id="L487">                    AfterHandlingJob.schedule(scheduler, jobMap);</span>
+                }
+            }
+        }
+<span class="nc" id="L491">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

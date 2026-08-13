@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Job.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">Job.java</span></div><h1>Job.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import java.util.Optional;
+import org.apache.syncope.core.persistence.api.dao.JobStatusDAO;
+import org.apache.syncope.core.provisioning.api.job.JobDelegate;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecureRandomUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L32">public abstract class Job implements Runnable {</span>
+
+<span class="nc" id="L34">    private static final Logger LOG = LoggerFactory.getLogger(Job.class);</span>
+
+    public static final String OPERATION_ID = &quot;operation.id&quot;;
+
+    @Autowired
+    private JobStatusDAO jobStatusDAO;
+
+    private JobExecutionContext context;
+
+    public JobExecutionContext getContext() {
+<span class="nc" id="L44">        return context;</span>
+    }
+
+    public void setContext(final JobExecutionContext context) {
+<span class="nc" id="L48">        this.context = context;</span>
+<span class="nc" id="L49">    }</span>
+
+    protected abstract JobDelegate getDelegate();
+
+    protected abstract void execute(JobExecutionContext context) throws JobExecutionException;
+
+    @Override
+    public void run() {
+<span class="nc" id="L57">        setContext(Optional.ofNullable(context).orElseGet(() -&gt; new JobExecutionContext(</span>
+<span class="nc" id="L58">                AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L59">                getClass().getName() + &quot;_&quot; + SecureRandomUtils.generateRandomUUID().toString(),</span>
+<span class="nc" id="L60">                AuthContextUtils.getWho(),</span>
+                false)));
+
+<span class="nc" id="L63">        boolean locked = false;</span>
+        try {
+<span class="nc" id="L65">            locked = AuthContextUtils.callAsAdmin(context.getDomain(), () -&gt; jobStatusDAO.lock(context.getJobName()));</span>
+<span class="nc" id="L66">        } catch (Exception e) {</span>
+<span class="nc" id="L67">            LOG.debug(&quot;While attempting to lock job {}&quot;, context.getJobName(), e);</span>
+<span class="nc" id="L68">        }</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        if (!locked) {</span>
+<span class="nc" id="L70">            LOG.debug(&quot;Could not lock job {}, skipping execution&quot;, context.getJobName());</span>
+<span class="nc" id="L71">            return;</span>
+        }
+
+<span class="nc" id="L74">        LOG.debug(&quot;Job {} locked, starting execution&quot;, context.getJobName());</span>
+
+        try {
+<span class="nc" id="L77">            execute(context);</span>
+<span class="nc" id="L78">        } catch (JobExecutionException e) {</span>
+<span class="nc" id="L79">            LOG.error(&quot;While executing job {}&quot;, context.getJobName(), e);</span>
+        } finally {
+<span class="nc" id="L81">            LOG.debug(&quot;Job {} execution completed&quot;, context.getJobName());</span>
+
+<span class="nc" id="L83">            AuthContextUtils.runAsAdmin(context.getDomain(), () -&gt; jobStatusDAO.unlock(context.getJobName()));</span>
+        }
+<span class="nc" id="L85">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

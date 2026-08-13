@@ -1,0 +1,734 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TaskDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">TaskDataBinderImpl.java</span></div><h1>TaskDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.Comparator;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.command.CommandArgs;
+import org.apache.syncope.common.lib.command.CommandTO;
+import org.apache.syncope.common.lib.form.FormProperty;
+import org.apache.syncope.common.lib.form.FormPropertyValue;
+import org.apache.syncope.common.lib.form.SyncopeForm;
+import org.apache.syncope.common.lib.to.ExecTO;
+import org.apache.syncope.common.lib.to.FormPropertyDefTO;
+import org.apache.syncope.common.lib.to.InboundTaskTO;
+import org.apache.syncope.common.lib.to.LiveSyncTaskTO;
+import org.apache.syncope.common.lib.to.MacroTaskTO;
+import org.apache.syncope.common.lib.to.NotificationTaskTO;
+import org.apache.syncope.common.lib.to.PropagationTaskTO;
+import org.apache.syncope.common.lib.to.ProvisioningTaskTO;
+import org.apache.syncope.common.lib.to.PullTaskTO;
+import org.apache.syncope.common.lib.to.PushTaskTO;
+import org.apache.syncope.common.lib.to.SchedTaskTO;
+import org.apache.syncope.common.lib.to.TaskTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.IdRepoImplementationType;
+import org.apache.syncope.common.lib.types.ImplementationEngine;
+import org.apache.syncope.common.lib.types.JobType;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskExecDAO;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.task.AnyTemplateLiveSyncTask;
+import org.apache.syncope.core.persistence.api.entity.task.AnyTemplatePullTask;
+import org.apache.syncope.core.persistence.api.entity.task.FormPropertyDef;
+import org.apache.syncope.core.persistence.api.entity.task.InboundTask;
+import org.apache.syncope.core.persistence.api.entity.task.LiveSyncTask;
+import org.apache.syncope.core.persistence.api.entity.task.MacroTask;
+import org.apache.syncope.core.persistence.api.entity.task.MacroTaskCommand;
+import org.apache.syncope.core.persistence.api.entity.task.NotificationTask;
+import org.apache.syncope.core.persistence.api.entity.task.PropagationTask;
+import org.apache.syncope.core.persistence.api.entity.task.ProvisioningTask;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.persistence.api.entity.task.PushTask;
+import org.apache.syncope.core.persistence.api.entity.task.SchedTask;
+import org.apache.syncope.core.persistence.api.entity.task.Task;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtils;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.provisioning.api.data.TaskDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.TemplateUtils;
+import org.apache.syncope.core.provisioning.api.job.JobNamer;
+import org.apache.syncope.core.provisioning.api.macro.MacroActions;
+import org.apache.syncope.core.provisioning.java.job.MacroJobDelegate;
+import org.apache.syncope.core.provisioning.java.job.SyncopeTaskScheduler;
+import org.apache.syncope.core.provisioning.java.pushpull.LiveSyncJobDelegate;
+import org.apache.syncope.core.provisioning.java.pushpull.PullJobDelegate;
+import org.apache.syncope.core.provisioning.java.pushpull.PushJobDelegate;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class TaskDataBinderImpl extends AbstractExecutableDatabinder implements TaskDataBinder {
+
+<span class="nc" id="L94">    protected static final Logger LOG = LoggerFactory.getLogger(TaskDataBinder.class);</span>
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final TaskExecDAO taskExecDAO;
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final EntityFactory entityFactory;
+
+    protected final SyncopeTaskScheduler scheduler;
+
+    protected final TaskUtilsFactory taskUtilsFactory;
+
+    protected final TemplateUtils templateUtils;
+
+<span class="nc" id="L114">    protected final Map&lt;String, MacroActions&gt; perContextMacroActions = new ConcurrentHashMap&lt;&gt;();</span>
+
+    public TaskDataBinderImpl(
+            final RealmSearchDAO realmSearchDAO,
+            final ExternalResourceDAO resourceDAO,
+            final TaskExecDAO taskExecDAO,
+            final AnyTypeDAO anyTypeDAO,
+            final ImplementationDAO implementationDAO,
+            final EntityFactory entityFactory,
+            final SyncopeTaskScheduler scheduler,
+            final TaskUtilsFactory taskUtilsFactory,
+<span class="nc" id="L125">            final TemplateUtils templateUtils) {</span>
+
+<span class="nc" id="L127">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L128">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L129">        this.taskExecDAO = taskExecDAO;</span>
+<span class="nc" id="L130">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L131">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L132">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L133">        this.scheduler = scheduler;</span>
+<span class="nc" id="L134">        this.taskUtilsFactory = taskUtilsFactory;</span>
+<span class="nc" id="L135">        this.templateUtils = templateUtils;</span>
+<span class="nc" id="L136">    }</span>
+
+    protected void fill(final ProvisioningTask&lt;?&gt; provisioningTask, final ProvisioningTaskTO provisioningTaskTO) {
+<span class="nc bnc" id="L139" title="All 4 branches missed.">        if (provisioningTask instanceof final PushTask pushTask</span>
+<span class="nc" id="L140">                &amp;&amp; provisioningTaskTO instanceof final PushTaskTO pushTaskTO) {</span>
+
+<span class="nc bnc" id="L142" title="All 2 branches missed.">            Implementation jobDelegate = pushTaskTO.getJobDelegate() == null</span>
+<span class="nc" id="L143">                    ? implementationDAO.findByType(IdRepoImplementationType.TASKJOB_DELEGATE).stream().</span>
+<span class="nc" id="L144">                            filter(impl -&gt; PushJobDelegate.class.getSimpleName().equals(impl.getKey())).</span>
+<span class="nc" id="L145">                            findFirst().orElse(null)</span>
+<span class="nc" id="L146">                    : implementationDAO.findById(pushTaskTO.getJobDelegate()).orElse(null);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">            if (jobDelegate == null) {</span>
+<span class="nc" id="L148">                jobDelegate = entityFactory.newEntity(Implementation.class);</span>
+<span class="nc" id="L149">                jobDelegate.setKey(PushJobDelegate.class.getSimpleName());</span>
+<span class="nc" id="L150">                jobDelegate.setEngine(ImplementationEngine.JAVA);</span>
+<span class="nc" id="L151">                jobDelegate.setType(IdRepoImplementationType.TASKJOB_DELEGATE);</span>
+<span class="nc" id="L152">                jobDelegate.setBody(PushJobDelegate.class.getName());</span>
+<span class="nc" id="L153">                jobDelegate = implementationDAO.save(jobDelegate);</span>
+            }
+<span class="nc" id="L155">            pushTask.setJobDelegate(jobDelegate);</span>
+
+<span class="nc" id="L157">            pushTask.setSourceRealm(realmSearchDAO.findByFullPath(pushTaskTO.getSourceRealm()).</span>
+<span class="nc" id="L158">                    orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + pushTaskTO.getSourceRealm())));</span>
+
+<span class="nc bnc" id="L160" title="All 2 branches missed.">            pushTask.setMatchingRule(pushTaskTO.getMatchingRule() == null</span>
+<span class="nc" id="L161">                    ? MatchingRule.LINK : pushTaskTO.getMatchingRule());</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            pushTask.setUnmatchingRule(pushTaskTO.getUnmatchingRule() == null</span>
+<span class="nc" id="L163">                    ? UnmatchingRule.ASSIGN : pushTaskTO.getUnmatchingRule());</span>
+
+<span class="nc" id="L165">            pushTaskTO.getFilters().forEach((type, fiql) -&gt; anyTypeDAO.findById(type).ifPresentOrElse(</span>
+<span class="nc" id="L166">                    anyType -&gt; pushTask.getFilters().put(anyType.getKey(), fiql),</span>
+<span class="nc" id="L167">                    () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, type)));</span>
+            // remove all filters not contained in the TO
+<span class="nc" id="L169">            pushTask.getFilters().entrySet().</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">                    removeIf(filter -&gt; !pushTaskTO.getFilters().containsKey(filter.getKey()));</span>
+<span class="nc bnc" id="L171" title="All 4 branches missed.">        } else if (provisioningTask instanceof final InboundTask&lt;?&gt; inboundTask</span>
+<span class="nc" id="L172">                &amp;&amp; provisioningTaskTO instanceof final InboundTaskTO inboundTaskTO) {</span>
+
+<span class="nc" id="L174">            inboundTask.setDestinationRealm(realmSearchDAO.findByFullPath(inboundTaskTO.getDestinationRealm()).</span>
+<span class="nc" id="L175">                    orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + inboundTaskTO.getDestinationRealm())));</span>
+
+<span class="nc bnc" id="L177" title="All 2 branches missed.">            inboundTask.setMatchingRule(inboundTaskTO.getMatchingRule() == null</span>
+<span class="nc" id="L178">                    ? MatchingRule.UPDATE : inboundTaskTO.getMatchingRule());</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">            inboundTask.setUnmatchingRule(inboundTaskTO.getUnmatchingRule() == null</span>
+<span class="nc" id="L180">                    ? UnmatchingRule.PROVISION : inboundTaskTO.getUnmatchingRule());</span>
+
+<span class="nc" id="L182">            inboundTask.setRemediation(inboundTaskTO.isRemediation());</span>
+
+<span class="nc bnc" id="L184" title="All 4 branches missed.">            if (provisioningTask instanceof final LiveSyncTask liveSyncTask</span>
+<span class="nc" id="L185">                    &amp;&amp; provisioningTaskTO instanceof final LiveSyncTaskTO liveSyncTaskTO) {</span>
+
+<span class="nc bnc" id="L187" title="All 2 branches missed.">                Implementation jobDelegate = liveSyncTaskTO.getJobDelegate() == null</span>
+<span class="nc" id="L188">                        ? implementationDAO.findByType(IdRepoImplementationType.TASKJOB_DELEGATE).stream().</span>
+<span class="nc" id="L189">                                filter(impl -&gt; LiveSyncJobDelegate.class.getSimpleName().equals(impl.getKey())).</span>
+<span class="nc" id="L190">                                findFirst().orElse(null)</span>
+<span class="nc" id="L191">                        : implementationDAO.findById(liveSyncTaskTO.getJobDelegate()).orElse(null);</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">                if (jobDelegate == null) {</span>
+<span class="nc" id="L193">                    jobDelegate = entityFactory.newEntity(Implementation.class);</span>
+<span class="nc" id="L194">                    jobDelegate.setKey(LiveSyncJobDelegate.class.getSimpleName());</span>
+<span class="nc" id="L195">                    jobDelegate.setEngine(ImplementationEngine.JAVA);</span>
+<span class="nc" id="L196">                    jobDelegate.setType(IdRepoImplementationType.TASKJOB_DELEGATE);</span>
+<span class="nc" id="L197">                    jobDelegate.setBody(LiveSyncJobDelegate.class.getName());</span>
+<span class="nc" id="L198">                    jobDelegate = implementationDAO.save(jobDelegate);</span>
+                }
+<span class="nc" id="L200">                liveSyncTask.setJobDelegate(jobDelegate);</span>
+
+<span class="nc" id="L202">                liveSyncTask.setDelaySecondsAcrossInvocations(liveSyncTaskTO.getDelaySecondsAcrossInvocations());</span>
+
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                if (liveSyncTaskTO.getLiveSyncDeltaMapper() == null) {</span>
+<span class="nc" id="L205">                    liveSyncTask.setLiveSyncDeltaMapper(null);</span>
+                } else {
+<span class="nc" id="L207">                    implementationDAO.findById(liveSyncTaskTO.getLiveSyncDeltaMapper()).ifPresentOrElse(</span>
+<span class="nc" id="L208">                            liveSyncTask::setLiveSyncDeltaMapper,</span>
+<span class="nc" id="L209">                            () -&gt; LOG.debug(&quot;Invalid Implementation {}, ignoring...&quot;,</span>
+<span class="nc" id="L210">                                    liveSyncTaskTO.getLiveSyncDeltaMapper()));</span>
+                }
+
+                // validate JEXL expressions from templates and proceed if fine
+<span class="nc" id="L214">                templateUtils.check(liveSyncTaskTO.getTemplates(), ClientExceptionType.InvalidLiveSyncTask);</span>
+<span class="nc" id="L215">                liveSyncTaskTO.getTemplates().forEach((type, template) -&gt; anyTypeDAO.findById(type).ifPresentOrElse(</span>
+                        anyType -&gt; {
+<span class="nc" id="L217">                            AnyTemplateLiveSyncTask anyTemplate = liveSyncTask.getTemplate(anyType.getKey()).</span>
+<span class="nc" id="L218">                                    orElse(null);</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">                            if (anyTemplate == null) {</span>
+<span class="nc" id="L220">                                anyTemplate = entityFactory.newEntity(AnyTemplateLiveSyncTask.class);</span>
+<span class="nc" id="L221">                                anyTemplate.setAnyType(anyType);</span>
+<span class="nc" id="L222">                                anyTemplate.setLiveSyncTask(liveSyncTask);</span>
+
+<span class="nc" id="L224">                                liveSyncTask.add(anyTemplate);</span>
+                            }
+<span class="nc" id="L226">                            anyTemplate.set(template);</span>
+<span class="nc" id="L227">                        },</span>
+<span class="nc" id="L228">                        () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, type)));</span>
+                // remove all templates not contained in the TO
+<span class="nc" id="L230">                liveSyncTask.getTemplates().removeIf(</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">                        anyTemplate -&gt; !liveSyncTaskTO.getTemplates().containsKey(anyTemplate.getAnyType().getKey()));</span>
+<span class="nc bnc" id="L232" title="All 4 branches missed.">            } else if (provisioningTask instanceof final PullTask pullTask</span>
+<span class="nc" id="L233">                    &amp;&amp; provisioningTaskTO instanceof final PullTaskTO pullTaskTO) {</span>
+
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                Implementation jobDelegate = pullTaskTO.getJobDelegate() == null</span>
+<span class="nc" id="L236">                        ? implementationDAO.findByType(IdRepoImplementationType.TASKJOB_DELEGATE).stream().</span>
+<span class="nc" id="L237">                                filter(impl -&gt; PullJobDelegate.class.getSimpleName().equals(impl.getKey())).</span>
+<span class="nc" id="L238">                                findFirst().orElse(null)</span>
+<span class="nc" id="L239">                        : implementationDAO.findById(pullTaskTO.getJobDelegate()).orElse(null);</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">                if (jobDelegate == null) {</span>
+<span class="nc" id="L241">                    jobDelegate = entityFactory.newEntity(Implementation.class);</span>
+<span class="nc" id="L242">                    jobDelegate.setKey(PullJobDelegate.class.getSimpleName());</span>
+<span class="nc" id="L243">                    jobDelegate.setEngine(ImplementationEngine.JAVA);</span>
+<span class="nc" id="L244">                    jobDelegate.setType(IdRepoImplementationType.TASKJOB_DELEGATE);</span>
+<span class="nc" id="L245">                    jobDelegate.setBody(PullJobDelegate.class.getName());</span>
+<span class="nc" id="L246">                    jobDelegate = implementationDAO.save(jobDelegate);</span>
+                }
+<span class="nc" id="L248">                pullTask.setJobDelegate(jobDelegate);</span>
+
+<span class="nc" id="L250">                pullTask.setPullMode(pullTaskTO.getPullMode());</span>
+
+<span class="nc bnc" id="L252" title="All 2 branches missed.">                if (pullTaskTO.getReconFilterBuilder() == null) {</span>
+<span class="nc" id="L253">                    pullTask.setReconFilterBuilder(null);</span>
+                } else {
+<span class="nc" id="L255">                    implementationDAO.findById(pullTaskTO.getReconFilterBuilder()).ifPresentOrElse(</span>
+<span class="nc" id="L256">                            pullTask::setReconFilterBuilder,</span>
+<span class="nc" id="L257">                            () -&gt; LOG.debug(&quot;Invalid Implementation {}, ignoring...&quot;,</span>
+<span class="nc" id="L258">                                    pullTaskTO.getReconFilterBuilder()));</span>
+                }
+
+                // validate JEXL expressions from templates and proceed if fine
+<span class="nc" id="L262">                templateUtils.check(pullTaskTO.getTemplates(), ClientExceptionType.InvalidPullTask);</span>
+<span class="nc" id="L263">                pullTaskTO.getTemplates().forEach((type, template) -&gt; anyTypeDAO.findById(type).ifPresentOrElse(</span>
+                        anyType -&gt; {
+<span class="nc" id="L265">                            AnyTemplatePullTask anyTemplate = pullTask.getTemplate(anyType.getKey()).orElse(null);</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">                            if (anyTemplate == null) {</span>
+<span class="nc" id="L267">                                anyTemplate = entityFactory.newEntity(AnyTemplatePullTask.class);</span>
+<span class="nc" id="L268">                                anyTemplate.setAnyType(anyType);</span>
+<span class="nc" id="L269">                                anyTemplate.setPullTask(pullTask);</span>
+
+<span class="nc" id="L271">                                pullTask.add(anyTemplate);</span>
+                            }
+<span class="nc" id="L273">                            anyTemplate.set(template);</span>
+<span class="nc" id="L274">                        },</span>
+<span class="nc" id="L275">                        () -&gt; LOG.debug(&quot;Invalid AnyType {} specified, ignoring...&quot;, type)));</span>
+                // remove all templates not contained in the TO
+<span class="nc" id="L277">                pullTask.getTemplates().</span>
+<span class="nc" id="L278">                        removeIf(anyTemplate -&gt; !pullTaskTO.getTemplates().</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                        containsKey(anyTemplate.getAnyType().getKey()));</span>
+            }
+        }
+
+        // 3. fill the remaining fields
+<span class="nc" id="L284">        provisioningTask.setPerformCreate(provisioningTaskTO.isPerformCreate());</span>
+<span class="nc" id="L285">        provisioningTask.setPerformUpdate(provisioningTaskTO.isPerformUpdate());</span>
+<span class="nc" id="L286">        provisioningTask.setPerformDelete(provisioningTaskTO.isPerformDelete());</span>
+<span class="nc" id="L287">        provisioningTask.setSyncStatus(provisioningTaskTO.isSyncStatus());</span>
+
+<span class="nc" id="L289">        provisioningTaskTO.getActions().forEach(action -&gt; implementationDAO.findById(action).ifPresentOrElse(</span>
+<span class="nc" id="L290">                provisioningTask::add,</span>
+<span class="nc" id="L291">                () -&gt; LOG.debug(&quot;Invalid Implementation {}, ignoring...&quot;, action)));</span>
+        // remove all implementations not contained in the TO
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        provisioningTask.getActions().removeIf(impl -&gt; !provisioningTaskTO.getActions().contains(impl.getKey()));</span>
+
+<span class="nc" id="L295">        provisioningTask.setConcurrentSettings(provisioningTaskTO.getConcurrentSettings());</span>
+<span class="nc" id="L296">    }</span>
+
+    protected void fill(final MacroTask macroTask, final MacroTaskTO macroTaskTO) {
+<span class="nc" id="L299">        macroTask.setRealm(realmSearchDAO.findByFullPath(macroTaskTO.getRealm()).</span>
+<span class="nc" id="L300">                orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + macroTaskTO.getRealm())));</span>
+
+<span class="nc" id="L302">        macroTask.getCommands().clear();</span>
+<span class="nc" id="L303">        macroTaskTO.getCommands().</span>
+<span class="nc" id="L304">                forEach(command -&gt; implementationDAO.findById(command.getKey()).ifPresentOrElse(</span>
+                impl -&gt; {
+                    try {
+<span class="nc" id="L307">                        CommandArgs args = command.getArgs();</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">                        if (args == null) {</span>
+<span class="nc" id="L309">                            args = ImplementationManager.emptyArgs(AuthContextUtils.getDomain(), impl);</span>
+                        }
+
+<span class="nc" id="L312">                        MacroTaskCommand macroTaskCommand = entityFactory.newEntity(MacroTaskCommand.class);</span>
+<span class="nc" id="L313">                        macroTaskCommand.setCommand(impl);</span>
+<span class="nc" id="L314">                        macroTaskCommand.setArgs(args);</span>
+
+<span class="nc" id="L316">                        macroTaskCommand.setMacroTask(macroTask);</span>
+<span class="nc" id="L317">                        macroTask.add(macroTaskCommand);</span>
+<span class="nc" id="L318">                    } catch (Exception e) {</span>
+<span class="nc" id="L319">                        LOG.error(&quot;While adding Command {} to Macro&quot;, impl.getKey(), e);</span>
+
+<span class="nc" id="L321">                        SyncopeClientException sce = SyncopeClientException.build(</span>
+                                ClientExceptionType.InvalidImplementationType);
+<span class="nc" id="L323">                        sce.getElements().add(&quot;While adding Command &quot; + impl.getKey() + &quot;: &quot; + e.getMessage());</span>
+<span class="nc" id="L324">                        throw sce;</span>
+<span class="nc" id="L325">                    }</span>
+<span class="nc" id="L326">                },</span>
+<span class="nc" id="L327">                () -&gt; LOG.error(&quot;Could not find Command {}&quot;, command.getKey())));</span>
+
+<span class="nc" id="L329">        macroTask.setContinueOnError(macroTaskTO.isContinueOnError());</span>
+<span class="nc" id="L330">        macroTask.setSaveExecs(macroTaskTO.isSaveExecs());</span>
+
+<span class="nc" id="L332">        macroTask.getFormPropertyDefs().clear();</span>
+<span class="nc" id="L333">        macroTaskTO.getFormPropertyDefs().forEach(fpdTO -&gt; {</span>
+<span class="nc" id="L334">            FormPropertyDef fpd = entityFactory.newEntity(FormPropertyDef.class);</span>
+<span class="nc" id="L335">            fpd.setName(fpdTO.getName());</span>
+<span class="nc" id="L336">            fpd.getLabels().putAll(fpdTO.getLabels());</span>
+<span class="nc" id="L337">            fpd.setType(fpdTO.getType());</span>
+<span class="nc" id="L338">            fpd.setReadable(fpdTO.isReadable());</span>
+<span class="nc" id="L339">            fpd.setWritable(fpdTO.isWritable());</span>
+<span class="nc" id="L340">            fpd.setStringRegEx(fpdTO.getStringRegEx());</span>
+<span class="nc" id="L341">            fpd.setRequired(fpdTO.isRequired());</span>
+<span class="nc" id="L342">            fpd.setDatePattern(fpdTO.getDatePattern());</span>
+<span class="nc" id="L343">            fpd.setEnumValues(fpdTO.getEnumValues());</span>
+<span class="nc" id="L344">            fpd.setDropdownSingleSelection(fpdTO.isDropdownSingleSelection());</span>
+<span class="nc" id="L345">            fpd.setDropdownFreeForm(fpdTO.isDropdownFreeForm());</span>
+<span class="nc" id="L346">            fpd.setMimeType(fpdTO.getMimeType());</span>
+
+<span class="nc" id="L348">            fpd.setMacroTask(macroTask);</span>
+<span class="nc" id="L349">            macroTask.add(fpd);</span>
+<span class="nc" id="L350">        });</span>
+
+<span class="nc bnc" id="L352" title="All 2 branches missed.">        if (macroTaskTO.getMacroActions() == null) {</span>
+<span class="nc" id="L353">            macroTask.setMacroAction(null);</span>
+        } else {
+<span class="nc" id="L355">            implementationDAO.findById(macroTaskTO.getMacroActions()).ifPresentOrElse(</span>
+<span class="nc" id="L356">                    macroTask::setMacroAction,</span>
+<span class="nc" id="L357">                    () -&gt; LOG.debug(&quot;Invalid Implementation {}, ignoring...&quot;, macroTaskTO.getMacroActions()));</span>
+        }
+<span class="nc" id="L359">    }</span>
+
+    @Override
+    public SchedTask createSchedTask(final SchedTaskTO taskTO, final TaskUtils taskUtils) {
+<span class="nc" id="L363">        Class&lt;? extends TaskTO&gt; taskTOClass = taskUtils.getType().getToClass();</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">        if (!taskTOClass.equals(taskTO.getClass())) {</span>
+<span class="nc" id="L365">            throw new IllegalArgumentException(&quot;Expected %s, found %s&quot;.formatted(taskTOClass, taskTO.getClass()));</span>
+        }
+
+<span class="nc" id="L368">        SchedTask task = taskUtils.newTask();</span>
+<span class="nc" id="L369">        task.setCronExpression(taskTO.getCronExpression());</span>
+<span class="nc" id="L370">        task.setName(taskTO.getName());</span>
+<span class="nc" id="L371">        task.setDescription(taskTO.getDescription());</span>
+<span class="nc" id="L372">        task.setActive(taskTO.isActive());</span>
+
+<span class="nc bnc" id="L374" title="All 2 branches missed.">        if (taskUtils.getType() == TaskType.SCHEDULED) {</span>
+<span class="nc" id="L375">            task.setJobDelegate(implementationDAO.findById(taskTO.getJobDelegate()).</span>
+<span class="nc" id="L376">                    orElseThrow(() -&gt; new NotFoundException(&quot;JobDelegate &quot; + taskTO.getJobDelegate())));</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">        } else if (taskTO instanceof MacroTaskTO macroTaskTO) {</span>
+<span class="nc" id="L378">            MacroTask macroTask = (MacroTask) task;</span>
+
+<span class="nc bnc" id="L380" title="All 2 branches missed.">            Implementation jobDelegate = (macroTaskTO.getJobDelegate() == null</span>
+<span class="nc" id="L381">                    ? implementationDAO.findByType(IdRepoImplementationType.TASKJOB_DELEGATE).stream().</span>
+<span class="nc" id="L382">                            filter(impl -&gt; MacroJobDelegate.class.getName().equals(impl.getBody())).</span>
+<span class="nc" id="L383">                            findFirst()</span>
+<span class="nc" id="L384">                    : implementationDAO.findById(macroTaskTO.getJobDelegate())).</span>
+<span class="nc" id="L385">                    orElse(null);</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">            if (jobDelegate == null) {</span>
+<span class="nc" id="L387">                jobDelegate = entityFactory.newEntity(Implementation.class);</span>
+<span class="nc" id="L388">                jobDelegate.setKey(MacroJobDelegate.class.getSimpleName());</span>
+<span class="nc" id="L389">                jobDelegate.setEngine(ImplementationEngine.JAVA);</span>
+<span class="nc" id="L390">                jobDelegate.setType(IdRepoImplementationType.TASKJOB_DELEGATE);</span>
+<span class="nc" id="L391">                jobDelegate.setBody(MacroJobDelegate.class.getName());</span>
+<span class="nc" id="L392">                jobDelegate = implementationDAO.save(jobDelegate);</span>
+            }
+<span class="nc" id="L394">            macroTask.setJobDelegate(jobDelegate);</span>
+
+<span class="nc" id="L396">            macroTask.setRealm(realmSearchDAO.findByFullPath(macroTaskTO.getRealm()).</span>
+<span class="nc" id="L397">                    orElseThrow(() -&gt; new NotFoundException(&quot;Realm &quot; + macroTaskTO.getRealm())));</span>
+
+<span class="nc" id="L399">            fill(macroTask, macroTaskTO);</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">        } else if (taskTO instanceof ProvisioningTaskTO provisioningTaskTO) {</span>
+<span class="nc" id="L401">            ProvisioningTask&lt;?&gt; provisioningTask = (ProvisioningTask&lt;?&gt;) task;</span>
+
+<span class="nc" id="L403">            provisioningTask.setResource(resourceDAO.findById(provisioningTaskTO.getResource()).</span>
+<span class="nc" id="L404">                    orElseThrow(() -&gt; new NotFoundException(&quot;Resource &quot; + provisioningTaskTO.getResource())));</span>
+
+<span class="nc" id="L406">            fill(provisioningTask, provisioningTaskTO);</span>
+        }
+
+<span class="nc" id="L409">        return task;</span>
+    }
+
+    @Override
+    public void updateSchedTask(final SchedTask task, final SchedTaskTO taskTO, final TaskUtils taskUtils) {
+<span class="nc" id="L414">        Class&lt;? extends TaskTO&gt; taskTOClass = taskUtils.getType().getToClass();</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        if (!taskTOClass.equals(taskTO.getClass())) {</span>
+<span class="nc" id="L416">            throw new IllegalArgumentException(&quot;Expected %s, found %s&quot;.formatted(taskTOClass, taskTO.getClass()));</span>
+        }
+
+<span class="nc bnc" id="L419" title="All 2 branches missed.">        if (StringUtils.isBlank(taskTO.getName())) {</span>
+<span class="nc" id="L420">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+<span class="nc" id="L421">            sce.getElements().add(&quot;name&quot;);</span>
+<span class="nc" id="L422">            throw sce;</span>
+        }
+
+<span class="nc" id="L425">        task.setName(taskTO.getName());</span>
+<span class="nc" id="L426">        task.setDescription(taskTO.getDescription());</span>
+<span class="nc" id="L427">        task.setCronExpression(taskTO.getCronExpression());</span>
+<span class="nc" id="L428">        task.setActive(taskTO.isActive());</span>
+
+<span class="nc bnc" id="L430" title="All 3 branches missed.">        switch (task) {</span>
+<span class="nc" id="L431">            case MacroTask macroTask -&gt;</span>
+<span class="nc" id="L432">                fill(macroTask, (MacroTaskTO) taskTO);</span>
+<span class="nc" id="L433">            case ProvisioningTask&lt;?&gt; provisioningTask -&gt;</span>
+<span class="nc" id="L434">                fill(provisioningTask, (ProvisioningTaskTO) taskTO);</span>
+            default -&gt; {
+            }
+        }
+<span class="nc" id="L438">    }</span>
+
+    @Override
+    public String buildRefDesc(final Task&lt;?&gt; task) {
+<span class="nc" id="L442">        return taskUtilsFactory.getInstance(task).getType().name() + ' '</span>
+                + &quot;Task &quot;
+<span class="nc" id="L444">                + task.getKey() + ' '</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">                + (task instanceof SchedTask</span>
+<span class="nc" id="L446">                        ? SchedTask.class.cast(task).getName()</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">                        : task instanceof PropagationTask</span>
+<span class="nc" id="L448">                                ? PropagationTask.class.cast(task).getConnObjectKey()</span>
+<span class="nc" id="L449">                                : StringUtils.EMPTY);</span>
+    }
+
+    @Override
+    public ExecTO getExecTO(final TaskExec&lt;?&gt; execution) {
+<span class="nc" id="L454">        ExecTO execTO = new ExecTO();</span>
+<span class="nc" id="L455">        execTO.setKey(execution.getKey());</span>
+<span class="nc" id="L456">        execTO.setStatus(execution.getStatus());</span>
+<span class="nc" id="L457">        execTO.setMessage(execution.getMessage());</span>
+<span class="nc" id="L458">        execTO.setStart(execution.getStart());</span>
+<span class="nc" id="L459">        execTO.setEnd(execution.getEnd());</span>
+<span class="nc" id="L460">        execTO.setExecutor(execution.getExecutor());</span>
+
+<span class="nc bnc" id="L462" title="All 4 branches missed.">        if (execution.getTask() != null &amp;&amp; execution.getTask().getKey() != null) {</span>
+<span class="nc" id="L463">            execTO.setJobType(JobType.TASK);</span>
+<span class="nc" id="L464">            execTO.setRefKey(execution.getTask().getKey());</span>
+<span class="nc" id="L465">            execTO.setRefDesc(buildRefDesc(execution.getTask()));</span>
+        }
+
+<span class="nc" id="L468">        return execTO;</span>
+    }
+
+    protected void fill(final SchedTaskTO schedTaskTO, final SchedTask schedTask) {
+<span class="nc" id="L472">        schedTaskTO.setName(schedTask.getName());</span>
+<span class="nc" id="L473">        schedTaskTO.setDescription(schedTask.getDescription());</span>
+<span class="nc" id="L474">        schedTaskTO.setCronExpression(schedTask.getCronExpression());</span>
+<span class="nc" id="L475">        schedTaskTO.setActive(schedTask.isActive());</span>
+<span class="nc" id="L476">        schedTaskTO.setJobDelegate(schedTask.getJobDelegate().getKey());</span>
+
+<span class="nc" id="L478">        schedTaskTO.getExecutions().stream().max(Comparator.comparing(ExecTO::getStart)).</span>
+<span class="nc" id="L479">                map(ExecTO::getStart).ifPresentOrElse(</span>
+<span class="nc" id="L480">                schedTaskTO::setLastExec,</span>
+<span class="nc" id="L481">                () -&gt; schedTaskTO.setLastExec(schedTaskTO.getStart()));</span>
+
+<span class="nc" id="L483">        scheduler.getNextTrigger(AuthContextUtils.getDomain(), JobNamer.getJobName(schedTask)).</span>
+<span class="nc" id="L484">                ifPresent(schedTaskTO::setNextExec);</span>
+
+<span class="nc bnc" id="L486" title="All 4 branches missed.">        if (schedTaskTO instanceof final ProvisioningTaskTO provisioningTaskTO</span>
+<span class="nc" id="L487">                &amp;&amp; schedTask instanceof final ProvisioningTask&lt;?&gt; provisioningTask) {</span>
+
+<span class="nc" id="L489">            provisioningTaskTO.setResource(provisioningTask.getResource().getKey());</span>
+
+<span class="nc" id="L491">            provisioningTaskTO.getActions().addAll(</span>
+<span class="nc" id="L492">                    provisioningTask.getActions().stream().map(Implementation::getKey).toList());</span>
+
+<span class="nc" id="L494">            provisioningTaskTO.setPerformCreate(provisioningTask.isPerformCreate());</span>
+<span class="nc" id="L495">            provisioningTaskTO.setPerformUpdate(provisioningTask.isPerformUpdate());</span>
+<span class="nc" id="L496">            provisioningTaskTO.setPerformDelete(provisioningTask.isPerformDelete());</span>
+<span class="nc" id="L497">            provisioningTaskTO.setSyncStatus(provisioningTask.isSyncStatus());</span>
+
+<span class="nc" id="L499">            provisioningTaskTO.setConcurrentSettings(provisioningTask.getConcurrentSettings());</span>
+        }
+<span class="nc" id="L501">    }</span>
+
+    @Override
+    public &lt;T extends TaskTO&gt; T getTaskTO(final Task&lt;?&gt; task, final TaskUtils taskUtils, final boolean details) {
+<span class="nc" id="L505">        T taskTO = taskUtils.newTaskTO();</span>
+<span class="nc" id="L506">        taskTO.setKey(task.getKey());</span>
+
+<span class="nc" id="L508">        taskExecDAO.findLatestStarted(taskUtils.getType(), task).ifPresentOrElse(</span>
+                latestExec -&gt; {
+<span class="nc" id="L510">                    taskTO.setLatestExecStatus(latestExec.getStatus());</span>
+<span class="nc" id="L511">                    taskTO.setStart(latestExec.getStart());</span>
+<span class="nc" id="L512">                    taskTO.setEnd(latestExec.getEnd());</span>
+<span class="nc" id="L513">                    taskTO.setLastExecutor(latestExec.getExecutor());</span>
+<span class="nc" id="L514">                },</span>
+<span class="nc" id="L515">                () -&gt; taskTO.setLatestExecStatus(StringUtils.EMPTY));</span>
+
+<span class="nc bnc" id="L517" title="All 2 branches missed.">        if (details) {</span>
+<span class="nc" id="L518">            task.getExecs().stream().</span>
+<span class="nc" id="L519">                    filter(Objects::nonNull).</span>
+<span class="nc" id="L520">                    forEach(execution -&gt; taskTO.getExecutions().add(getExecTO(execution)));</span>
+        }
+
+<span class="nc bnc" id="L523" title="All 8 branches missed.">        switch (taskUtils.getType()) {</span>
+            case PROPAGATION -&gt; {
+<span class="nc" id="L525">                PropagationTask propagationTask = (PropagationTask) task;</span>
+<span class="nc" id="L526">                PropagationTaskTO propagationTaskTO = (PropagationTaskTO) taskTO;</span>
+
+<span class="nc" id="L528">                propagationTaskTO.setOperation(propagationTask.getOperation());</span>
+<span class="nc" id="L529">                propagationTaskTO.setConnObjectKey(propagationTask.getConnObjectKey());</span>
+<span class="nc" id="L530">                propagationTaskTO.setOldConnObjectKey(propagationTask.getOldConnObjectKey());</span>
+<span class="nc" id="L531">                propagationTaskTO.setPropagationData(propagationTask.getSerializedPropagationData());</span>
+<span class="nc" id="L532">                propagationTaskTO.setResource(propagationTask.getResource().getKey());</span>
+<span class="nc" id="L533">                propagationTaskTO.setObjectClassName(propagationTask.getObjectClassName());</span>
+<span class="nc" id="L534">                propagationTaskTO.setAnyTypeKind(propagationTask.getAnyTypeKind());</span>
+<span class="nc" id="L535">                propagationTaskTO.setAnyType(propagationTask.getAnyType());</span>
+<span class="nc" id="L536">                propagationTaskTO.setEntityKey(propagationTask.getEntityKey());</span>
+<span class="nc" id="L537">            }</span>
+
+            case SCHEDULED -&gt; {
+<span class="nc" id="L540">                SchedTask schedTask = (SchedTask) task;</span>
+<span class="nc" id="L541">                SchedTaskTO schedTaskTO = (SchedTaskTO) taskTO;</span>
+
+<span class="nc" id="L543">                fill(schedTaskTO, schedTask);</span>
+<span class="nc" id="L544">            }</span>
+
+            case MACRO -&gt; {
+<span class="nc" id="L547">                MacroTask macroTask = (MacroTask) task;</span>
+<span class="nc" id="L548">                MacroTaskTO macroTaskTO = (MacroTaskTO) taskTO;</span>
+
+<span class="nc" id="L550">                fill(macroTaskTO, macroTask);</span>
+
+<span class="nc" id="L552">                macroTaskTO.setRealm(macroTask.getRealm().getFullPath());</span>
+
+<span class="nc" id="L554">                macroTask.getCommands().forEach(mct -&gt; macroTaskTO.getCommands().add(</span>
+<span class="nc" id="L555">                        new CommandTO.Builder(mct.getCommand().getKey()).args(mct.getArgs()).build()));</span>
+
+<span class="nc" id="L557">                macroTaskTO.setContinueOnError(macroTask.isContinueOnError());</span>
+<span class="nc" id="L558">                macroTaskTO.setSaveExecs(macroTask.isSaveExecs());</span>
+
+<span class="nc" id="L560">                macroTask.getFormPropertyDefs().forEach(fpd -&gt; {</span>
+<span class="nc" id="L561">                    FormPropertyDefTO fpdTO = new FormPropertyDefTO();</span>
+<span class="nc" id="L562">                    fpdTO.setKey(fpd.getKey());</span>
+<span class="nc" id="L563">                    fpdTO.setName(fpd.getName());</span>
+<span class="nc" id="L564">                    fpdTO.getLabels().putAll(fpd.getLabels());</span>
+<span class="nc" id="L565">                    fpdTO.setType(fpd.getType());</span>
+<span class="nc" id="L566">                    fpdTO.setReadable(fpd.isReadable());</span>
+<span class="nc" id="L567">                    fpdTO.setWritable(fpd.isWritable());</span>
+<span class="nc" id="L568">                    fpdTO.setRequired(fpd.isRequired());</span>
+<span class="nc" id="L569">                    fpdTO.setStringRegEx(fpd.getStringRegEx());</span>
+<span class="nc" id="L570">                    fpdTO.setDatePattern(fpd.getDatePattern());</span>
+<span class="nc" id="L571">                    fpdTO.getEnumValues().putAll(fpd.getEnumValues());</span>
+<span class="nc" id="L572">                    fpdTO.setDropdownSingleSelection(fpd.isDropdownSingleSelection());</span>
+<span class="nc" id="L573">                    fpdTO.setDropdownFreeForm(fpd.isDropdownFreeForm());</span>
+<span class="nc" id="L574">                    fpdTO.setMimeType(fpd.getMimeType());</span>
+
+<span class="nc" id="L576">                    macroTaskTO.getFormPropertyDefs().add(fpdTO);</span>
+<span class="nc" id="L577">                });</span>
+
+<span class="nc" id="L579">                Optional.ofNullable(macroTask.getMacroActions()).</span>
+<span class="nc" id="L580">                        ifPresent(fv -&gt; macroTaskTO.setMacroActions(fv.getKey()));</span>
+<span class="nc" id="L581">            }</span>
+
+            case LIVE_SYNC -&gt; {
+<span class="nc" id="L584">                LiveSyncTask liveSyncTask = (LiveSyncTask) task;</span>
+<span class="nc" id="L585">                LiveSyncTaskTO liveSyncTaskTO = (LiveSyncTaskTO) taskTO;</span>
+
+<span class="nc" id="L587">                fill(liveSyncTaskTO, liveSyncTask);</span>
+
+<span class="nc" id="L589">                liveSyncTaskTO.setDestinationRealm(liveSyncTask.getDestinationRealm().getFullPath());</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">                liveSyncTaskTO.setMatchingRule(liveSyncTask.getMatchingRule() == null</span>
+<span class="nc" id="L591">                        ? MatchingRule.UPDATE : liveSyncTask.getMatchingRule());</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">                liveSyncTaskTO.setUnmatchingRule(liveSyncTask.getUnmatchingRule() == null</span>
+<span class="nc" id="L593">                        ? UnmatchingRule.PROVISION : liveSyncTask.getUnmatchingRule());</span>
+
+<span class="nc" id="L595">                liveSyncTaskTO.setDelaySecondsAcrossInvocations(liveSyncTask.getDelaySecondsAcrossInvocations());</span>
+
+<span class="nc" id="L597">                liveSyncTaskTO.setLiveSyncDeltaMapper(liveSyncTask.getLiveSyncDeltaMapper().getKey());</span>
+
+<span class="nc" id="L599">                liveSyncTask.getTemplates().</span>
+<span class="nc" id="L600">                        forEach(template -&gt; liveSyncTaskTO.getTemplates().</span>
+<span class="nc" id="L601">                        put(template.getAnyType().getKey(), template.get()));</span>
+<span class="nc" id="L602">            }</span>
+
+            case PULL -&gt; {
+<span class="nc" id="L605">                PullTask pullTask = (PullTask) task;</span>
+<span class="nc" id="L606">                PullTaskTO pullTaskTO = (PullTaskTO) taskTO;</span>
+
+<span class="nc" id="L608">                fill(pullTaskTO, pullTask);</span>
+
+<span class="nc" id="L610">                pullTaskTO.setDestinationRealm(pullTask.getDestinationRealm().getFullPath());</span>
+<span class="nc bnc" id="L611" title="All 2 branches missed.">                pullTaskTO.setMatchingRule(pullTask.getMatchingRule() == null</span>
+<span class="nc" id="L612">                        ? MatchingRule.UPDATE : pullTask.getMatchingRule());</span>
+<span class="nc bnc" id="L613" title="All 2 branches missed.">                pullTaskTO.setUnmatchingRule(pullTask.getUnmatchingRule() == null</span>
+<span class="nc" id="L614">                        ? UnmatchingRule.PROVISION : pullTask.getUnmatchingRule());</span>
+<span class="nc" id="L615">                pullTaskTO.setPullMode(pullTask.getPullMode());</span>
+
+<span class="nc" id="L617">                Optional.ofNullable(pullTask.getReconFilterBuilder()).</span>
+<span class="nc" id="L618">                        ifPresent(rfb -&gt; pullTaskTO.setReconFilterBuilder(rfb.getKey()));</span>
+
+<span class="nc" id="L620">                pullTask.getTemplates().</span>
+<span class="nc" id="L621">                        forEach(template -&gt; pullTaskTO.getTemplates().</span>
+<span class="nc" id="L622">                        put(template.getAnyType().getKey(), template.get()));</span>
+
+<span class="nc" id="L624">                pullTaskTO.setRemediation(pullTask.isRemediation());</span>
+<span class="nc" id="L625">            }</span>
+
+            case PUSH -&gt; {
+<span class="nc" id="L628">                PushTask pushTask = (PushTask) task;</span>
+<span class="nc" id="L629">                PushTaskTO pushTaskTO = (PushTaskTO) taskTO;</span>
+
+<span class="nc" id="L631">                fill(pushTaskTO, pushTask);</span>
+
+<span class="nc" id="L633">                pushTaskTO.setSourceRealm(pushTask.getSourceRealm().getFullPath());</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                pushTaskTO.setMatchingRule(pushTask.getMatchingRule() == null</span>
+<span class="nc" id="L635">                        ? MatchingRule.LINK : pushTask.getMatchingRule());</span>
+<span class="nc bnc" id="L636" title="All 2 branches missed.">                pushTaskTO.setUnmatchingRule(pushTask.getUnmatchingRule() == null</span>
+<span class="nc" id="L637">                        ? UnmatchingRule.ASSIGN : pushTask.getUnmatchingRule());</span>
+
+<span class="nc" id="L639">                pushTaskTO.getFilters().putAll(pushTask.getFilters());</span>
+<span class="nc" id="L640">            }</span>
+
+            case NOTIFICATION -&gt; {
+<span class="nc" id="L643">                NotificationTask notificationTask = (NotificationTask) task;</span>
+<span class="nc" id="L644">                NotificationTaskTO notificationTaskTO = (NotificationTaskTO) taskTO;</span>
+
+<span class="nc" id="L646">                notificationTaskTO.setNotification(notificationTask.getNotification().getKey());</span>
+<span class="nc" id="L647">                notificationTaskTO.setAnyTypeKind(notificationTask.getAnyTypeKind());</span>
+<span class="nc" id="L648">                notificationTaskTO.setEntityKey(notificationTask.getEntityKey());</span>
+<span class="nc" id="L649">                notificationTaskTO.setSender(notificationTask.getSender());</span>
+<span class="nc" id="L650">                notificationTaskTO.getRecipients().addAll(notificationTask.getRecipients());</span>
+<span class="nc" id="L651">                notificationTaskTO.setSubject(notificationTask.getSubject());</span>
+<span class="nc" id="L652">                notificationTaskTO.setHtmlBody(notificationTask.getHtmlBody());</span>
+<span class="nc" id="L653">                notificationTaskTO.setTextBody(notificationTask.getTextBody());</span>
+<span class="nc" id="L654">                notificationTaskTO.setExecuted(notificationTask.isExecuted());</span>
+<span class="nc bnc" id="L655" title="All 4 branches missed.">                if (notificationTask.isExecuted() &amp;&amp; StringUtils.isBlank(taskTO.getLatestExecStatus())) {</span>
+<span class="nc" id="L656">                    taskTO.setLatestExecStatus(&quot;[EXECUTED]&quot;);</span>
+                }
+<span class="nc" id="L658">                notificationTaskTO.setTraceLevel(notificationTask.getTraceLevel());</span>
+<span class="nc" id="L659">            }</span>
+
+            default -&gt; {
+            }
+        }
+
+<span class="nc" id="L665">        return taskTO;</span>
+    }
+
+    @Override
+    public SyncopeForm getMacroTaskForm(final MacroTask task, final Locale locale) {
+<span class="nc bnc" id="L670" title="All 2 branches missed.">        if (task.getFormPropertyDefs().isEmpty()) {</span>
+<span class="nc" id="L671">            throw new NotFoundException(&quot;No form properties defined for MacroTask &quot; + task.getKey());</span>
+        }
+
+        Optional&lt;MacroActions&gt; actions;
+<span class="nc bnc" id="L675" title="All 2 branches missed.">        if (task.getMacroActions() == null) {</span>
+<span class="nc" id="L676">            actions = Optional.empty();</span>
+        } else {
+            try {
+<span class="nc" id="L679">                actions = Optional.of(ImplementationManager.build(</span>
+<span class="nc" id="L680">                        AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L681">                        task.getMacroActions(),</span>
+<span class="nc" id="L682">                        () -&gt; perContextMacroActions.get(task.getMacroActions().getKey()),</span>
+<span class="nc" id="L683">                        instance -&gt; perContextMacroActions.put(task.getMacroActions().getKey(), instance)));</span>
+<span class="nc" id="L684">            } catch (Exception e) {</span>
+<span class="nc" id="L685">                LOG.error(&quot;Could not build {}&quot;, task.getMacroActions().getKey(), e);</span>
+
+<span class="nc" id="L687">                SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidImplementation);</span>
+<span class="nc" id="L688">                sce.getElements().add(&quot;Could not build &quot; + task.getMacroActions().getKey());</span>
+<span class="nc" id="L689">                throw sce;</span>
+<span class="nc" id="L690">            }</span>
+        }
+
+<span class="nc" id="L693">        SyncopeForm form = new SyncopeForm();</span>
+
+<span class="nc" id="L695">        form.getProperties().addAll(task.getFormPropertyDefs().stream().map(fpd -&gt; {</span>
+<span class="nc" id="L696">            FormProperty prop = new FormProperty();</span>
+<span class="nc" id="L697">            prop.setId(fpd.getName());</span>
+<span class="nc" id="L698">            prop.setName(fpd.getLabels().getOrDefault(locale, fpd.getName()));</span>
+<span class="nc" id="L699">            prop.setReadable(fpd.isReadable());</span>
+<span class="nc" id="L700">            prop.setRequired(fpd.isRequired());</span>
+<span class="nc" id="L701">            prop.setWritable(fpd.isWritable());</span>
+<span class="nc" id="L702">            prop.setType(fpd.getType());</span>
+<span class="nc" id="L703">            actions.flatMap(a -&gt; a.getDefaultValue(fpd.getName())).ifPresent(prop::setValue);</span>
+<span class="nc bnc" id="L704" title="All 6 branches missed.">            switch (prop.getType()) {</span>
+                case String -&gt;
+<span class="nc" id="L706">                    prop.setStringRegEx(fpd.getStringRegEx());</span>
+
+                case Date -&gt;
+<span class="nc" id="L709">                    prop.setDatePattern(fpd.getDatePattern());</span>
+
+                case Enum -&gt;
+<span class="nc" id="L712">                    fpd.getEnumValues().forEach((k, v) -&gt; prop.getEnumValues().add(new FormPropertyValue(k, v)));</span>
+
+                case Dropdown -&gt; {
+<span class="nc" id="L715">                    actions.ifPresent(a -&gt; a.getDropdownValues(fpd.getName()).</span>
+<span class="nc" id="L716">                            forEach((k, v) -&gt; prop.getDropdownValues().add(new FormPropertyValue(k, v))));</span>
+<span class="nc" id="L717">                    prop.setDropdownSingleSelection(fpd.isDropdownSingleSelection());</span>
+<span class="nc" id="L718">                    prop.setDropdownFreeForm(fpd.isDropdownFreeForm());</span>
+<span class="nc" id="L719">                }</span>
+
+                case Binary -&gt; {
+<span class="nc" id="L722">                    prop.setMimeType(fpd.getMimeType());</span>
+<span class="nc" id="L723">                }</span>
+
+                default -&gt; {
+                }
+            }
+<span class="nc" id="L728">            return prop;</span>
+<span class="nc" id="L729">        }).toList());</span>
+
+<span class="nc" id="L731">        return form;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

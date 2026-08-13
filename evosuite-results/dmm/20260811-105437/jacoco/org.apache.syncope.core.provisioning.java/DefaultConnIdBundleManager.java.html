@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultConnIdBundleManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultConnIdBundleManager.java</span></div><h1>DefaultConnIdBundleManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URL;
+import java.nio.file.Path;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.entity.ConnInstance;
+import org.apache.syncope.core.persistence.api.utils.URIUtils;
+import org.apache.syncope.core.provisioning.api.ConnIdBundleManager;
+import org.identityconnectors.common.IOUtil;
+import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.framework.api.APIConfiguration;
+import org.identityconnectors.framework.api.ConfigurationProperties;
+import org.identityconnectors.framework.api.ConnectorInfo;
+import org.identityconnectors.framework.api.ConnectorInfoManager;
+import org.identityconnectors.framework.api.ConnectorInfoManagerFactory;
+import org.identityconnectors.framework.api.ConnectorKey;
+import org.identityconnectors.framework.api.RemoteFrameworkConnectionInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class DefaultConnIdBundleManager implements ConnIdBundleManager {
+
+<span class="nc" id="L55">    protected static final Logger LOG = LoggerFactory.getLogger(ConnIdBundleManager.class);</span>
+
+    /**
+     * ConnId Locations.
+     */
+    protected final List&lt;URI&gt; locations;
+
+    /**
+     * ConnectorInfoManager instances.
+     */
+<span class="nc" id="L65">    protected final Map&lt;URI, ConnectorInfoManager&gt; connInfoManagers =</span>
+<span class="nc" id="L66">            Collections.synchronizedMap(new LinkedHashMap&lt;&gt;());</span>
+
+<span class="nc" id="L68">    public DefaultConnIdBundleManager(final List&lt;String&gt; stringLocations) {</span>
+<span class="nc" id="L69">        locations = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L70">        stringLocations.forEach(location -&gt; {</span>
+            try {
+<span class="nc" id="L72">                locations.add(URIUtils.buildForConnId(location));</span>
+<span class="nc" id="L73">                LOG.info(&quot;Valid ConnId location: {}&quot;, location.trim());</span>
+<span class="nc" id="L74">            } catch (Exception e) {</span>
+<span class="nc" id="L75">                LOG.error(&quot;Invalid ConnId location: {}&quot;, location.trim(), e);</span>
+<span class="nc" id="L76">            }</span>
+<span class="nc" id="L77">        });</span>
+<span class="nc" id="L78">    }</span>
+
+    @Override
+    public List&lt;URI&gt; getLocations() {
+<span class="nc" id="L82">        return locations;</span>
+    }
+
+    protected void initLocal(final URI location) {
+        // 1. Find bundles inside local directory
+<span class="nc" id="L87">        File bundleDirectory = Path.of(location).toFile();</span>
+<span class="nc" id="L88">        String[] bundleFiles = bundleDirectory.list();</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (bundleFiles == null) {</span>
+<span class="nc" id="L90">            throw new NotFoundException(&quot;Local bundles directory &quot; + location);</span>
+        }
+
+<span class="nc" id="L93">        List&lt;URL&gt; bundleFileURLs = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        for (String file : bundleFiles) {</span>
+            try {
+<span class="nc" id="L96">                bundleFileURLs.add(IOUtil.makeURL(bundleDirectory.toPath(), file));</span>
+<span class="nc" id="L97">            } catch (IOException ignore) {</span>
+                // ignore exception and don't add bundle
+<span class="nc" id="L99">                LOG.debug(&quot;{}/{} is not a valid connector bundle&quot;, bundleDirectory, file, ignore);</span>
+<span class="nc" id="L100">            }</span>
+        }
+
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (bundleFileURLs.isEmpty()) {</span>
+<span class="nc" id="L104">            LOG.warn(&quot;No connector bundles found in {}&quot;, location);</span>
+        }
+<span class="nc" id="L106">        LOG.debug(&quot;Configuring local connector server:\n\tFiles: {}&quot;, bundleFileURLs);</span>
+
+        // 2. Get connector info manager
+        ConnectorInfoManager manager =
+<span class="nc" id="L110">                ConnectorInfoManagerFactory.getInstance().getLocalManager(bundleFileURLs.toArray(URL[]::new));</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        if (manager == null) {</span>
+<span class="nc" id="L112">            throw new NotFoundException(&quot;Local ConnectorInfoManager&quot;);</span>
+        }
+
+<span class="nc" id="L115">        connInfoManagers.put(location, manager);</span>
+<span class="nc" id="L116">    }</span>
+
+    protected void initRemote(final URI location) {
+        // 1. Extract conf params for remote connection from given URI
+<span class="nc" id="L120">        String host = location.getHost();</span>
+<span class="nc" id="L121">        int port = location.getPort();</span>
+<span class="nc" id="L122">        GuardedString key = new GuardedString(location.getUserInfo().toCharArray());</span>
+<span class="nc" id="L123">        boolean useSSL = location.getScheme().equals(&quot;connids&quot;);</span>
+
+<span class="nc" id="L125">        List&lt;TrustManager&gt; trustManagers = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        String[] params = StringUtils.isBlank(location.getQuery()) ? null : location.getQuery().split(&quot;&amp;&quot;);</span>
+<span class="nc bnc" id="L127" title="All 4 branches missed.">        if (params != null &amp;&amp; params.length &gt; 0) {</span>
+<span class="nc" id="L128">            final String[] trustAllCerts = params[0].split(&quot;=&quot;);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            if (trustAllCerts.length &gt; 1</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">                    &amp;&amp; &quot;trustAllCerts&quot;.equalsIgnoreCase(trustAllCerts[0])</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">                    &amp;&amp; &quot;true&quot;.equalsIgnoreCase(trustAllCerts[1])) {</span>
+
+<span class="nc" id="L133">                trustManagers.add(new X509TrustManager() {</span>
+
+                    @Override
+                    public void checkClientTrusted(final X509Certificate[] chain, final String authType) {
+                        // no checks, trust all
+<span class="nc" id="L138">                    }</span>
+
+                    @Override
+                    public void checkServerTrusted(final X509Certificate[] chain, final String authType) {
+                        // no checks, trust all
+<span class="nc" id="L143">                    }</span>
+
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() {
+<span class="nc" id="L147">                        return null;</span>
+                    }
+                });
+            }
+        }
+
+<span class="nc" id="L153">        LOG.debug(&quot;Configuring remote connector server:&quot;</span>
+                + &quot;\n\tHost: {}&quot;
+                + &quot;\n\tPort: {}&quot;
+                + &quot;\n\tKey: {}&quot;
+                + &quot;\n\tUseSSL: {}&quot;
+                + &quot;\n\tTrustAllCerts: {}&quot;,
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                host, port, key, useSSL, !trustManagers.isEmpty());</span>
+
+<span class="nc" id="L161">        RemoteFrameworkConnectionInfo info =</span>
+                new RemoteFrameworkConnectionInfo(host, port, key, useSSL, trustManagers, 60 * 1000);
+<span class="nc" id="L163">        LOG.debug(&quot;Remote connection info: {}&quot;, info);</span>
+
+        // 2. Get connector info manager
+<span class="nc" id="L166">        ConnectorInfoManager manager = ConnectorInfoManagerFactory.getInstance().getRemoteManager(info);</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        if (manager == null) {</span>
+<span class="nc" id="L168">            throw new NotFoundException(&quot;Remote ConnectorInfoManager&quot;);</span>
+        }
+
+<span class="nc" id="L171">        connInfoManagers.put(location, manager);</span>
+<span class="nc" id="L172">    }</span>
+
+    @Override
+    public void resetConnManagers() {
+<span class="nc" id="L176">        connInfoManagers.clear();</span>
+<span class="nc" id="L177">    }</span>
+
+    @Override
+    public Map&lt;URI, ConnectorInfoManager&gt; getConnectorInfoManagers() {
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (connInfoManagers.isEmpty()) {</span>
+<span class="nc" id="L182">            locations.forEach(location -&gt; {</span>
+                try {
+<span class="nc bnc" id="L184" title="All 2 branches missed.">                    if (&quot;file&quot;.equals(location.getScheme())) {</span>
+<span class="nc" id="L185">                        LOG.debug(&quot;Local initialization: {}&quot;, location);</span>
+<span class="nc" id="L186">                        initLocal(location);</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">                    } else if (location.getScheme().startsWith(&quot;connid&quot;)) {</span>
+<span class="nc" id="L188">                        LOG.debug(&quot;Remote initialization: {}&quot;, location);</span>
+<span class="nc" id="L189">                        initRemote(location);</span>
+                    } else {
+<span class="nc" id="L191">                        LOG.warn(&quot;Unsupported scheme: {}&quot;, location);</span>
+                    }
+<span class="nc" id="L193">                } catch (Exception e) {</span>
+<span class="nc" id="L194">                    LOG.error(&quot;Could not process {}&quot;, location, e);</span>
+<span class="nc" id="L195">                }</span>
+<span class="nc" id="L196">            });</span>
+
+<span class="nc bnc" id="L198" title="All 2 branches missed.">            if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L199">                connInfoManagers.entrySet().stream().peek(</span>
+<span class="nc" id="L200">                        entry -&gt; LOG.debug(&quot;Connector bundles found at {}&quot;, entry.getKey())).</span>
+<span class="nc" id="L201">                        forEach(entry -&gt; entry.getValue().getConnectorInfos().forEach(</span>
+<span class="nc" id="L202">                        connInfo -&gt; LOG.debug(&quot;\t{}&quot;, connInfo.getConnectorDisplayName())));</span>
+            }
+        }
+
+<span class="nc" id="L206">        return connInfoManagers;</span>
+    }
+
+    @Override
+    public Pair&lt;URI, ConnectorInfo&gt; getConnectorInfo(final ConnInstance connInstance) {
+        // check ConnIdLocation
+<span class="nc" id="L212">        URI uriLocation = null;</span>
+        try {
+<span class="nc" id="L214">            uriLocation = URIUtils.buildForConnId(connInstance.getLocation());</span>
+<span class="nc" id="L215">        } catch (Exception e) {</span>
+<span class="nc" id="L216">            throw new IllegalArgumentException(&quot;Invalid ConnId location &quot; + connInstance.getLocation(), e);</span>
+<span class="nc" id="L217">        }</span>
+
+        // create key for search all properties
+<span class="nc" id="L220">        ConnectorKey key = new ConnectorKey(</span>
+<span class="nc" id="L221">                connInstance.getBundleName(), connInstance.getVersion(), connInstance.getConnectorName());</span>
+
+<span class="nc" id="L223">        LOG.debug(&quot;Bundle name: {}\nBundle version: {}\nBundle class: {}&quot;,</span>
+<span class="nc" id="L224">                key.getBundleName(), key.getBundleVersion(), key.getConnectorName());</span>
+
+        // get the specified connector
+<span class="nc" id="L227">        ConnectorInfo info = Optional.ofNullable(</span>
+<span class="nc" id="L228">                getConnectorInfoManagers().get(uriLocation)).map(cim -&gt; cim.findConnectorInfo(key)).</span>
+<span class="nc" id="L229">                orElseThrow(() -&gt; new NotFoundException(</span>
+<span class="nc" id="L230">                &quot;ConnectorInfo for location &quot; + connInstance.getLocation() + &quot; and key &quot; + key));</span>
+
+<span class="nc" id="L232">        return Pair.of(uriLocation, info);</span>
+    }
+
+    @Override
+    public ConfigurationProperties getConfigurationProperties(final ConnectorInfo info) {
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (info == null) {</span>
+<span class="nc" id="L238">            throw new NotFoundException(&quot;Invalid: connector info is null&quot;);</span>
+        }
+
+        // create default configuration
+<span class="nc" id="L242">        APIConfiguration apiConfig = info.createDefaultAPIConfiguration();</span>
+
+        // retrieve the ConfigurationProperties.
+<span class="nc" id="L245">        ConfigurationProperties properties = apiConfig.getConfigurationProperties();</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (properties == null) {</span>
+<span class="nc" id="L247">            throw new NotFoundException(&quot;Configuration properties&quot;);</span>
+        }
+
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L251">            properties.getPropertyNames().forEach(propName -&gt; LOG.debug(</span>
+                    &quot;Property Name: {}\nProperty Type: {}&quot;,
+<span class="nc" id="L253">                    properties.getProperty(propName).getName(),</span>
+<span class="nc" id="L254">                    properties.getProperty(propName).getType()));</span>
+        }
+
+<span class="nc" id="L257">        return properties;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

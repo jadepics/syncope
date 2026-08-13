@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PullJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">PullJobDelegate.java</span></div><h1>PullJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.ConflictResolutionAction;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundPolicy;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.RealmPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.ReconFilterBuilder;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullExecutor;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullResultHandler;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.OperationOptions;
+
+<span class="nc" id="L50">public class PullJobDelegate</span>
+        extends AbstractPullExecutor&lt;PullTask&gt;
+        implements SyncopePullExecutor, StoppableJobDelegate {
+
+<span class="nc" id="L54">    protected Optional&lt;ReconFilterBuilder&gt; perContextReconFilterBuilder = Optional.empty();</span>
+
+    protected ReconFilterBuilder getReconFilterBuilder(final String domain, final PullTask task)
+            throws ClassNotFoundException {
+
+<span class="nc" id="L59">        return ImplementationManager.build(</span>
+                domain,
+<span class="nc" id="L61">                task.getReconFilterBuilder(),</span>
+<span class="nc" id="L62">                () -&gt; perContextReconFilterBuilder.orElse(null),</span>
+<span class="nc" id="L63">                instance -&gt; perContextReconFilterBuilder = Optional.of(instance));</span>
+    }
+
+    @Override
+    protected void init(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context) throws JobExecutionException {
+
+<span class="nc" id="L72">        super.init(taskType, taskKey, context);</span>
+
+<span class="nc" id="L74">        profile = new ProvisioningProfile&lt;&gt;(</span>
+                connector,
+                taskType,
+                task,
+<span class="nc" id="L78">                Optional.ofNullable(task.getResource().getInboundPolicy()).</span>
+<span class="nc" id="L79">                        map(InboundPolicy::getConflictResolutionAction).</span>
+<span class="nc" id="L80">                        orElse(ConflictResolutionAction.IGNORE),</span>
+<span class="nc" id="L81">                getInboundActions(context.getDomain(), task.getActions()),</span>
+                executor,
+<span class="nc" id="L83">                context.isDryRun());</span>
+
+<span class="nc" id="L85">        dispatcher = buildDispatcher();</span>
+<span class="nc" id="L86">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L90">        Optional.ofNullable(dispatcher).ifPresent(PullResultHandlerDispatcher::stop);</span>
+<span class="nc" id="L91">    }</span>
+
+    @Override
+    protected String doExecute(final JobExecutionContext context) throws JobExecutionException {
+<span class="nc" id="L95">        LOG.debug(&quot;Executing pull on {}&quot;, task.getResource());</span>
+
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L99">                action.beforeAll(profile);</span>
+<span class="nc" id="L100">            }</span>
+        }
+
+        // First realms...
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (task.getResource().getOrgUnit() != null) {</span>
+<span class="nc" id="L105">            setStatus(&quot;Pulling &quot; + task.getResource().getOrgUnit().getObjectClass());</span>
+
+<span class="nc" id="L107">            OrgUnit orgUnit = task.getResource().getOrgUnit();</span>
+
+<span class="nc" id="L109">            Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L110">            profile.getActions().forEach(a -&gt; moreAttrsToGet.addAll(a.moreAttrsToGet(profile, orgUnit)));</span>
+<span class="nc" id="L111">            OperationOptions options = MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L112">                    MappingUtils.getInboundItems(orgUnit.getItems().stream()), moreAttrsToGet.toArray(String[]::new));</span>
+
+<span class="nc" id="L114">            dispatcher.addHandlerSupplier(orgUnit.getObjectClass(), () -&gt; {</span>
+<span class="nc" id="L115">                RealmPullResultHandler handler = buildRealmHandler();</span>
+<span class="nc" id="L116">                handler.setProfile(profile);</span>
+<span class="nc" id="L117">                return handler;</span>
+            });
+
+            try {
+<span class="nc bnc" id="L121" title="All 3 branches missed.">                switch (task.getPullMode()) {</span>
+                    case INCREMENTAL:
+<span class="nc bnc" id="L123" title="All 2 branches missed.">                        if (!context.isDryRun()) {</span>
+<span class="nc" id="L124">                            setLatestSyncToken(</span>
+<span class="nc" id="L125">                                    orgUnit.getObjectClass(),</span>
+<span class="nc" id="L126">                                    ConnObjectUtils.toSyncToken(orgUnit.getSyncToken()));</span>
+                        }
+
+<span class="nc" id="L129">                        connector.sync(</span>
+<span class="nc" id="L130">                                new ObjectClass(orgUnit.getObjectClass()),</span>
+<span class="nc" id="L131">                                ConnObjectUtils.toSyncToken(orgUnit.getSyncToken()),</span>
+                                dispatcher,
+                                options);
+
+<span class="nc bnc" id="L135" title="All 2 branches missed.">                        if (!context.isDryRun()) {</span>
+<span class="nc" id="L136">                            orgUnit.setSyncToken(</span>
+<span class="nc" id="L137">                                    ConnObjectUtils.toString(latestSyncTokens.get(orgUnit.getObjectClass())));</span>
+<span class="nc" id="L138">                            resourceDAO.save(task.getResource());</span>
+                        }
+                        break;
+
+                    case FILTERED_RECONCILIATION:
+<span class="nc" id="L143">                        connector.filteredReconciliation(</span>
+<span class="nc" id="L144">                                new ObjectClass(orgUnit.getObjectClass()),</span>
+<span class="nc" id="L145">                                getReconFilterBuilder(context.getDomain(), task),</span>
+                                dispatcher,
+                                options);
+<span class="nc" id="L148">                        break;</span>
+
+                    case FULL_RECONCILIATION:
+                    default:
+<span class="nc" id="L152">                        connector.fullReconciliation(</span>
+<span class="nc" id="L153">                                new ObjectClass(orgUnit.getObjectClass()),</span>
+                                dispatcher,
+                                options);
+                        break;
+                }
+<span class="nc" id="L158">            } catch (Throwable t) {</span>
+<span class="nc" id="L159">                throw new JobExecutionException(&quot;While pulling from connector&quot;, t);</span>
+<span class="nc" id="L160">            }</span>
+        }
+
+        // ...then provisions for any types
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        for (Provision provision : task.getResource().getProvisions().stream().</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                filter(provision -&gt; provision.getMapping() != null).sorted(provisionSorter).toList()) {</span>
+
+<span class="nc" id="L167">            setStatus(&quot;Pulling &quot; + provision.getObjectClass());</span>
+
+<span class="nc" id="L169">            AnyType anyType = anyTypeDAO.findById(provision.getAnyType()).</span>
+<span class="nc" id="L170">                    orElseThrow(() -&gt; new NotFoundException(&quot;AnyType&quot; + provision.getAnyType()));</span>
+
+<span class="nc" id="L172">            dispatcher.addHandlerSupplier(provision.getObjectClass(), () -&gt; {</span>
+                SyncopePullResultHandler handler;
+<span class="nc bnc" id="L174" title="All 3 branches missed.">                switch (anyType.getKind()) {</span>
+                    case USER:
+<span class="nc" id="L176">                        handler = buildUserHandler();</span>
+<span class="nc" id="L177">                        break;</span>
+
+                    case GROUP:
+<span class="nc" id="L180">                        handler = buildGroupHandler();</span>
+<span class="nc" id="L181">                        break;</span>
+
+                    case ANY_OBJECT:
+                    default:
+<span class="nc" id="L185">                        handler = buildAnyObjectHandler();</span>
+                }
+<span class="nc" id="L187">                handler.setProfile(profile);</span>
+<span class="nc" id="L188">                return handler;</span>
+            });
+
+<span class="nc" id="L191">            boolean setSyncTokens = false;</span>
+            try {
+<span class="nc" id="L193">                Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L194">                profile.getActions().forEach(a -&gt; moreAttrsToGet.addAll(a.moreAttrsToGet(profile, provision)));</span>
+<span class="nc" id="L195">                OperationOptions options = MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L196">                        MappingUtils.getInboundItems(provision.getMapping().getItems().stream()),</span>
+<span class="nc" id="L197">                        moreAttrsToGet.toArray(String[]::new));</span>
+
+<span class="nc bnc" id="L199" title="All 3 branches missed.">                switch (task.getPullMode()) {</span>
+                    case INCREMENTAL:
+<span class="nc bnc" id="L201" title="All 2 branches missed.">                        if (!context.isDryRun()) {</span>
+<span class="nc" id="L202">                            setLatestSyncToken(</span>
+<span class="nc" id="L203">                                    provision.getObjectClass(),</span>
+<span class="nc" id="L204">                                    ConnObjectUtils.toSyncToken(provision.getSyncToken()));</span>
+                        }
+
+<span class="nc" id="L207">                        connector.sync(</span>
+<span class="nc" id="L208">                                new ObjectClass(provision.getObjectClass()),</span>
+<span class="nc" id="L209">                                ConnObjectUtils.toSyncToken(provision.getSyncToken()),</span>
+                                dispatcher,
+                                options);
+
+<span class="nc bnc" id="L213" title="All 2 branches missed.">                        if (!context.isDryRun()) {</span>
+<span class="nc" id="L214">                            setSyncTokens = true;</span>
+                        }
+                        break;
+
+                    case FILTERED_RECONCILIATION:
+<span class="nc" id="L219">                        connector.filteredReconciliation(new ObjectClass(provision.getObjectClass()),</span>
+<span class="nc" id="L220">                                getReconFilterBuilder(context.getDomain(), task),</span>
+                                dispatcher,
+                                options);
+<span class="nc" id="L223">                        break;</span>
+
+                    case FULL_RECONCILIATION:
+                    default:
+<span class="nc" id="L227">                        connector.fullReconciliation(</span>
+<span class="nc" id="L228">                                new ObjectClass(provision.getObjectClass()),</span>
+                                dispatcher,
+                                options);
+                }
+<span class="nc" id="L232">            } catch (Throwable t) {</span>
+<span class="nc" id="L233">                throw new JobExecutionException(&quot;While pulling from connector&quot;, t);</span>
+            } finally {
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                if (setSyncTokens) {</span>
+<span class="nc" id="L236">                    latestSyncTokens.forEach((objectClass, syncToken) -&gt; {</span>
+<span class="nc" id="L237">                        task.getResource().getProvisionByObjectClass(objectClass).</span>
+<span class="nc" id="L238">                                ifPresent(p -&gt; p.setSyncToken(ConnObjectUtils.toString(syncToken)));</span>
+<span class="nc" id="L239">                        Optional.ofNullable(task.getResource().getOrgUnit()).</span>
+<span class="nc" id="L240">                                filter(ou -&gt; objectClass.equals(ou.getObjectClass())).</span>
+<span class="nc" id="L241">                                ifPresent(ou -&gt; ou.setSyncToken(ConnObjectUtils.toString(syncToken)));</span>
+<span class="nc" id="L242">                    });</span>
+<span class="nc" id="L243">                    resourceDAO.save(task.getResource());</span>
+                }
+            }
+<span class="nc" id="L246">        }</span>
+
+<span class="nc" id="L248">        dispatcher.shutdown();</span>
+
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        for (Provision provision : task.getResource().getProvisions().stream().</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                filter(provision -&gt; provision.getMapping() != null).sorted(provisionSorter).toList()) {</span>
+
+<span class="nc bnc" id="L253" title="All 2 branches missed.">            if (provision.getUidOnCreate() != null) {</span>
+                try {
+<span class="nc" id="L255">                    AnyType anyType = anyTypeDAO.findById(provision.getAnyType()).</span>
+<span class="nc" id="L256">                            orElseThrow(() -&gt; new NotFoundException(&quot;AnyType&quot; + provision.getAnyType()));</span>
+<span class="nc" id="L257">                    AnyUtils anyUtils = anyUtilsFactory.getInstance(anyType.getKind());</span>
+<span class="nc" id="L258">                    profile.getResults().stream().</span>
+<span class="nc bnc" id="L259" title="All 4 branches missed.">                            filter(result -&gt; result.getUidValue() != null &amp;&amp; result.getKey() != null</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                            &amp;&amp; result.getOperation() == ResourceOperation.CREATE</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">                            &amp;&amp; result.getAnyType().equals(provision.getAnyType())).</span>
+<span class="nc" id="L262">                            forEach(result -&gt; anyUtils.addAttr(</span>
+                            validator,
+<span class="nc" id="L264">                            result.getKey(),</span>
+<span class="nc" id="L265">                            plainSchemaDAO.findById(provision.getUidOnCreate()).orElseThrow(</span>
+<span class="nc" id="L266">                                    () -&gt; new NotFoundException(&quot;PlainSchema &quot; + provision.getUidOnCreate())),</span>
+<span class="nc" id="L267">                            result.getUidValue()));</span>
+<span class="nc" id="L268">                } catch (Throwable t) {</span>
+<span class="nc" id="L269">                    LOG.error(&quot;While setting UID on create&quot;, t);</span>
+<span class="nc" id="L270">                }</span>
+            }
+
+<span class="nc" id="L273">            AnyPullResultHandler handler =</span>
+<span class="nc" id="L274">                    (AnyPullResultHandler) dispatcher.nonConcurrentHandler(provision.getObjectClass());</span>
+            try {
+<span class="nc" id="L276">                handler.setManagers();</span>
+<span class="nc" id="L277">            } catch (Exception e) {</span>
+<span class="nc" id="L278">                LOG.error(&quot;While setting managers&quot;, e);</span>
+<span class="nc" id="L279">            }</span>
+<span class="nc" id="L280">        }</span>
+
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L284">                action.afterAll(profile);</span>
+<span class="nc" id="L285">            }</span>
+        }
+
+<span class="nc" id="L288">        setStatus(&quot;Pull done&quot;);</span>
+
+<span class="nc" id="L290">        String result = createReport(profile.getResults(), task.getResource(), context.isDryRun());</span>
+<span class="nc" id="L291">        LOG.debug(&quot;Pull result: {}&quot;, result);</span>
+<span class="nc" id="L292">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

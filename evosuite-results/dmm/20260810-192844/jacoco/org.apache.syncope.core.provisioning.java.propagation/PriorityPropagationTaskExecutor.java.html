@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PriorityPropagationTaskExecutor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.propagation</a> &gt; <span class="el_source">PriorityPropagationTaskExecutor.java</span></div><h1>PriorityPropagationTaskExecutor.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.propagation;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import org.apache.syncope.common.lib.types.ExecStatus;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.Exec;
+import org.apache.syncope.core.persistence.api.entity.task.PropagationTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.ConnectorManager;
+import org.apache.syncope.core.provisioning.api.data.TaskDataBinder;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationException;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+/**
+ * Sorts the tasks to be executed according to related
+ * {@link org.apache.syncope.core.persistence.api.entity.ExternalResource}'s priority, then execute.
+ * Tasks related to resources with NULL priority are executed after other tasks, concurrently.
+ * Failure during execution of a task related to resource with non-NULL priority are treated as fatal and will interrupt
+ * the whole process, resulting in a global failure.
+ */
+public class PriorityPropagationTaskExecutor extends AbstractPropagationTaskExecutor {
+
+    protected final AsyncTaskExecutor taskExecutor;
+
+    public PriorityPropagationTaskExecutor(
+            final ConnectorManager connectorManager,
+            final ConnObjectUtils connObjectUtils,
+            final TaskDAO taskDAO,
+            final ExternalResourceDAO resourceDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final NotificationManager notificationManager,
+            final AuditManager auditManager,
+            final TaskDataBinder taskDataBinder,
+            final AnyUtilsFactory anyUtilsFactory,
+            final TaskUtilsFactory taskUtilsFactory,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final ApplicationEventPublisher publisher,
+            final AsyncTaskExecutor taskExecutor) {
+
+<span class="nc" id="L84">        super(connectorManager,</span>
+                connObjectUtils,
+                taskDAO,
+                resourceDAO,
+                plainSchemaDAO,
+                notificationManager,
+                auditManager,
+                taskDataBinder,
+                anyUtilsFactory,
+                taskUtilsFactory,
+                outboundMatcher,
+                validator,
+                publisher);
+<span class="nc" id="L97">        this.taskExecutor = taskExecutor;</span>
+<span class="nc" id="L98">    }</span>
+
+    /**
+     * Creates new instances of {@link Callable} for usage with{@link java.util.concurrent.CompletionService}.
+     *
+     * @param taskInfo to be executed
+     * @param reporter to report propagation execution status
+     * @param executor user that triggered the propagation execution
+     * @return new {@link Callable} instance for usage with {@link java.util.concurrent.CompletionService}
+     */
+    protected Callable&lt;TaskExec&lt;PropagationTask&gt;&gt; newPropagationTaskCallable(
+            final PropagationTaskInfo taskInfo, final PropagationReporter reporter, final String executor) {
+
+<span class="nc" id="L111">        String domain = AuthContextUtils.getDomain();</span>
+<span class="nc" id="L112">        Set&lt;String&gt; authorities = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream().</span>
+<span class="nc" id="L113">                map(GrantedAuthority::getAuthority).collect(Collectors.toSet());</span>
+
+<span class="nc" id="L115">        return () -&gt; AuthContextUtils.callAs(domain, executor, authorities, () -&gt; {</span>
+<span class="nc" id="L116">            LOG.debug(&quot;Execution started for {}&quot;, taskInfo);</span>
+
+<span class="nc" id="L118">            TaskExec&lt;PropagationTask&gt; execution = this.execute(taskInfo, reporter, executor);</span>
+
+<span class="nc" id="L120">            LOG.debug(&quot;Execution completed for {} with results {}&quot;, taskInfo, execution);</span>
+
+<span class="nc" id="L122">            return execution;</span>
+        });
+    }
+
+    protected boolean failed(
+            final PropagationTaskInfo taskInfpo,
+            final TaskExec&lt;PropagationTask&gt; exec,
+            final ExecStatus execStatus) {
+
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        return execStatus == ExecStatus.FAILURE;</span>
+    }
+
+    @Override
+    public PropagationReporter execute(
+            final Collection&lt;PropagationTaskInfo&gt; taskInfos,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L140">        PropagationReporter reporter = new DefaultPropagationReporter();</span>
+        try {
+<span class="nc" id="L142">            List&lt;PropagationTaskInfo&gt; prioritizedTasks = taskInfos.stream().</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">                    filter(task -&gt; task.getResource().getPropagationPriority() != null).</span>
+<span class="nc" id="L144">                    sorted(Comparator.comparing(task -&gt; task.getResource().getPropagationPriority())).</span>
+<span class="nc" id="L145">                    toList();</span>
+<span class="nc" id="L146">            LOG.debug(&quot;Propagation tasks sorted by priority, for serial execution: {}&quot;, prioritizedTasks);</span>
+
+<span class="nc" id="L148">            List&lt;PropagationTaskInfo&gt; concurrentTasks = taskInfos.stream().</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">                    filter(task -&gt; !prioritizedTasks.contains(task)).</span>
+<span class="nc" id="L150">                    toList();</span>
+<span class="nc" id="L151">            LOG.debug(&quot;Propagation tasks for concurrent execution: {}&quot;, concurrentTasks);</span>
+
+            // first process priority resources sequentially and fail as soon as any propagation failure is reported
+<span class="nc" id="L154">            prioritizedTasks.forEach(taskInfo -&gt; {</span>
+<span class="nc" id="L155">                TaskExec&lt;PropagationTask&gt; exec = null;</span>
+                ExecStatus execStatus;
+<span class="nc" id="L157">                String errorMessage = null;</span>
+                try {
+<span class="nc" id="L159">                    exec = newPropagationTaskCallable(taskInfo, reporter, executor).call();</span>
+<span class="nc" id="L160">                    execStatus = ExecStatus.valueOf(exec.getStatus());</span>
+<span class="nc" id="L161">                } catch (Exception e) {</span>
+<span class="nc" id="L162">                    LOG.error(&quot;Unexpected exception&quot;, e);</span>
+<span class="nc" id="L163">                    execStatus = ExecStatus.FAILURE;</span>
+<span class="nc" id="L164">                    errorMessage = e.getMessage();</span>
+<span class="nc" id="L165">                }</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">                if (failed(taskInfo, exec, execStatus)) {</span>
+<span class="nc" id="L167">                    throw new PropagationException(</span>
+<span class="nc" id="L168">                            taskInfo.getResource().getKey(),</span>
+<span class="nc" id="L169">                            Optional.ofNullable(exec).map(Exec::getMessage).orElse(errorMessage));</span>
+                }
+<span class="nc" id="L171">            });</span>
+
+            // then process non-priority resources concurrently...
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (!concurrentTasks.isEmpty()) {</span>
+<span class="nc" id="L175">                CompletionService&lt;TaskExec&lt;PropagationTask&gt;&gt; completionService =</span>
+                        new ExecutorCompletionService&lt;&gt;(taskExecutor);
+<span class="nc" id="L177">                List&lt;Future&lt;TaskExec&lt;PropagationTask&gt;&gt;&gt; futures = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L179">                concurrentTasks.forEach(taskInfo -&gt; {</span>
+                    try {
+<span class="nc" id="L181">                        futures.add(completionService.submit(newPropagationTaskCallable(taskInfo, reporter, executor)));</span>
+
+<span class="nc bnc" id="L183" title="All 2 branches missed.">                        if (nullPriorityAsync) {</span>
+<span class="nc" id="L184">                            reporter.onSuccessOrNonPriorityResourceFailures(</span>
+                                    taskInfo, ExecStatus.CREATED, null, null, null, null);
+                        }
+<span class="nc" id="L187">                    } catch (Exception e) {</span>
+<span class="nc" id="L188">                        LOG.error(&quot;While submitting task for async execution: {}&quot;, taskInfo, e);</span>
+<span class="nc" id="L189">                        rejected(taskInfo, e.getMessage(), reporter, executor);</span>
+<span class="nc" id="L190">                    }</span>
+<span class="nc" id="L191">                });</span>
+
+                // ...waiting for all callables to complete, if async processing was not required
+<span class="nc bnc" id="L194" title="All 2 branches missed.">                if (!nullPriorityAsync) {</span>
+<span class="nc" id="L195">                    futures.forEach(future -&gt; {</span>
+                        try {
+<span class="nc" id="L197">                            future.get();</span>
+<span class="nc" id="L198">                        } catch (Exception e) {</span>
+<span class="nc" id="L199">                            LOG.error(&quot;Unexpected exception&quot;, e);</span>
+<span class="nc" id="L200">                        }</span>
+<span class="nc" id="L201">                    });</span>
+                }
+            }
+<span class="nc" id="L204">        } catch (PropagationException e) {</span>
+<span class="nc" id="L205">            LOG.error(&quot;Error propagation priority resource&quot;, e);</span>
+<span class="nc" id="L206">            reporter.onPriorityResourceFailure(e.getResourceName(), taskInfos);</span>
+<span class="nc" id="L207">        }</span>
+
+<span class="nc" id="L209">        return reporter;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

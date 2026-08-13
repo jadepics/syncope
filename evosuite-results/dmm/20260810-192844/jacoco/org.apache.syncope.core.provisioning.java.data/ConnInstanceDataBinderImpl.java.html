@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConnInstanceDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">ConnInstanceDataBinderImpl.java</span></div><h1>ConnInstanceDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.net.URI;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.ConnInstanceTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.ConnConfPropSchema;
+import org.apache.syncope.common.lib.types.ConnConfProperty;
+import org.apache.syncope.core.persistence.api.dao.ConnInstanceDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.entity.ConnInstance;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.utils.ConnPoolConfUtils;
+import org.apache.syncope.core.provisioning.api.ConnIdBundleManager;
+import org.apache.syncope.core.provisioning.api.data.ConnInstanceDataBinder;
+import org.identityconnectors.framework.api.ConfigurationProperties;
+import org.identityconnectors.framework.api.ConfigurationProperty;
+import org.identityconnectors.framework.api.ConnectorInfo;
+import org.identityconnectors.framework.impl.api.ConfigurationPropertyImpl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ConnInstanceDataBinderImpl implements ConnInstanceDataBinder {
+
+<span class="nc" id="L48">    protected static final Logger LOG = LoggerFactory.getLogger(ConnInstanceDataBinder.class);</span>
+
+    protected final ConnIdBundleManager connIdBundleManager;
+
+    protected final ConnInstanceDAO connInstanceDAO;
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final EntityFactory entityFactory;
+
+    public ConnInstanceDataBinderImpl(
+            final ConnIdBundleManager connIdBundleManager,
+            final ConnInstanceDAO connInstanceDAO,
+            final RealmSearchDAO realmSearchDAO,
+<span class="nc" id="L62">            final EntityFactory entityFactory) {</span>
+
+<span class="nc" id="L64">        this.connIdBundleManager = connIdBundleManager;</span>
+<span class="nc" id="L65">        this.connInstanceDAO = connInstanceDAO;</span>
+<span class="nc" id="L66">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L67">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L68">    }</span>
+
+    @Override
+    public ConnInstance getConnInstance(final ConnInstanceTO connInstanceTO) {
+<span class="nc" id="L72">        SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.RequiredValuesMissing);</span>
+
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (connInstanceTO.getLocation() == null) {</span>
+<span class="nc" id="L75">            sce.getElements().add(&quot;location&quot;);</span>
+        }
+
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (connInstanceTO.getBundleName() == null) {</span>
+<span class="nc" id="L79">            sce.getElements().add(&quot;bundlename&quot;);</span>
+        }
+
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (connInstanceTO.getVersion() == null) {</span>
+<span class="nc" id="L83">            sce.getElements().add(&quot;bundleversion&quot;);</span>
+        }
+
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        if (connInstanceTO.getConnectorName() == null) {</span>
+<span class="nc" id="L87">            sce.getElements().add(&quot;connectorname&quot;);</span>
+        }
+
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (connInstanceTO.getConf().isEmpty()) {</span>
+<span class="nc" id="L91">            sce.getElements().add(&quot;configuration&quot;);</span>
+        }
+
+<span class="nc" id="L94">        ConnInstance connInstance = entityFactory.newEntity(ConnInstance.class);</span>
+
+<span class="nc" id="L96">        connInstance.setBundleName(connInstanceTO.getBundleName());</span>
+<span class="nc" id="L97">        connInstance.setConnectorName(connInstanceTO.getConnectorName());</span>
+<span class="nc" id="L98">        connInstance.setVersion(connInstanceTO.getVersion());</span>
+<span class="nc" id="L99">        connInstance.setDisplayName(connInstanceTO.getDisplayName());</span>
+<span class="nc" id="L100">        connInstance.setConnRequestTimeout(connInstanceTO.getConnRequestTimeout());</span>
+<span class="nc" id="L101">        connInstance.getCapabilities().addAll(connInstanceTO.getCapabilities());</span>
+
+<span class="nc" id="L103">        Optional.ofNullable(connInstanceTO.getAdminRealm()).</span>
+<span class="nc" id="L104">                ifPresent(r -&gt; connInstance.setAdminRealm(realmSearchDAO.findByFullPath(r).orElse(null)));</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (connInstance.getAdminRealm() == null) {</span>
+<span class="nc" id="L106">            sce.getElements().add(&quot;Invalid or null realm specified: &quot; + connInstanceTO.getAdminRealm());</span>
+        }
+
+<span class="nc" id="L109">        Optional.ofNullable(connInstanceTO.getLocation()).ifPresent(connInstance::setLocation);</span>
+<span class="nc" id="L110">        connInstance.getConf().addAll(connInstanceTO.getConf());</span>
+<span class="nc" id="L111">        Optional.ofNullable(connInstanceTO.getPoolConf()).</span>
+<span class="nc" id="L112">                ifPresent(conf -&gt; connInstance.setPoolConf(ConnPoolConfUtils.getConnPoolConf(conf)));</span>
+
+        // Throw exception if there is at least one element set
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (!sce.isEmpty()) {</span>
+<span class="nc" id="L116">            throw sce;</span>
+        }
+
+<span class="nc" id="L119">        return connInstance;</span>
+    }
+
+    @Override
+    public ConnInstance update(final ConnInstanceTO connInstanceTO) {
+<span class="nc" id="L124">        ConnInstance connInstance = Optional.ofNullable(connInstanceDAO.authFind(connInstanceTO.getKey())).</span>
+<span class="nc" id="L125">                orElseThrow(() -&gt; new NotFoundException(&quot;Connector '&quot; + connInstanceTO.getKey() + '\''));</span>
+
+<span class="nc" id="L127">        connInstance.getCapabilities().clear();</span>
+<span class="nc" id="L128">        connInstance.getCapabilities().addAll(connInstanceTO.getCapabilities());</span>
+
+<span class="nc" id="L130">        Optional.ofNullable(connInstanceTO.getAdminRealm()).</span>
+<span class="nc" id="L131">                ifPresent(r -&gt; connInstance.setAdminRealm(realmSearchDAO.findByFullPath(r).</span>
+<span class="nc" id="L132">                orElseThrow(() -&gt; {</span>
+<span class="nc" id="L133">                    SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidRealm);</span>
+<span class="nc" id="L134">                    sce.getElements().add(&quot;Invalid or null realm specified: &quot; + connInstanceTO.getAdminRealm());</span>
+<span class="nc" id="L135">                    return sce;</span>
+                })));
+
+<span class="nc" id="L138">        Optional.ofNullable(connInstanceTO.getLocation()).ifPresent(connInstance::setLocation);</span>
+<span class="nc" id="L139">        Optional.ofNullable(connInstanceTO.getBundleName()).ifPresent(connInstance::setBundleName);</span>
+<span class="nc" id="L140">        Optional.ofNullable(connInstanceTO.getVersion()).ifPresent(connInstance::setVersion);</span>
+<span class="nc" id="L141">        Optional.ofNullable(connInstanceTO.getConnectorName()).ifPresent(connInstance::setConnectorName);</span>
+<span class="nc" id="L142">        Optional.ofNullable(connInstanceTO.getDisplayName()).ifPresent(connInstance::setDisplayName);</span>
+<span class="nc" id="L143">        connInstance.getConf().clear();</span>
+<span class="nc" id="L144">        connInstance.getConf().addAll(connInstanceTO.getConf());</span>
+<span class="nc" id="L145">        Optional.ofNullable(connInstanceTO.getConnRequestTimeout()).ifPresent(connInstance::setConnRequestTimeout);</span>
+<span class="nc" id="L146">        Optional.ofNullable(connInstanceTO.getPoolConf()).ifPresentOrElse(</span>
+<span class="nc" id="L147">                conf -&gt; connInstance.setPoolConf(ConnPoolConfUtils.getConnPoolConf(conf)),</span>
+<span class="nc" id="L148">                () -&gt; connInstance.setPoolConf(null));</span>
+
+<span class="nc" id="L150">        return connInstance;</span>
+    }
+
+    @Override
+    public ConnConfPropSchema build(final ConfigurationProperty property) {
+<span class="nc" id="L155">        ConnConfPropSchema connConfPropSchema = new ConnConfPropSchema();</span>
+
+<span class="nc" id="L157">        connConfPropSchema.setName(property.getName());</span>
+<span class="nc" id="L158">        connConfPropSchema.setDisplayName(property.getDisplayName(property.getName()));</span>
+<span class="nc" id="L159">        connConfPropSchema.setHelpMessage(property.getHelpMessage(property.getName()));</span>
+<span class="nc" id="L160">        connConfPropSchema.setRequired(property.isRequired());</span>
+<span class="nc" id="L161">        connConfPropSchema.setType(property.getType().getName());</span>
+<span class="nc" id="L162">        connConfPropSchema.setOrder(((ConfigurationPropertyImpl) property).getOrder());</span>
+<span class="nc" id="L163">        connConfPropSchema.setConfidential(property.isConfidential());</span>
+
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        if (property.getValue() != null) {</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">            if (property.getValue().getClass().isArray()) {</span>
+<span class="nc" id="L167">                connConfPropSchema.getDefaultValues().addAll(List.of((Object[]) property.getValue()));</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">            } else if (property.getValue() instanceof Collection&lt;?&gt; collection) {</span>
+<span class="nc" id="L169">                connConfPropSchema.getDefaultValues().addAll(collection);</span>
+            } else {
+<span class="nc" id="L171">                connConfPropSchema.getDefaultValues().add(property.getValue());</span>
+            }
+        }
+
+<span class="nc" id="L175">        return connConfPropSchema;</span>
+    }
+
+    @Override
+    public ConnInstanceTO getConnInstanceTO(final ConnInstance connInstance) {
+<span class="nc" id="L180">        ConnInstanceTO connInstanceTO = new ConnInstanceTO();</span>
+<span class="nc" id="L181">        connInstanceTO.setKey(connInstance.getKey());</span>
+<span class="nc" id="L182">        connInstanceTO.setBundleName(connInstance.getBundleName());</span>
+<span class="nc" id="L183">        connInstanceTO.setConnectorName(connInstance.getConnectorName());</span>
+<span class="nc" id="L184">        connInstanceTO.setVersion(connInstance.getVersion());</span>
+<span class="nc" id="L185">        connInstanceTO.setDisplayName(connInstance.getDisplayName());</span>
+<span class="nc" id="L186">        connInstanceTO.setConnRequestTimeout(connInstance.getConnRequestTimeout());</span>
+<span class="nc" id="L187">        connInstanceTO.setAdminRealm(connInstance.getAdminRealm().getFullPath());</span>
+<span class="nc" id="L188">        connInstanceTO.getCapabilities().addAll(connInstance.getCapabilities());</span>
+<span class="nc" id="L189">        connInstanceTO.getConf().addAll(connInstance.getConf());</span>
+
+        try {
+<span class="nc" id="L192">            Pair&lt;URI, ConnectorInfo&gt; info = connIdBundleManager.getConnectorInfo(connInstance);</span>
+
+<span class="nc" id="L194">            connInstanceTO.setLocation(info.getLeft().toASCIIString());</span>
+
+            // refresh stored properties in the given connInstance with direct information from underlying connector
+<span class="nc" id="L197">            ConfigurationProperties properties = connIdBundleManager.getConfigurationProperties(info.getRight());</span>
+<span class="nc" id="L198">            properties.getPropertyNames().forEach(propName -&gt; {</span>
+<span class="nc" id="L199">                ConnConfPropSchema schema = build(properties.getProperty(propName));</span>
+
+<span class="nc" id="L201">                ConnConfProperty property = connInstanceTO.getConf(propName).</span>
+<span class="nc" id="L202">                        orElseGet(() -&gt; {</span>
+<span class="nc" id="L203">                            ConnConfProperty p = new ConnConfProperty();</span>
+<span class="nc" id="L204">                            connInstanceTO.getConf().add(p);</span>
+<span class="nc" id="L205">                            return p;</span>
+                        });
+<span class="nc" id="L207">                property.setSchema(schema);</span>
+<span class="nc" id="L208">            });</span>
+<span class="nc" id="L209">        } catch (Exception e) {</span>
+<span class="nc" id="L210">            LOG.error(&quot;Could not get ConnId information for {} / {}#{}#{}&quot;,</span>
+<span class="nc" id="L211">                    connInstance.getLocation(), connInstance.getBundleName(), connInstance.getConnectorName(),</span>
+<span class="nc" id="L212">                    connInstance.getVersion(), e);</span>
+
+<span class="nc" id="L214">            connInstanceTO.setErrored(true);</span>
+<span class="nc" id="L215">            connInstanceTO.setLocation(connInstance.getLocation());</span>
+<span class="nc" id="L216">        }</span>
+
+<span class="nc" id="L218">        connInstanceTO.setPoolConf(connInstance.getPoolConf());</span>
+
+<span class="nc" id="L220">        return connInstanceTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

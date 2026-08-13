@@ -1,0 +1,663 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractProvisioningJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">AbstractProvisioningJobDelegate.java</span></div><h1>AbstractProvisioningJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.TraceLevel;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.PolicyDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.task.ProvisioningTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.ConnectorManager;
+import org.apache.syncope.core.provisioning.api.ProvisionSorter;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.java.job.AbstractSchedTaskJobDelegate;
+import org.apache.syncope.core.provisioning.java.job.TaskJob;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L50">public abstract class AbstractProvisioningJobDelegate&lt;T extends ProvisioningTask&lt;T&gt;&gt;</span>
+        extends AbstractSchedTaskJobDelegate&lt;T&gt; {
+
+    private static final String USER = &quot;USER&quot;;
+
+    private static final String GROUP = &quot;GROUP&quot;;
+
+    private static final String LINKED_ACCOUNT = &quot;LINKED_ACCOUNT&quot;;
+
+    @Autowired
+    protected ConnectorManager connectorManager;
+
+    @Autowired
+    protected AnyTypeDAO anyTypeDAO;
+
+    @Autowired
+    protected ExternalResourceDAO resourceDAO;
+
+    @Autowired
+    protected EntityFactory entityFactory;
+
+    @Autowired
+    protected AnyUtilsFactory anyUtilsFactory;
+
+    @Autowired
+    protected PolicyDAO policyDAO;
+
+<span class="nc" id="L77">    protected Optional&lt;ProvisionSorter&gt; perContextProvisionSorter = Optional.empty();</span>
+
+    protected Connector connector;
+
+    @Override
+    protected void init(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context) throws JobExecutionException {
+
+<span class="nc" id="L87">        super.init(taskType, taskKey, context);</span>
+
+<span class="nc" id="L89">        boolean noMapping = true;</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        for (Provision provision : task.getResource().getProvisions().stream().</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">                filter(provision -&gt; provision.getMapping() != null).toList()) {</span>
+
+<span class="nc" id="L93">            noMapping = false;</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">            if (provision.getMapping().getConnObjectKeyItem() == null) {</span>
+<span class="nc" id="L95">                throw new JobExecutionException(&quot;Invalid ConnObjectKey mapping for provision &quot; + provision);</span>
+            }
+<span class="nc" id="L97">        }</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (noMapping) {</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">            noMapping = task.getResource().getOrgUnit() == null;</span>
+        }
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if (noMapping) {</span>
+<span class="nc" id="L102">            throw new JobExecutionException(&quot;No provisions nor orgUnit available: aborting...&quot;);</span>
+        }
+
+<span class="nc" id="L105">        connector = connectorManager.getConnector(task.getResource());</span>
+<span class="nc" id="L106">    }</span>
+
+    @Override
+    protected boolean hasToBeRegistered(final TaskExec&lt;?&gt; execution) {
+        // True if either failed and failures have to be registered, or if ALL has to be registered.
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        return (TaskJob.Status.valueOf(execution.getStatus()) == TaskJob.Status.FAILURE</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">                &amp;&amp; task.getResource().getProvisioningTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal())</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">                || task.getResource().getProvisioningTraceLevel().ordinal() &gt;= TraceLevel.SUMMARY.ordinal();</span>
+    }
+
+    protected ProvisionSorter getProvisionSorter(final String domain, final T task) {
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (task.getResource().getProvisionSorter() != null) {</span>
+            try {
+<span class="nc" id="L119">                return ImplementationManager.build(</span>
+                        domain,
+<span class="nc" id="L121">                        task.getResource().getProvisionSorter(),</span>
+<span class="nc" id="L122">                        () -&gt; perContextProvisionSorter.orElse(null),</span>
+<span class="nc" id="L123">                        instance -&gt; perContextProvisionSorter = Optional.of(instance));</span>
+<span class="nc" id="L124">            } catch (Exception e) {</span>
+<span class="nc" id="L125">                LOG.error(&quot;While building {}&quot;, task.getResource().getProvisionSorter(), e);</span>
+            }
+        }
+
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        if (perContextProvisionSorter.isEmpty()) {</span>
+<span class="nc" id="L130">            perContextProvisionSorter = Optional.of(new DefaultProvisionSorter());</span>
+        }
+<span class="nc" id="L132">        return perContextProvisionSorter.get();</span>
+    }
+
+    /**
+     * Helper method to invoke logging per provisioning result, for the given trace level.
+     *
+     * @param results provisioning results
+     * @param level trace level
+     * @return report as string
+     */
+    protected String generate(final Collection&lt;ProvisioningReport&gt; results, final TraceLevel level) {
+<span class="nc" id="L143">        StringBuilder sb = new StringBuilder();</span>
+
+<span class="nc" id="L145">        results.stream().map(result -&gt; {</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            if (level == TraceLevel.SUMMARY) {</span>
+                // No per entry log in this case.
+<span class="nc" id="L148">                return null;</span>
+            }
+<span class="nc bnc" id="L150" title="All 4 branches missed.">            if (level == TraceLevel.FAILURES &amp;&amp; result.getStatus() == ProvisioningReport.Status.FAILURE) {</span>
+                // only report failures
+<span class="nc" id="L152">                return &quot;Failed %s (key/name): %s/%s with message: %s&quot;.formatted(</span>
+<span class="nc" id="L153">                        result.getOperation(), result.getKey(), result.getName(), result.getMessage());</span>
+            }
+            // ALL
+<span class="nc" id="L156">            return &quot;%s %s (key/name): %s/%s %s&quot;.formatted(</span>
+<span class="nc" id="L157">                    result.getOperation(), result.getStatus(), result.getKey(), result.getName(),</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">                    StringUtils.isBlank(result.getMessage())</span>
+<span class="nc" id="L159">                    ? StringUtils.EMPTY</span>
+<span class="nc" id="L160">                    : &quot;with message: &quot; + result.getMessage());</span>
+<span class="nc" id="L161">        }).filter(Objects::nonNull).forEach(report -&gt; sb.append(report).append('\n'));</span>
+
+<span class="nc" id="L163">        return sb.toString();</span>
+    }
+
+    /**
+     * Create a textual report of the provisioning operation, based on the trace level.
+     *
+     * @param provResults Provisioning results
+     * @param resource Provisioning resource
+     * @param dryRun dry run?
+     * @return report as string
+     */
+    protected String createReport(
+            final Collection&lt;ProvisioningReport&gt; provResults,
+            final ExternalResource resource,
+            final boolean dryRun) {
+
+<span class="nc" id="L179">        TraceLevel traceLevel = resource.getProvisioningTraceLevel();</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        if (traceLevel == TraceLevel.NONE) {</span>
+<span class="nc" id="L181">            return null;</span>
+        }
+
+<span class="nc" id="L184">        StringBuilder report = new StringBuilder();</span>
+
+<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (dryRun) {</span>
+<span class="nc" id="L187">            report.append(&quot;==&gt; Dry run only, no modifications were made &lt;==\n\n&quot;);</span>
+        }
+
+<span class="nc" id="L190">        List&lt;ProvisioningReport&gt; rSuccCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L191">        List&lt;ProvisioningReport&gt; rFailCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L192">        List&lt;ProvisioningReport&gt; rSuccUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L193">        List&lt;ProvisioningReport&gt; rFailUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L194">        List&lt;ProvisioningReport&gt; rSuccDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L195">        List&lt;ProvisioningReport&gt; rFailDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L196">        List&lt;ProvisioningReport&gt; rSuccNone = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L197">        List&lt;ProvisioningReport&gt; rIgnore = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L198">        List&lt;ProvisioningReport&gt; uSuccCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L199">        List&lt;ProvisioningReport&gt; uFailCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L200">        List&lt;ProvisioningReport&gt; uSuccUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L201">        List&lt;ProvisioningReport&gt; uFailUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L202">        List&lt;ProvisioningReport&gt; uSuccDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L203">        List&lt;ProvisioningReport&gt; uFailDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L204">        List&lt;ProvisioningReport&gt; uSuccNone = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L205">        List&lt;ProvisioningReport&gt; uIgnore = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L206">        List&lt;ProvisioningReport&gt; gSuccCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L207">        List&lt;ProvisioningReport&gt; gFailCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L208">        List&lt;ProvisioningReport&gt; gSuccUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L209">        List&lt;ProvisioningReport&gt; gFailUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L210">        List&lt;ProvisioningReport&gt; gSuccDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L211">        List&lt;ProvisioningReport&gt; gFailDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L212">        List&lt;ProvisioningReport&gt; gSuccNone = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L213">        List&lt;ProvisioningReport&gt; gIgnore = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L214">        List&lt;ProvisioningReport&gt; aSuccCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L215">        List&lt;ProvisioningReport&gt; aFailCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L216">        List&lt;ProvisioningReport&gt; aSuccUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L217">        List&lt;ProvisioningReport&gt; aFailUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L218">        List&lt;ProvisioningReport&gt; aSuccDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L219">        List&lt;ProvisioningReport&gt; aFailDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L220">        List&lt;ProvisioningReport&gt; aSuccNone = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L221">        List&lt;ProvisioningReport&gt; aIgnore = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L222">        List&lt;ProvisioningReport&gt; laSuccCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L223">        List&lt;ProvisioningReport&gt; laFailCreate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L224">        List&lt;ProvisioningReport&gt; laSuccUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L225">        List&lt;ProvisioningReport&gt; laFailUpdate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L226">        List&lt;ProvisioningReport&gt; laSuccDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L227">        List&lt;ProvisioningReport&gt; laFailDelete = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L228">        List&lt;ProvisioningReport&gt; laSuccNone = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L229">        List&lt;ProvisioningReport&gt; laIgnore = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L231" title="All 2 branches missed.">        for (ProvisioningReport provResult : provResults) {</span>
+<span class="nc bnc" id="L232" title="All 4 branches missed.">            switch (provResult.getStatus()) {</span>
+                case SUCCESS -&gt; {
+<span class="nc bnc" id="L234" title="All 5 branches missed.">                    switch (provResult.getOperation()) {</span>
+                        case CREATE -&gt; {
+<span class="nc bnc" id="L236" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L237">                                rSuccCreate.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L239" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L241">                                        uSuccCreate.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L244">                                        laSuccCreate.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L247">                                        gSuccCreate.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L250">                                        aSuccCreate.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L253">                        }</span>
+
+                        case UPDATE -&gt; {
+<span class="nc bnc" id="L256" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L257">                                rSuccUpdate.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L259" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L261">                                        uSuccUpdate.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L264">                                        laSuccUpdate.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L267">                                        gSuccUpdate.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L270">                                        aSuccUpdate.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L273">                        }</span>
+
+                        case DELETE -&gt; {
+<span class="nc bnc" id="L276" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L277">                                rSuccDelete.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L279" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L281">                                        uSuccDelete.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L284">                                        laSuccDelete.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L287">                                        gSuccDelete.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L290">                                        aSuccDelete.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L293">                        }</span>
+
+                        case NONE -&gt; {
+<span class="nc bnc" id="L296" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L297">                                rSuccNone.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L299" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L301">                                        uSuccNone.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L304">                                        laSuccNone.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L307">                                        gSuccNone.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L310">                                        aSuccNone.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L313">                        }</span>
+
+                        default -&gt; {
+<span class="nc" id="L316">                        }</span>
+                    }
+                }
+
+                case FAILURE -&gt; {
+<span class="nc bnc" id="L321" title="All 4 branches missed.">                    switch (provResult.getOperation()) {</span>
+                        case CREATE -&gt; {
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L324">                                rFailCreate.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L326" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L328">                                        uFailCreate.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L331">                                        laFailCreate.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L334">                                        gFailCreate.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L337">                                        aFailCreate.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L340">                        }</span>
+
+                        case UPDATE -&gt; {
+<span class="nc bnc" id="L343" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L344">                                rFailUpdate.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L346" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L348">                                        uFailUpdate.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L351">                                        laFailUpdate.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L354">                                        gFailUpdate.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L357">                                        aFailUpdate.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L360">                        }</span>
+
+                        case DELETE -&gt; {
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                            if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L364">                                rFailDelete.add(provResult);</span>
+                            } else {
+<span class="nc bnc" id="L366" title="All 4 branches missed.">                                switch (provResult.getAnyType()) {</span>
+                                    case USER -&gt;
+<span class="nc" id="L368">                                        uFailDelete.add(provResult);</span>
+
+                                    case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L371">                                        laFailDelete.add(provResult);</span>
+
+                                    case GROUP -&gt;
+<span class="nc" id="L374">                                        gFailDelete.add(provResult);</span>
+
+                                    default -&gt;
+<span class="nc" id="L377">                                        aFailDelete.add(provResult);</span>
+                                }
+                            }
+<span class="nc" id="L380">                        }</span>
+
+                        default -&gt; {
+<span class="nc" id="L383">                        }</span>
+                    }
+                }
+
+                case IGNORE -&gt; {
+<span class="nc bnc" id="L388" title="All 2 branches missed.">                    if (StringUtils.isBlank(provResult.getAnyType())) {</span>
+<span class="nc" id="L389">                        rIgnore.add(provResult);</span>
+                    } else {
+<span class="nc bnc" id="L391" title="All 4 branches missed.">                        switch (provResult.getAnyType()) {</span>
+                            case USER -&gt;
+<span class="nc" id="L393">                                uIgnore.add(provResult);</span>
+
+                            case LINKED_ACCOUNT -&gt;
+<span class="nc" id="L396">                                laIgnore.add(provResult);</span>
+
+                            case GROUP -&gt;
+<span class="nc" id="L399">                                gIgnore.add(provResult);</span>
+
+                            default -&gt;
+<span class="nc" id="L402">                                aIgnore.add(provResult);</span>
+                        }
+                    }
+<span class="nc" id="L405">                }</span>
+
+                default -&gt; {
+                }
+            }
+<span class="nc" id="L410">        }</span>
+
+        // Summary, also to be included for FAILURE and ALL, so create it anyway.
+<span class="nc" id="L413">        boolean includeUser = resource.getProvisionByAnyType(AnyTypeKind.USER.name()).isPresent();</span>
+<span class="nc" id="L414">        boolean includeGroup = resource.getProvisionByAnyType(AnyTypeKind.GROUP.name()).isPresent();</span>
+<span class="nc" id="L415">        boolean includeAnyObject = resource.getProvisions().stream().anyMatch(</span>
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                provision -&gt; !provision.getAnyType().equals(AnyTypeKind.USER.name())</span>
+<span class="nc bnc" id="L417" title="All 2 branches missed.">                &amp;&amp; !provision.getAnyType().equals(AnyTypeKind.GROUP.name()));</span>
+<span class="nc bnc" id="L418" title="All 2 branches missed.">        boolean includeRealm = resource.getOrgUnit() != null;</span>
+
+<span class="nc bnc" id="L420" title="All 2 branches missed.">        if (includeUser) {</span>
+<span class="nc" id="L421">            report.append(&quot;Users &quot;).</span>
+<span class="nc" id="L422">                    append(&quot;[created/failures]: &quot;).append(uSuccCreate.size()).append('/').append(uFailCreate.size()).</span>
+<span class="nc" id="L423">                    append(' ').</span>
+<span class="nc" id="L424">                    append(&quot;[updated/failures]: &quot;).append(uSuccUpdate.size()).append('/').append(uFailUpdate.size()).</span>
+<span class="nc" id="L425">                    append(' ').</span>
+<span class="nc" id="L426">                    append(&quot;[deleted/failures]: &quot;).append(uSuccDelete.size()).append('/').append(uFailDelete.size()).</span>
+<span class="nc" id="L427">                    append(' ').</span>
+<span class="nc" id="L428">                    append(&quot;[no operation/ignored]: &quot;).append(uSuccNone.size()).append('/').append(uIgnore.size()).</span>
+<span class="nc" id="L429">                    append('\n');</span>
+
+<span class="nc" id="L431">            report.append(&quot;Accounts &quot;).</span>
+<span class="nc" id="L432">                    append(&quot;[created/failures]: &quot;).append(laSuccCreate.size()).append('/').append(laFailCreate.size()).</span>
+<span class="nc" id="L433">                    append(' ').</span>
+<span class="nc" id="L434">                    append(&quot;[updated/failures]: &quot;).append(laSuccUpdate.size()).append('/').append(laFailUpdate.size()).</span>
+<span class="nc" id="L435">                    append(' ').</span>
+<span class="nc" id="L436">                    append(&quot;[deleted/failures]: &quot;).append(laSuccDelete.size()).append('/').append(laFailDelete.size()).</span>
+<span class="nc" id="L437">                    append(' ').</span>
+<span class="nc" id="L438">                    append(&quot;[no operation/ignored]: &quot;).append(laSuccNone.size()).append('/').append(laIgnore.size()).</span>
+<span class="nc" id="L439">                    append('\n');</span>
+        }
+<span class="nc bnc" id="L441" title="All 2 branches missed.">        if (includeGroup) {</span>
+<span class="nc" id="L442">            report.append(&quot;Groups &quot;).</span>
+<span class="nc" id="L443">                    append(&quot;[created/failures]: &quot;).append(gSuccCreate.size()).append('/').append(gFailCreate.size()).</span>
+<span class="nc" id="L444">                    append(' ').</span>
+<span class="nc" id="L445">                    append(&quot;[updated/failures]: &quot;).append(gSuccUpdate.size()).append('/').append(gFailUpdate.size()).</span>
+<span class="nc" id="L446">                    append(' ').</span>
+<span class="nc" id="L447">                    append(&quot;[deleted/failures]: &quot;).append(gSuccDelete.size()).append('/').append(gFailDelete.size()).</span>
+<span class="nc" id="L448">                    append(' ').</span>
+<span class="nc" id="L449">                    append(&quot;[no operation/ignored]: &quot;).append(gSuccNone.size()).append('/').append(gIgnore.size()).</span>
+<span class="nc" id="L450">                    append('\n');</span>
+        }
+<span class="nc bnc" id="L452" title="All 2 branches missed.">        if (includeAnyObject) {</span>
+<span class="nc" id="L453">            report.append(&quot;Any objects &quot;).</span>
+<span class="nc" id="L454">                    append(&quot;[created/failures]: &quot;).append(aSuccCreate.size()).append('/').append(aFailCreate.size()).</span>
+<span class="nc" id="L455">                    append(' ').</span>
+<span class="nc" id="L456">                    append(&quot;[updated/failures]: &quot;).append(aSuccUpdate.size()).append('/').append(aFailUpdate.size()).</span>
+<span class="nc" id="L457">                    append(' ').</span>
+<span class="nc" id="L458">                    append(&quot;[deleted/failures]: &quot;).append(aSuccDelete.size()).append('/').append(aFailDelete.size()).</span>
+<span class="nc" id="L459">                    append(' ').</span>
+<span class="nc" id="L460">                    append(&quot;[no operation/ignored]: &quot;).append(aSuccNone.size()).append('/').append(aIgnore.size());</span>
+        }
+<span class="nc bnc" id="L462" title="All 2 branches missed.">        if (includeRealm) {</span>
+<span class="nc" id="L463">            report.append(&quot;Realms &quot;).</span>
+<span class="nc" id="L464">                    append(&quot;[created/failures]: &quot;).append(rSuccCreate.size()).append('/').append(rFailCreate.size()).</span>
+<span class="nc" id="L465">                    append(' ').</span>
+<span class="nc" id="L466">                    append(&quot;[updated/failures]: &quot;).append(rSuccUpdate.size()).append('/').append(rFailUpdate.size()).</span>
+<span class="nc" id="L467">                    append(' ').</span>
+<span class="nc" id="L468">                    append(&quot;[deleted/failures]: &quot;).append(rSuccDelete.size()).append('/').append(rFailDelete.size()).</span>
+<span class="nc" id="L469">                    append(' ').</span>
+<span class="nc" id="L470">                    append(&quot;[no operation/ignored]: &quot;).append(rSuccNone.size()).append('/').append(rIgnore.size());</span>
+        }
+
+        // Failures
+<span class="nc bnc" id="L474" title="All 4 branches missed.">        if (traceLevel == TraceLevel.FAILURES || traceLevel == TraceLevel.ALL) {</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">            if (includeUser) {</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">                if (!uFailCreate.isEmpty()) {</span>
+<span class="nc" id="L477">                    report.append(&quot;\n\nUsers failed to create: &quot;);</span>
+<span class="nc" id="L478">                    report.append(generate(uFailCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L480" title="All 2 branches missed.">                if (!uFailUpdate.isEmpty()) {</span>
+<span class="nc" id="L481">                    report.append(&quot;\nUsers failed to update: &quot;);</span>
+<span class="nc" id="L482">                    report.append(generate(uFailUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L484" title="All 2 branches missed.">                if (!uFailDelete.isEmpty()) {</span>
+<span class="nc" id="L485">                    report.append(&quot;\nUsers failed to delete: &quot;);</span>
+<span class="nc" id="L486">                    report.append(generate(uFailDelete, traceLevel));</span>
+                }
+
+<span class="nc bnc" id="L489" title="All 2 branches missed.">                if (!laFailCreate.isEmpty()) {</span>
+<span class="nc" id="L490">                    report.append(&quot;\n\nAccounts failed to create: &quot;);</span>
+<span class="nc" id="L491">                    report.append(generate(laFailCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L493" title="All 2 branches missed.">                if (!laFailUpdate.isEmpty()) {</span>
+<span class="nc" id="L494">                    report.append(&quot;\nAccounts failed to update: &quot;);</span>
+<span class="nc" id="L495">                    report.append(generate(laFailUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L497" title="All 2 branches missed.">                if (!laFailDelete.isEmpty()) {</span>
+<span class="nc" id="L498">                    report.append(&quot;\nAccounts failed to delete: &quot;);</span>
+<span class="nc" id="L499">                    report.append(generate(laFailDelete, traceLevel));</span>
+                }
+            }
+
+<span class="nc bnc" id="L503" title="All 2 branches missed.">            if (includeGroup) {</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">                if (!gFailCreate.isEmpty()) {</span>
+<span class="nc" id="L505">                    report.append(&quot;\n\nGroups failed to create: &quot;);</span>
+<span class="nc" id="L506">                    report.append(generate(gFailCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L508" title="All 2 branches missed.">                if (!gFailUpdate.isEmpty()) {</span>
+<span class="nc" id="L509">                    report.append(&quot;\nGroups failed to update: &quot;);</span>
+<span class="nc" id="L510">                    report.append(generate(gFailUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L512" title="All 2 branches missed.">                if (!gFailDelete.isEmpty()) {</span>
+<span class="nc" id="L513">                    report.append(&quot;\nGroups failed to delete: &quot;);</span>
+<span class="nc" id="L514">                    report.append(generate(gFailDelete, traceLevel));</span>
+                }
+            }
+
+<span class="nc bnc" id="L518" title="All 4 branches missed.">            if (includeAnyObject &amp;&amp; !aFailCreate.isEmpty()) {</span>
+<span class="nc" id="L519">                report.append(&quot;\nAny objects failed to create: &quot;);</span>
+<span class="nc" id="L520">                report.append(generate(aFailCreate, traceLevel));</span>
+            }
+<span class="nc bnc" id="L522" title="All 4 branches missed.">            if (includeAnyObject &amp;&amp; !aFailUpdate.isEmpty()) {</span>
+<span class="nc" id="L523">                report.append(&quot;\nAny objects failed to update: &quot;);</span>
+<span class="nc" id="L524">                report.append(generate(aFailUpdate, traceLevel));</span>
+            }
+<span class="nc bnc" id="L526" title="All 4 branches missed.">            if (includeAnyObject &amp;&amp; !aFailDelete.isEmpty()) {</span>
+<span class="nc" id="L527">                report.append(&quot;\nAny objects failed to delete: &quot;);</span>
+<span class="nc" id="L528">                report.append(generate(aFailDelete, traceLevel));</span>
+            }
+
+<span class="nc bnc" id="L531" title="All 2 branches missed.">            if (includeRealm) {</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">                if (!rFailCreate.isEmpty()) {</span>
+<span class="nc" id="L533">                    report.append(&quot;\nRealms failed to create: &quot;);</span>
+<span class="nc" id="L534">                    report.append(generate(rFailCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L536" title="All 2 branches missed.">                if (!rFailUpdate.isEmpty()) {</span>
+<span class="nc" id="L537">                    report.append(&quot;\nRealms failed to update: &quot;);</span>
+<span class="nc" id="L538">                    report.append(generate(rFailUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L540" title="All 2 branches missed.">                if (!rFailDelete.isEmpty()) {</span>
+<span class="nc" id="L541">                    report.append(&quot;\nRealms failed to delete: &quot;);</span>
+<span class="nc" id="L542">                    report.append(generate(rFailDelete, traceLevel));</span>
+                }
+            }
+        }
+
+        // Succeeded, only if on 'ALL' level
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        if (traceLevel == TraceLevel.ALL) {</span>
+<span class="nc bnc" id="L549" title="All 2 branches missed.">            if (includeUser) {</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">                if (!uSuccCreate.isEmpty()) {</span>
+<span class="nc" id="L551">                    report.append(&quot;\n\nUsers created:\n&quot;).</span>
+<span class="nc" id="L552">                            append(generate(uSuccCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L554" title="All 2 branches missed.">                if (!uSuccUpdate.isEmpty()) {</span>
+<span class="nc" id="L555">                    report.append(&quot;\nUsers updated:\n&quot;).</span>
+<span class="nc" id="L556">                            append(generate(uSuccUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L558" title="All 2 branches missed.">                if (!uSuccDelete.isEmpty()) {</span>
+<span class="nc" id="L559">                    report.append(&quot;\nUsers deleted:\n&quot;).</span>
+<span class="nc" id="L560">                            append(generate(uSuccDelete, traceLevel));</span>
+                }
+<span class="nc bnc" id="L562" title="All 2 branches missed.">                if (!uSuccNone.isEmpty()) {</span>
+<span class="nc" id="L563">                    report.append(&quot;\nUsers no operation:\n&quot;).</span>
+<span class="nc" id="L564">                            append(generate(uSuccNone, traceLevel));</span>
+                }
+<span class="nc bnc" id="L566" title="All 2 branches missed.">                if (!uIgnore.isEmpty()) {</span>
+<span class="nc" id="L567">                    report.append(&quot;\nUsers ignored:\n&quot;).</span>
+<span class="nc" id="L568">                            append(generate(uIgnore, traceLevel));</span>
+                }
+
+<span class="nc bnc" id="L571" title="All 2 branches missed.">                if (!laSuccCreate.isEmpty()) {</span>
+<span class="nc" id="L572">                    report.append(&quot;\n\nAccounts created:\n&quot;).</span>
+<span class="nc" id="L573">                            append(generate(laSuccCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L575" title="All 2 branches missed.">                if (!laSuccUpdate.isEmpty()) {</span>
+<span class="nc" id="L576">                    report.append(&quot;\nAccounts updated:\n&quot;).</span>
+<span class="nc" id="L577">                            append(generate(laSuccUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L579" title="All 2 branches missed.">                if (!laSuccDelete.isEmpty()) {</span>
+<span class="nc" id="L580">                    report.append(&quot;\nAccounts deleted:\n&quot;).</span>
+<span class="nc" id="L581">                            append(generate(laSuccDelete, traceLevel));</span>
+                }
+<span class="nc bnc" id="L583" title="All 2 branches missed.">                if (!laSuccNone.isEmpty()) {</span>
+<span class="nc" id="L584">                    report.append(&quot;\nAccounts no operation:\n&quot;).</span>
+<span class="nc" id="L585">                            append(generate(laSuccNone, traceLevel));</span>
+                }
+<span class="nc bnc" id="L587" title="All 2 branches missed.">                if (!laIgnore.isEmpty()) {</span>
+<span class="nc" id="L588">                    report.append(&quot;\nAccounts ignored:\n&quot;).</span>
+<span class="nc" id="L589">                            append(generate(laIgnore, traceLevel));</span>
+                }
+            }
+<span class="nc bnc" id="L592" title="All 2 branches missed.">            if (includeGroup) {</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">                if (!gSuccCreate.isEmpty()) {</span>
+<span class="nc" id="L594">                    report.append(&quot;\n\nGroups created:\n&quot;).</span>
+<span class="nc" id="L595">                            append(generate(gSuccCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L597" title="All 2 branches missed.">                if (!gSuccUpdate.isEmpty()) {</span>
+<span class="nc" id="L598">                    report.append(&quot;\nGroups updated:\n&quot;).</span>
+<span class="nc" id="L599">                            append(generate(gSuccUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L601" title="All 2 branches missed.">                if (!gSuccDelete.isEmpty()) {</span>
+<span class="nc" id="L602">                    report.append(&quot;\nGroups deleted:\n&quot;).</span>
+<span class="nc" id="L603">                            append(generate(gSuccDelete, traceLevel));</span>
+                }
+<span class="nc bnc" id="L605" title="All 2 branches missed.">                if (!gSuccNone.isEmpty()) {</span>
+<span class="nc" id="L606">                    report.append(&quot;\nGroups no operation:\n&quot;).</span>
+<span class="nc" id="L607">                            append(generate(gSuccNone, traceLevel));</span>
+                }
+<span class="nc bnc" id="L609" title="All 2 branches missed.">                if (!gIgnore.isEmpty()) {</span>
+<span class="nc" id="L610">                    report.append(&quot;\nGroups ignored:\n&quot;).</span>
+<span class="nc" id="L611">                            append(generate(gIgnore, traceLevel));</span>
+                }
+            }
+<span class="nc bnc" id="L614" title="All 2 branches missed.">            if (includeAnyObject) {</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">                if (!aSuccCreate.isEmpty()) {</span>
+<span class="nc" id="L616">                    report.append(&quot;\n\nAny objects created:\n&quot;).</span>
+<span class="nc" id="L617">                            append(generate(aSuccCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L619" title="All 2 branches missed.">                if (!aSuccUpdate.isEmpty()) {</span>
+<span class="nc" id="L620">                    report.append(&quot;\nAny objects updated:\n&quot;).</span>
+<span class="nc" id="L621">                            append(generate(aSuccUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L623" title="All 2 branches missed.">                if (!aSuccDelete.isEmpty()) {</span>
+<span class="nc" id="L624">                    report.append(&quot;\nAny objects deleted:\n&quot;).</span>
+<span class="nc" id="L625">                            append(generate(aSuccDelete, traceLevel));</span>
+                }
+<span class="nc bnc" id="L627" title="All 2 branches missed.">                if (!aSuccNone.isEmpty()) {</span>
+<span class="nc" id="L628">                    report.append(&quot;\nAny objects no operation:\n&quot;).</span>
+<span class="nc" id="L629">                            append(generate(aSuccNone, traceLevel));</span>
+                }
+<span class="nc bnc" id="L631" title="All 2 branches missed.">                if (!aIgnore.isEmpty()) {</span>
+<span class="nc" id="L632">                    report.append(&quot;\nAny objects ignored:\n&quot;).</span>
+<span class="nc" id="L633">                            append(generate(aIgnore, traceLevel));</span>
+                }
+            }
+<span class="nc bnc" id="L636" title="All 2 branches missed.">            if (includeRealm) {</span>
+<span class="nc bnc" id="L637" title="All 2 branches missed.">                if (!rSuccCreate.isEmpty()) {</span>
+<span class="nc" id="L638">                    report.append(&quot;\n\nRealms created:\n&quot;).</span>
+<span class="nc" id="L639">                            append(generate(rSuccCreate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L641" title="All 2 branches missed.">                if (!rSuccUpdate.isEmpty()) {</span>
+<span class="nc" id="L642">                    report.append(&quot;\nRealms updated:\n&quot;).</span>
+<span class="nc" id="L643">                            append(generate(rSuccUpdate, traceLevel));</span>
+                }
+<span class="nc bnc" id="L645" title="All 2 branches missed.">                if (!rSuccDelete.isEmpty()) {</span>
+<span class="nc" id="L646">                    report.append(&quot;\nRealms deleted:\n&quot;).</span>
+<span class="nc" id="L647">                            append(generate(rSuccDelete, traceLevel));</span>
+                }
+<span class="nc bnc" id="L649" title="All 2 branches missed.">                if (!rSuccNone.isEmpty()) {</span>
+<span class="nc" id="L650">                    report.append(&quot;\nRealms no operation:\n&quot;).</span>
+<span class="nc" id="L651">                            append(generate(rSuccNone, traceLevel));</span>
+                }
+<span class="nc bnc" id="L653" title="All 2 branches missed.">                if (!rIgnore.isEmpty()) {</span>
+<span class="nc" id="L654">                    report.append(&quot;\nRealms ignored:\n&quot;).</span>
+<span class="nc" id="L655">                            append(generate(rIgnore, traceLevel));</span>
+                }
+            }
+        }
+
+<span class="nc" id="L660">        return report.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

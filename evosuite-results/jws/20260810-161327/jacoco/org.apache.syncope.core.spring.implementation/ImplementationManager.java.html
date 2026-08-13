@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ImplementationManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.implementation</a> &gt; <span class="el_source">ImplementationManager.java</span></div><h1>ImplementationManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.implementation;
+
+import groovy.grape.GrabAnnotationTransformation;
+import groovy.lang.GroovyClassLoader;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.command.CommandArgs;
+import org.apache.syncope.common.lib.policy.AccountRuleConf;
+import org.apache.syncope.common.lib.policy.InboundCorrelationRuleConf;
+import org.apache.syncope.common.lib.policy.PasswordRuleConf;
+import org.apache.syncope.common.lib.policy.PushCorrelationRuleConf;
+import org.apache.syncope.common.lib.report.ReportConf;
+import org.apache.syncope.common.lib.types.IdRepoImplementationType;
+import org.apache.syncope.common.lib.types.ImplementationEngine;
+import org.apache.syncope.common.lib.types.ImplementationTypesHolder;
+import org.apache.syncope.core.persistence.api.ApplicationContextProvider;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.provisioning.api.ImplementationLookup;
+import org.apache.syncope.core.provisioning.api.job.report.ReportJobDelegate;
+import org.apache.syncope.core.provisioning.api.rules.AccountRule;
+import org.apache.syncope.core.provisioning.api.rules.InboundCorrelationRule;
+import org.apache.syncope.core.provisioning.api.rules.PasswordRule;
+import org.apache.syncope.core.provisioning.api.rules.PushCorrelationRule;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.codehaus.groovy.control.CompilerConfiguration;
+import org.jenkinsci.plugins.scriptsecurity.sandbox.blacklists.Blacklist;
+import org.jenkinsci.plugins.scriptsecurity.sandbox.groovy.RejectASTTransformsCustomizer;
+import org.jenkinsci.plugins.scriptsecurity.sandbox.groovy.SandboxInterceptor;
+import org.kohsuke.groovy.sandbox.GroovyInterceptor;
+import org.kohsuke.groovy.sandbox.SandboxTransformer;
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
+
+public final class ImplementationManager {
+
+    private static final GroovyClassLoader GROOVY_CLASSLOADER;
+
+<span class="nc" id="L64">    private static final Map&lt;Pair&lt;String, String&gt;, Class&lt;?&gt;&gt; CLASS_CACHE = Collections.synchronizedMap(new HashMap&lt;&gt;());</span>
+
+    static {
+<span class="nc" id="L67">        CompilerConfiguration cc = new CompilerConfiguration();</span>
+<span class="nc" id="L68">        cc.addCompilationCustomizers(new RejectASTTransformsCustomizer(), new SandboxTransformer());</span>
+<span class="nc" id="L69">        cc.setDisabledGlobalASTTransformations(Set.of(GrabAnnotationTransformation.class.getName()));</span>
+
+<span class="nc" id="L71">        GROOVY_CLASSLOADER = new GroovyClassLoader(Thread.currentThread().getContextClassLoader(), cc);</span>
+<span class="nc" id="L72">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static Optional&lt;ReportJobDelegate&gt; buildReportJobDelegate(
+            final String domain,
+            final Implementation impl,
+            final Supplier&lt;ReportJobDelegate&gt; cacheGetter,
+            final Consumer&lt;ReportJobDelegate&gt; cachePutter)
+            throws ClassNotFoundException {
+
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        switch (impl.getEngine()) {</span>
+            case GROOVY:
+<span class="nc" id="L84">                return Optional.of(build(domain, impl, cacheGetter, cachePutter));</span>
+
+            case JAVA:
+            default:
+<span class="nc" id="L88">                ReportConf conf = POJOHelper.deserialize(impl.getBody(), ReportConf.class);</span>
+                Class&lt;ReportJobDelegate&gt; clazz =
+<span class="nc" id="L90">                        (Class&lt;ReportJobDelegate&gt;) ApplicationContextProvider.getApplicationContext().</span>
+<span class="nc" id="L91">                                getBean(ImplementationLookup.class).getReportClass(conf.getClass());</span>
+
+<span class="nc bnc" id="L93" title="All 2 branches missed.">                if (clazz == null) {</span>
+<span class="nc" id="L94">                    return Optional.empty();</span>
+                }
+
+<span class="nc" id="L97">                ReportJobDelegate report = build(clazz, true, impl.getEngine(), cacheGetter, cachePutter);</span>
+<span class="nc" id="L98">                report.setConf(conf);</span>
+<span class="nc" id="L99">                return Optional.of(report);</span>
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static Optional&lt;AccountRule&gt; buildAccountRule(
+            final String domain,
+            final Implementation impl,
+            final Supplier&lt;AccountRule&gt; cacheGetter,
+            final Consumer&lt;AccountRule&gt; cachePutter)
+            throws ClassNotFoundException {
+
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        switch (impl.getEngine()) {</span>
+            case GROOVY:
+<span class="nc" id="L113">                return Optional.of(build(domain, impl, cacheGetter, cachePutter));</span>
+
+            case JAVA:
+            default:
+<span class="nc" id="L117">                AccountRuleConf conf = POJOHelper.deserialize(impl.getBody(), AccountRuleConf.class);</span>
+<span class="nc" id="L118">                Class&lt;AccountRule&gt; clazz = (Class&lt;AccountRule&gt;) ApplicationContextProvider.getApplicationContext().</span>
+<span class="nc" id="L119">                        getBean(ImplementationLookup.class).getAccountRuleClass(conf.getClass());</span>
+
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                if (clazz == null) {</span>
+<span class="nc" id="L122">                    return Optional.empty();</span>
+                }
+
+<span class="nc" id="L125">                AccountRule rule = build(clazz, true, impl.getEngine(), cacheGetter, cachePutter);</span>
+<span class="nc" id="L126">                rule.setConf(conf);</span>
+<span class="nc" id="L127">                return Optional.of(rule);</span>
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static Optional&lt;PasswordRule&gt; buildPasswordRule(
+            final String domain,
+            final Implementation impl,
+            final Supplier&lt;PasswordRule&gt; cacheGetter,
+            final Consumer&lt;PasswordRule&gt; cachePutter)
+            throws ClassNotFoundException {
+
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        switch (impl.getEngine()) {</span>
+            case GROOVY:
+<span class="nc" id="L141">                return Optional.of(build(domain, impl, cacheGetter, cachePutter));</span>
+
+            case JAVA:
+            default:
+<span class="nc" id="L145">                PasswordRuleConf conf = POJOHelper.deserialize(impl.getBody(), PasswordRuleConf.class);</span>
+<span class="nc" id="L146">                Class&lt;PasswordRule&gt; clazz = (Class&lt;PasswordRule&gt;) ApplicationContextProvider.getApplicationContext().</span>
+<span class="nc" id="L147">                        getBean(ImplementationLookup.class).getPasswordRuleClass(conf.getClass());</span>
+
+<span class="nc bnc" id="L149" title="All 2 branches missed.">                if (clazz == null) {</span>
+<span class="nc" id="L150">                    return Optional.empty();</span>
+                }
+
+<span class="nc" id="L153">                PasswordRule rule = build(clazz, true, impl.getEngine(), cacheGetter, cachePutter);</span>
+<span class="nc" id="L154">                rule.setConf(conf);</span>
+<span class="nc" id="L155">                return Optional.of(rule);</span>
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static Optional&lt;InboundCorrelationRule&gt; buildInboundCorrelationRule(
+            final String domain,
+            final Implementation impl,
+            final Supplier&lt;InboundCorrelationRule&gt; cacheGetter,
+            final Consumer&lt;InboundCorrelationRule&gt; cachePutter)
+            throws ClassNotFoundException {
+
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        switch (impl.getEngine()) {</span>
+            case GROOVY:
+<span class="nc" id="L169">                return Optional.of(build(domain, impl, cacheGetter, cachePutter));</span>
+
+            case JAVA:
+            default:
+<span class="nc" id="L173">                InboundCorrelationRuleConf conf = POJOHelper.deserialize(</span>
+<span class="nc" id="L174">                        impl.getBody(), InboundCorrelationRuleConf.class);</span>
+                Class&lt;InboundCorrelationRule&gt; clazz =
+<span class="nc" id="L176">                        (Class&lt;InboundCorrelationRule&gt;) ApplicationContextProvider.getApplicationContext().</span>
+<span class="nc" id="L177">                                getBean(ImplementationLookup.class).getInboundCorrelationRuleClass(conf.getClass());</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">                if (clazz == null) {</span>
+<span class="nc" id="L179">                    return Optional.empty();</span>
+                }
+
+<span class="nc" id="L182">                InboundCorrelationRule rule = build(clazz, true, impl.getEngine(), cacheGetter, cachePutter);</span>
+<span class="nc" id="L183">                rule.setConf(conf);</span>
+<span class="nc" id="L184">                return Optional.of(rule);</span>
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static Optional&lt;PushCorrelationRule&gt; buildPushCorrelationRule(
+            final String domain,
+            final Implementation impl,
+            final Supplier&lt;PushCorrelationRule&gt; cacheGetter,
+            final Consumer&lt;PushCorrelationRule&gt; cachePutter)
+            throws ClassNotFoundException {
+
+<span class="nc bnc" id="L196" title="All 2 branches missed.">        switch (impl.getEngine()) {</span>
+            case GROOVY:
+<span class="nc" id="L198">                return Optional.of(build(domain, impl, cacheGetter, cachePutter));</span>
+
+            case JAVA:
+            default:
+<span class="nc" id="L202">                PushCorrelationRuleConf conf = POJOHelper.deserialize(impl.getBody(), PushCorrelationRuleConf.class);</span>
+                Class&lt;PushCorrelationRule&gt; clazz =
+<span class="nc" id="L204">                        (Class&lt;PushCorrelationRule&gt;) ApplicationContextProvider.getApplicationContext().</span>
+<span class="nc" id="L205">                                getBean(ImplementationLookup.class).getPushCorrelationRuleClass(conf.getClass());</span>
+
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                if (clazz == null) {</span>
+<span class="nc" id="L208">                    return Optional.empty();</span>
+                }
+
+<span class="nc" id="L211">                PushCorrelationRule rule = build(clazz, true, impl.getEngine(), cacheGetter, cachePutter);</span>
+<span class="nc" id="L212">                rule.setConf(conf);</span>
+<span class="nc" id="L213">                return Optional.of(rule);</span>
+        }
+    }
+
+    @SuppressWarnings({ &quot;unchecked&quot;, &quot;rawtypes&quot; })
+    private static Class&lt;? extends CommandArgs&gt; findCommandArgsClass(final Type type) {
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        if (type.getTypeName().startsWith(</span>
+<span class="nc" id="L220">                ImplementationTypesHolder.getInstance().getValues().get(IdRepoImplementationType.COMMAND) + &quot;&lt;&quot;)) {</span>
+
+<span class="nc" id="L222">            return (Class&lt;? extends CommandArgs&gt;) ((ParameterizedType) type).getActualTypeArguments()[0];</span>
+        }
+
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (type instanceof Class aClass) {</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">            for (Type i : aClass.getGenericInterfaces()) {</span>
+<span class="nc" id="L227">                Class&lt;? extends CommandArgs&gt; r = findCommandArgsClass(i);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">                if (r != null) {</span>
+<span class="nc" id="L229">                    return r;</span>
+                }
+            }
+        }
+
+<span class="nc" id="L234">        return null;</span>
+    }
+
+    public static CommandArgs emptyArgs(final String domain, final Implementation impl) throws Exception {
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        if (!IdRepoImplementationType.COMMAND.equals(impl.getType())) {</span>
+<span class="nc" id="L239">            throw new IllegalArgumentException(&quot;This method can be only called on implementations&quot;);</span>
+        }
+
+<span class="nc" id="L242">        Class&lt;Object&gt; commandClass = getClass(domain, impl).getLeft();</span>
+
+<span class="nc" id="L244">        Class&lt;? extends CommandArgs&gt; commandArgsClass = findCommandArgsClass(commandClass);</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">        if (commandArgsClass != null</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                &amp;&amp; (commandArgsClass.getEnclosingClass() == null</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">                || Modifier.isStatic(commandArgsClass.getModifiers()))) {</span>
+
+<span class="nc" id="L249">            return commandArgsClass.getDeclaredConstructor().newInstance();</span>
+        }
+
+<span class="nc" id="L252">        throw new IllegalArgumentException(</span>
+<span class="nc" id="L253">                CommandArgs.class.getName() + &quot; shall be either declared as independent or nested static&quot;);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static &lt;T&gt; Pair&lt;Class&lt;T&gt;, Boolean&gt; getClass(final String domain, final Implementation impl)
+            throws ClassNotFoundException {
+
+<span class="nc" id="L260">        Pair&lt;String, String&gt; cacheKey = Pair.of(domain, impl.getKey());</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        if (CLASS_CACHE.containsKey(cacheKey)) {</span>
+<span class="nc" id="L262">            return Pair.of((Class&lt;T&gt;) CLASS_CACHE.get(cacheKey), true);</span>
+        }
+
+        Class&lt;?&gt; clazz;
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        switch (impl.getEngine()) {</span>
+            case GROOVY:
+<span class="nc" id="L268">                clazz = GROOVY_CLASSLOADER.parseClass(impl.getBody());</span>
+<span class="nc" id="L269">                break;</span>
+
+            case JAVA:
+            default:
+<span class="nc" id="L273">                clazz = Class.forName(impl.getBody());</span>
+        }
+
+<span class="nc" id="L276">        CLASS_CACHE.put(cacheKey, clazz);</span>
+<span class="nc" id="L277">        return Pair.of((Class&lt;T&gt;) clazz, false);</span>
+    }
+
+    private static &lt;T&gt; T createBean(final Class&lt;T&gt; clazz, final ImplementationEngine engine) {
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        if (engine == ImplementationEngine.JAVA) {</span>
+<span class="nc" id="L282">            return ApplicationContextProvider.getBeanFactory().createBean(clazz);</span>
+        }
+
+<span class="nc" id="L285">        GroovyInterceptor interceptor = new SandboxInterceptor(</span>
+<span class="nc" id="L286">                ApplicationContextProvider.getApplicationContext().getBean(Blacklist.class));</span>
+        try {
+<span class="nc" id="L288">            interceptor.register();</span>
+
+<span class="nc" id="L290">            AspectJProxyFactory factory = new AspectJProxyFactory(</span>
+<span class="nc" id="L291">                    ApplicationContextProvider.getBeanFactory().createBean(clazz));</span>
+<span class="nc" id="L292">            factory.addAspect(new GroovySandbox(interceptor));</span>
+<span class="nc" id="L293">            return factory.getProxy();</span>
+        } finally {
+<span class="nc" id="L295">            interceptor.unregister();</span>
+        }
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public static &lt;T&gt; T build(final String domain, final Implementation impl) throws ClassNotFoundException {
+<span class="nc" id="L301">        return createBean((Class&lt;T&gt;) getClass(domain, impl).getLeft(), impl.getEngine());</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private static &lt;T&gt; T build(
+            final Class&lt;T&gt; clazz,
+            final boolean classCached,
+            final ImplementationEngine engine,
+            final Supplier&lt;T&gt; cacheGetter,
+            final Consumer&lt;T&gt; cachePutter) {
+
+<span class="nc" id="L312">        boolean perContext = Optional.ofNullable(clazz.getAnnotation(SyncopeImplementation.class)).</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">                map(ann -&gt; ann.scope() == InstanceScope.PER_CONTEXT).</span>
+<span class="nc" id="L314">                orElse(true);</span>
+<span class="nc" id="L315">        T instance = null;</span>
+<span class="nc bnc" id="L316" title="All 4 branches missed.">        if (perContext &amp;&amp; classCached) {</span>
+<span class="nc" id="L317">            instance = cacheGetter.get();</span>
+        }
+<span class="nc bnc" id="L319" title="All 2 branches missed.">        if (instance == null) {</span>
+<span class="nc" id="L320">            instance = createBean(clazz, engine);</span>
+
+<span class="nc bnc" id="L322" title="All 2 branches missed.">            if (perContext) {</span>
+<span class="nc" id="L323">                cachePutter.accept(instance);</span>
+            }
+        }
+
+<span class="nc" id="L327">        return instance;</span>
+    }
+
+    public static &lt;T&gt; T build(
+            final String domain,
+            final Implementation impl,
+            final Supplier&lt;T&gt; cacheGetter,
+            final Consumer&lt;T&gt; cachePutter)
+            throws ClassNotFoundException {
+
+<span class="nc" id="L337">        Pair&lt;Class&lt;T&gt;, Boolean&gt; clazz = getClass(domain, impl);</span>
+
+<span class="nc" id="L339">        return build(clazz.getLeft(), clazz.getRight(), impl.getEngine(), cacheGetter, cachePutter);</span>
+    }
+
+    public static Class&lt;?&gt; purge(final String domain, final String implementation) {
+<span class="nc" id="L343">        return CLASS_CACHE.remove(Pair.of(domain, implementation));</span>
+    }
+
+    private ImplementationManager() {
+        // private constructor for static utility class
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

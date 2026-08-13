@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SyncopeTaskScheduler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">SyncopeTaskScheduler.java</span></div><h1>SyncopeTaskScheduler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import org.apache.syncope.core.persistence.api.dao.JobStatusDAO;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.support.CronTrigger;
+
+public class SyncopeTaskScheduler {
+
+<span class="nc" id="L42">    public record Key(String domain, String job) {</span>
+
+    }
+
+<span class="nc" id="L46">    public record Value(Job job, Optional&lt;ScheduledFuture&lt;?&gt;&gt; instant, Optional&lt;ScheduledFuture&lt;?&gt;&gt; cron) {</span>
+
+    }
+
+<span class="nc" id="L50">    protected static final Logger LOG = LoggerFactory.getLogger(SyncopeTaskScheduler.class);</span>
+
+    protected final TaskScheduler scheduler;
+
+    protected final JobStatusDAO jobStatusDAO;
+
+<span class="nc" id="L56">    protected final Map&lt;Key, Value&gt; jobs = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L58">    public SyncopeTaskScheduler(final TaskScheduler scheduler, final JobStatusDAO jobStatusDAO) {</span>
+<span class="nc" id="L59">        this.scheduler = scheduler;</span>
+<span class="nc" id="L60">        this.jobStatusDAO = jobStatusDAO;</span>
+<span class="nc" id="L61">    }</span>
+
+    protected void register(final Job job, final ScheduledFuture&lt;?&gt; instant, final ScheduledFuture&lt;?&gt; cron) {
+<span class="nc" id="L64">        Key key = new Key(job.getContext().getDomain(), job.getContext().getJobName());</span>
+
+<span class="nc bnc" id="L66" title="All 2 branches missed.">        stop(key, instant == null ? List.of(Value::cron) : List.of(Value::instant));</span>
+<span class="nc" id="L67">        AuthContextUtils.runAsAdmin(key.domain(), () -&gt; jobStatusDAO.unlock(key.job()));</span>
+
+<span class="nc" id="L69">        jobs.merge(</span>
+                key,
+<span class="nc" id="L71">                new Value(job, Optional.ofNullable(instant), Optional.ofNullable(cron)),</span>
+<span class="nc" id="L72">                (prev, value) -&gt; new Value(</span>
+                        job,
+<span class="nc bnc" id="L74" title="All 2 branches missed.">                        value.instant().isEmpty() ? prev.instant() : value.instant(),</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">                        value.cron().isEmpty() ? prev.cron() : value.cron()));</span>
+<span class="nc" id="L76">    }</span>
+
+    public void register(final Job job) {
+<span class="nc" id="L79">        register(job, null, null);</span>
+<span class="nc" id="L80">    }</span>
+
+    public void schedule(final Job job, final Instant startTime) {
+<span class="nc" id="L83">        register(job, scheduler.schedule(job, startTime), null);</span>
+<span class="nc" id="L84">    }</span>
+
+    public void schedule(final Job job, final CronTrigger trigger) {
+<span class="nc" id="L87">        register(job, null, scheduler.schedule(job, trigger));</span>
+<span class="nc" id="L88">    }</span>
+
+    public void start(final String domain, final String jobName) {
+<span class="nc" id="L91">        Optional.ofNullable(jobs.get(new Key(domain, jobName))).</span>
+<span class="nc" id="L92">                filter(value -&gt; value.instant().map(Future::isDone).orElse(true)).</span>
+<span class="nc" id="L93">                ifPresent(value -&gt; register(</span>
+<span class="nc" id="L94">                value.job(),</span>
+<span class="nc" id="L95">                scheduler.schedule(value.job(), Instant.now()),</span>
+<span class="nc" id="L96">                value.cron().orElse(null)));</span>
+<span class="nc" id="L97">    }</span>
+
+    protected void stop(final Key key, final List&lt;Function&lt;Value, Optional&lt;ScheduledFuture&lt;?&gt;&gt;&gt;&gt; suppliers) {
+<span class="nc" id="L100">        Optional.ofNullable(jobs.get(key)).ifPresent(value -&gt; {</span>
+            boolean mayInterruptIfRunning;
+<span class="nc bnc" id="L102" title="All 2 branches missed.">            if (value.job().getDelegate() instanceof StoppableJobDelegate stoppable) {</span>
+<span class="nc" id="L103">                stoppable.stop();</span>
+<span class="nc" id="L104">                mayInterruptIfRunning = false;</span>
+            } else {
+<span class="nc" id="L106">                mayInterruptIfRunning = true;</span>
+            }
+
+<span class="nc" id="L109">            suppliers.forEach(s -&gt; s.apply(value).ifPresent(f -&gt; f.cancel(mayInterruptIfRunning)));</span>
+<span class="nc" id="L110">        });</span>
+<span class="nc" id="L111">    }</span>
+
+    public void stop(final String domain, final String jobName) {
+<span class="nc" id="L114">        stop(new Key(domain, jobName), List.of(Value::instant, Value::cron));</span>
+<span class="nc" id="L115">    }</span>
+
+    public void delete(final String domain, final String jobName) {
+<span class="nc" id="L118">        jobs.remove(new Key(domain, jobName));</span>
+<span class="nc" id="L119">        AuthContextUtils.runAsAdmin(domain, () -&gt; jobStatusDAO.unlock(jobName));</span>
+<span class="nc" id="L120">    }</span>
+
+    public Optional&lt;Class&lt;?&gt;&gt; getJobClass(final String domain, final String jobName) {
+<span class="nc" id="L123">        return Optional.ofNullable(jobs.get(new Key(domain, jobName))).</span>
+<span class="nc" id="L124">                map(value -&gt; AopUtils.getTargetClass(value.job()));</span>
+    }
+
+    public Optional&lt;OffsetDateTime&gt; getNextTrigger(final String domain, final String jobName) {
+<span class="nc" id="L128">        Value value = jobs.get(new Key(domain, jobName));</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L130">            return Optional.empty();</span>
+        }
+
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        ScheduledFuture&lt;?&gt; future = value.cron().filter(f -&gt; !f.isDone()).orElse(null);</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        if (future == null) {</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            future = value.instant().filter(f -&gt; !f.isDone()).orElse(null);</span>
+        }
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        if (future == null) {</span>
+<span class="nc" id="L138">            return Optional.empty();</span>
+        }
+
+<span class="nc" id="L141">        long delay = future.getDelay(TimeUnit.SECONDS);</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (delay &gt; 0) {</span>
+<span class="nc" id="L143">            return Optional.of(OffsetDateTime.now().plusSeconds(delay));</span>
+        }
+<span class="nc" id="L145">        return Optional.empty();</span>
+    }
+
+    public List&lt;String&gt; getJobNames(final String domain) {
+<span class="nc" id="L149">        return jobs.keySet().stream().filter(key -&gt; domain.equals(key.domain())).map(Key::job).toList();</span>
+    }
+
+    public Map&lt;Key, Value&gt; getJobs() {
+<span class="nc" id="L153">        return Map.copyOf(jobs);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

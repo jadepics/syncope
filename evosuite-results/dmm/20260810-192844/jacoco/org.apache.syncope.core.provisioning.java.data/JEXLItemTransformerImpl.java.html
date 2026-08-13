@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>JEXLItemTransformerImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">JEXLItemTransformerImpl.java</span></div><h1>JEXLItemTransformerImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.EntityTO;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.types.AttrSchemaType;
+import org.apache.syncope.core.persistence.api.entity.Attributable;
+import org.apache.syncope.core.persistence.api.entity.PlainAttrValue;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.data.JEXLItemTransformer;
+import org.apache.syncope.core.provisioning.api.jexl.JexlContextBuilder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L42">public class JEXLItemTransformerImpl implements JEXLItemTransformer {</span>
+
+    @Autowired
+    private JexlTools jexlTools;
+
+    @Autowired
+    private DerAttrHandler derAttrHandler;
+
+    private String propagationJEXL;
+
+    private String pullJEXL;
+
+    @Override
+    public void setPropagationJEXL(final String propagationJEXL) {
+<span class="nc" id="L56">        this.propagationJEXL = propagationJEXL;</span>
+<span class="nc" id="L57">    }</span>
+
+    @Override
+    public void setPullJEXL(final String pullJEXL) {
+<span class="nc" id="L61">        this.pullJEXL = pullJEXL;</span>
+<span class="nc" id="L62">    }</span>
+
+    protected AttrSchemaType beforePropagation(
+            final Attributable attributable,
+            final AttrSchemaType schemaType,
+            final PlainAttrValue value) {
+
+<span class="nc" id="L69">        JexlContextBuilder builder = new JexlContextBuilder();</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (attributable != null) {</span>
+<span class="nc" id="L71">            builder.fields(attributable).</span>
+<span class="nc" id="L72">                    plainAttrs(attributable.getPlainAttrs()).</span>
+<span class="nc" id="L73">                    derAttrs(jexlTools.derAttrs(attributable, derAttrHandler));</span>
+        }
+<span class="nc" id="L75">        JexlContext jexlContext = builder.build();</span>
+
+        Object oValue;
+<span class="nc bnc" id="L78" title="All 6 branches missed.">        switch (schemaType) {</span>
+            case Binary:
+            case Encrypted:
+<span class="nc" id="L81">                oValue = value.getBinaryValue();</span>
+<span class="nc" id="L82">                break;</span>
+
+            case Boolean:
+<span class="nc" id="L85">                oValue = value.getBooleanValue();</span>
+<span class="nc" id="L86">                break;</span>
+
+            case Date:
+<span class="nc" id="L89">                oValue = value.getDateValue();</span>
+<span class="nc" id="L90">                break;</span>
+
+            case Double:
+<span class="nc" id="L93">                oValue = value.getDoubleValue();</span>
+<span class="nc" id="L94">                break;</span>
+
+            case Long:
+<span class="nc" id="L97">                oValue = value.getLongValue();</span>
+<span class="nc" id="L98">                break;</span>
+
+            case Enum:
+            case Dropdown:
+            case String:
+            default:
+<span class="nc" id="L104">                oValue = value.getStringValue();</span>
+        }
+<span class="nc" id="L106">        jexlContext.set(&quot;value&quot;, oValue);</span>
+
+<span class="nc" id="L108">        Object tValue = jexlTools.evaluateExpression(propagationJEXL, jexlContext);</span>
+
+<span class="nc" id="L110">        value.setBinaryValue(null);</span>
+<span class="nc" id="L111">        value.setBooleanValue(null);</span>
+<span class="nc" id="L112">        value.setDateValue(null);</span>
+<span class="nc" id="L113">        value.setDoubleValue(null);</span>
+<span class="nc" id="L114">        value.setLongValue(null);</span>
+<span class="nc" id="L115">        value.setStringValue(null);</span>
+
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (tValue instanceof byte[] bs) {</span>
+<span class="nc" id="L118">            value.setBinaryValue(bs);</span>
+<span class="nc" id="L119">            return AttrSchemaType.Binary;</span>
+        }
+
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (tValue instanceof Boolean aBoolean) {</span>
+<span class="nc" id="L123">            value.setBooleanValue(aBoolean);</span>
+<span class="nc" id="L124">            return AttrSchemaType.Boolean;</span>
+        }
+
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        if (tValue instanceof OffsetDateTime offsetDateTime) {</span>
+<span class="nc" id="L128">            value.setDateValue(offsetDateTime);</span>
+<span class="nc" id="L129">            return AttrSchemaType.Date;</span>
+        }
+
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        if (tValue instanceof Double aDouble) {</span>
+<span class="nc" id="L133">            value.setDoubleValue(aDouble);</span>
+<span class="nc" id="L134">            return AttrSchemaType.Double;</span>
+        }
+
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        if (tValue instanceof Long aLong) {</span>
+<span class="nc" id="L138">            value.setLongValue(aLong);</span>
+<span class="nc" id="L139">            return AttrSchemaType.Long;</span>
+        }
+
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (tValue != null) {</span>
+<span class="nc" id="L143">            value.setStringValue(tValue.toString());</span>
+        }
+<span class="nc" id="L145">        return AttrSchemaType.String;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public MappingManager.IntValues beforePropagation(
+            final Item item,
+            final Attributable attributable,
+            final AttrSchemaType schemaType,
+            final List&lt;PlainAttrValue&gt; values) {
+
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (StringUtils.isBlank(propagationJEXL)) {</span>
+<span class="nc" id="L157">            return JEXLItemTransformer.super.beforePropagation(item, attributable, schemaType, values);</span>
+        }
+
+<span class="nc" id="L160">        Mutable&lt;AttrSchemaType&gt; tType = new MutableObject&lt;&gt;();</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (values.isEmpty()) {</span>
+<span class="nc" id="L162">            PlainAttrValue value = new PlainAttrValue();</span>
+<span class="nc" id="L163">            tType.setValue(beforePropagation(attributable, schemaType, value));</span>
+<span class="nc" id="L164">            values.add(value);</span>
+<span class="nc" id="L165">        } else {</span>
+<span class="nc" id="L166">            values.forEach(value -&gt; tType.setValue(beforePropagation(attributable, schemaType, value)));</span>
+        }
+
+<span class="nc" id="L169">        return new MappingManager.IntValues(tType.get(), values);</span>
+    }
+
+    @Override
+    public List&lt;Object&gt; beforePull(
+            final Item item,
+            final EntityTO entityTO,
+            final List&lt;Object&gt; values) {
+
+<span class="nc bnc" id="L178" title="All 4 branches missed.">        if (StringUtils.isNotBlank(pullJEXL) &amp;&amp; values != null) {</span>
+<span class="nc" id="L179">            List&lt;Object&gt; newValues = new ArrayList&lt;&gt;(values.size());</span>
+<span class="nc" id="L180">            values.forEach(value -&gt; {</span>
+<span class="nc" id="L181">                JexlContextBuilder builder = new JexlContextBuilder().with(&quot;value&quot;, value).fields(entityTO);</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">                if (entityTO instanceof AnyTO anyTO) {</span>
+<span class="nc" id="L183">                    builder.attrs(anyTO.getPlainAttrs());</span>
+<span class="nc" id="L184">                    builder.attrs(anyTO.getDerAttrs());</span>
+                }
+<span class="nc" id="L186">                JexlContext jexlContext = builder.build();</span>
+
+<span class="nc" id="L188">                newValues.add(jexlTools.evaluateExpression(pullJEXL, jexlContext));</span>
+<span class="nc" id="L189">            });</span>
+
+<span class="nc" id="L191">            return newValues;</span>
+        }
+
+<span class="nc" id="L194">        return JEXLItemTransformer.super.beforePull(item, entityTO, values);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

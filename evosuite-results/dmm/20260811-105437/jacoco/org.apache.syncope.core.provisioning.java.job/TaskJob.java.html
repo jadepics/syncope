@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TaskJob.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">TaskJob.java</span></div><h1>TaskJob.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.DomainHolder;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.JobManager;
+import org.apache.syncope.core.provisioning.api.job.SchedTaskJobDelegate;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L35">public class TaskJob extends Job {</span>
+
+<span class="nc" id="L37">    private static final Logger LOG = LoggerFactory.getLogger(TaskJob.class);</span>
+
+    /**
+     * Task execution status.
+     */
+<span class="nc" id="L42">    public enum Status {</span>
+
+<span class="nc" id="L44">        SUCCESS,</span>
+<span class="nc" id="L45">        FAILURE</span>
+
+    }
+
+    @Autowired
+    private DomainHolder&lt;?&gt; domainHolder;
+
+    @Autowired
+    protected ImplementationDAO implementationDAO;
+
+    private SchedTaskJobDelegate delegate;
+
+    @Override
+    public SchedTaskJobDelegate getDelegate() {
+<span class="nc" id="L59">        return delegate;</span>
+    }
+
+    protected void delegate(final JobExecutionContext context, final String taskKey)
+            throws ClassNotFoundException, JobExecutionException {
+
+<span class="nc" id="L65">        String implKey = (String) context.getData().get(JobManager.DELEGATE_IMPLEMENTATION);</span>
+<span class="nc" id="L66">        Implementation impl = implementationDAO.findById(implKey).orElse(null);</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (impl == null) {</span>
+<span class="nc" id="L68">            LOG.error(&quot;Could not find Implementation '{}', aborting&quot;, implKey);</span>
+        } else {
+<span class="nc" id="L70">            delegate = ImplementationManager.build(context.getDomain(), impl);</span>
+<span class="nc" id="L71">            delegate.execute(</span>
+<span class="nc" id="L72">                    (TaskType) context.getData().get(JobManager.TASK_TYPE),</span>
+                    taskKey,
+                    context);
+        }
+<span class="nc" id="L76">    }</span>
+
+    @Override
+    protected void execute(final JobExecutionContext context) throws JobExecutionException {
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (!domainHolder.getDomains().containsKey(context.getDomain())) {</span>
+<span class="nc" id="L81">            LOG.debug(&quot;Domain {} not found, skipping&quot;, context.getDomain());</span>
+<span class="nc" id="L82">            return;</span>
+        }
+
+<span class="nc" id="L85">        String taskKey = (String) context.getData().get(JobManager.TASK_KEY);</span>
+        try {
+<span class="nc" id="L87">            AuthContextUtils.runAsAdmin(context.getDomain(), () -&gt; {</span>
+                try {
+<span class="nc" id="L89">                    delegate(context, taskKey);</span>
+<span class="nc" id="L90">                } catch (Exception e) {</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">                    if (e instanceof RuntimeException re) {</span>
+<span class="nc" id="L92">                        throw re;</span>
+                    }
+<span class="nc" id="L94">                    throw new RuntimeException(e);</span>
+<span class="nc" id="L95">                }</span>
+<span class="nc" id="L96">            });</span>
+<span class="nc" id="L97">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L98">            LOG.error(&quot;While executing task {}&quot;, taskKey, e);</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">            if (e.getCause() instanceof JobExecutionException jee) {</span>
+<span class="nc" id="L100">                throw jee;</span>
+            }
+<span class="nc" id="L102">            throw new JobExecutionException(&quot;While executing task &quot; + taskKey, e);</span>
+<span class="nc" id="L103">        }</span>
+<span class="nc" id="L104">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

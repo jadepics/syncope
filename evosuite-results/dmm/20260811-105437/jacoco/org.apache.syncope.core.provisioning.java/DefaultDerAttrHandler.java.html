@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultDerAttrHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultDerAttrHandler.java</span></div><h1>DefaultDerAttrHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.syncope.core.persistence.api.dao.AnyChecker;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.Attributable;
+import org.apache.syncope.core.persistence.api.entity.DerSchema;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.Membership;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.Relatable;
+import org.apache.syncope.core.persistence.api.entity.Relationship;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.jexl.JexlContextBuilder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
+
+@Transactional(readOnly = true)
+public class DefaultDerAttrHandler implements DerAttrHandler {
+
+<span class="fc" id="L46">    protected static final Logger LOG = LoggerFactory.getLogger(DerAttrHandler.class);</span>
+
+    protected final AnyChecker anyChecker;
+
+    protected final JexlTools jexlTools;
+
+<span class="fc" id="L52">    public DefaultDerAttrHandler(final AnyChecker anyChecker, final JexlTools jexlTools) {</span>
+<span class="fc" id="L53">        this.anyChecker = anyChecker;</span>
+<span class="fc" id="L54">        this.jexlTools = jexlTools;</span>
+<span class="fc" id="L55">    }</span>
+
+    protected Map&lt;String, String&gt; getValues(
+            final Attributable attributable,
+            final Collection&lt;? extends DerSchema&gt; schemas) {
+
+<span class="fc" id="L61">        Map&lt;String, String&gt; result = new HashMap&lt;&gt;(schemas.size());</span>
+
+<span class="fc" id="L63">        schemas.forEach(schema -&gt; {</span>
+<span class="nc" id="L64">            JexlContext jexlContext = new JexlContextBuilder().</span>
+<span class="nc" id="L65">                    plainAttrs(attributable.getPlainAttrs()).</span>
+<span class="nc" id="L66">                    fields(attributable).</span>
+<span class="nc" id="L67">                    build();</span>
+
+<span class="nc" id="L69">            result.put(schema.getKey(), jexlTools.evaluateExpression(schema.getExpression(), jexlContext).toString());</span>
+<span class="nc" id="L70">        });</span>
+
+<span class="fc" id="L72">        return result;</span>
+    }
+
+    @Override
+    public Map&lt;String, String&gt; getValues(final Realm realm) {
+<span class="fc" id="L77">        return getValues(</span>
+                realm,
+<span class="fc" id="L79">                realm.getAnyTypeClasses().stream().</span>
+<span class="pc" id="L80">                        flatMap(atc -&gt; atc.getDerSchemas().stream()).collect(Collectors.toSet()));</span>
+    }
+
+    @Override
+    public String getValue(final Realm realm, final DerSchema schema) {
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (realm.getAnyTypeClasses().stream().flatMap(atc -&gt; atc.getDerSchemas().stream()).anyMatch(schema::equals)) {</span>
+<span class="nc" id="L86">            LOG.debug(&quot;{} not allowed for {}&quot;, schema, realm);</span>
+<span class="nc" id="L87">            return null;</span>
+        }
+
+<span class="nc" id="L90">        return getValues(realm, Set.of(schema)).get(schema.getKey());</span>
+    }
+
+    @Override
+    public Map&lt;String, String&gt; getValues(final Any any) {
+<span class="nc" id="L95">        return getValues(</span>
+                any,
+<span class="nc" id="L97">                anyChecker.findAllowedSchemas(any, DerSchema.class).self());</span>
+    }
+
+    @Override
+    public String getValue(final Any any, final DerSchema schema) {
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (!anyChecker.findAllowedSchemas(any, DerSchema.class).selfContains(schema)) {</span>
+<span class="nc" id="L103">            LOG.debug(&quot;{} not allowed for {}&quot;, schema, any);</span>
+<span class="nc" id="L104">            return null;</span>
+        }
+
+<span class="nc" id="L107">        return getValues(any, Set.of(schema)).get(schema.getKey());</span>
+    }
+
+    protected Map&lt;String, String&gt; getValues(
+            final Groupable&lt;?, ?, ?&gt; groupable,
+            final Membership&lt;?&gt; membership,
+            final Set&lt;DerSchema&gt; schemas) {
+
+<span class="nc" id="L115">        Map&lt;String, String&gt; result = new HashMap&lt;&gt;(schemas.size());</span>
+
+<span class="nc" id="L117">        schemas.forEach(schema -&gt; {</span>
+<span class="nc" id="L118">            JexlContext jexlContext = new JexlContextBuilder().</span>
+<span class="nc" id="L119">                    plainAttrs(groupable.getPlainAttrs(membership)).</span>
+<span class="nc" id="L120">                    fields(groupable).</span>
+<span class="nc" id="L121">                    build();</span>
+
+<span class="nc" id="L123">            result.put(schema.getKey(), jexlTools.evaluateExpression(schema.getExpression(), jexlContext).toString());</span>
+<span class="nc" id="L124">        });</span>
+
+<span class="nc" id="L126">        return result;</span>
+    }
+
+    @Override
+    public Map&lt;String, String&gt; getValues(final Groupable&lt;?, ?, ?&gt; groupable, final Membership&lt;?&gt; membership) {
+<span class="nc" id="L131">        Set&lt;DerSchema&gt; schemas = anyChecker.</span>
+<span class="nc" id="L132">                findAllowedSchemas(groupable, DerSchema.class).membership(membership.getRightEnd());</span>
+<span class="nc" id="L133">        return getValues(groupable, membership, schemas);</span>
+    }
+
+    @Override
+    public String getValue(final Groupable&lt;?, ?, ?&gt; groupable, final Membership&lt;?&gt; membership, final DerSchema schema) {
+<span class="nc" id="L138">        if (!anyChecker.</span>
+<span class="nc" id="L139">                findAllowedSchemas(groupable, DerSchema.class).</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">                membership(membership.getRightEnd()).contains(schema)) {</span>
+
+<span class="nc" id="L142">            LOG.debug(&quot;{} not allowed for {}&quot;, schema, groupable);</span>
+<span class="nc" id="L143">            return null;</span>
+        }
+
+<span class="nc" id="L146">        return getValues(groupable, membership, Set.of(schema)).get(schema.getKey());</span>
+    }
+
+    protected Map&lt;String, String&gt; getValues(
+            final Relatable&lt;?, ?&gt; relatable,
+            final Relationship&lt;?, ?&gt; relationship,
+            final Set&lt;DerSchema&gt; schemas) {
+
+<span class="nc" id="L154">        Map&lt;String, String&gt; result = new HashMap&lt;&gt;(schemas.size());</span>
+
+<span class="nc" id="L156">        schemas.forEach(schema -&gt; {</span>
+<span class="nc" id="L157">            JexlContext jexlContext = new JexlContextBuilder().</span>
+<span class="nc" id="L158">                    plainAttrs(relatable.getPlainAttrs(relationship)).</span>
+<span class="nc" id="L159">                    fields(relatable).</span>
+<span class="nc" id="L160">                    build();</span>
+
+<span class="nc" id="L162">            result.put(schema.getKey(), jexlTools.evaluateExpression(schema.getExpression(), jexlContext).toString());</span>
+<span class="nc" id="L163">        });</span>
+
+<span class="nc" id="L165">        return result;</span>
+    }
+
+    @Override
+    public Map&lt;String, String&gt; getValues(final Relatable&lt;?, ?&gt; relatable, final Relationship&lt;?, ?&gt; relationship) {
+<span class="nc" id="L170">        Set&lt;DerSchema&gt; schemas = anyChecker.</span>
+<span class="nc" id="L171">                findAllowedSchemas(relatable, DerSchema.class).relationshipType(relationship.getType());</span>
+<span class="nc" id="L172">        return getValues(relatable, relationship, schemas);</span>
+    }
+
+    @Override
+    public String getValue(
+            final Relatable&lt;?, ?&gt; relatable,
+            final Relationship&lt;?, ?&gt; relationship,
+            final DerSchema schema) {
+
+<span class="nc" id="L181">        if (!anyChecker.</span>
+<span class="nc" id="L182">                findAllowedSchemas(relatable, DerSchema.class).</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">                relationshipTypesContains(relationship.getType(), schema)) {</span>
+
+<span class="nc" id="L185">            LOG.debug(&quot;{} not allowed for {}&quot;, schema, relatable);</span>
+<span class="nc" id="L186">            return null;</span>
+        }
+
+<span class="nc" id="L189">        return getValues(relatable, relationship, Set.of(schema)).get(schema.getKey());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

@@ -1,0 +1,475 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClientAppDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">ClientAppDataBinderImpl.java</span></div><h1>ClientAppDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
+import org.apache.syncope.common.lib.OIDCStandardScope;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.CASSPClientAppTO;
+import org.apache.syncope.common.lib.to.ClientAppTO;
+import org.apache.syncope.common.lib.to.OIDCRPClientAppTO;
+import org.apache.syncope.common.lib.to.SAML2SPClientAppTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.rest.api.service.SAML2IdPEntityService;
+import org.apache.syncope.core.persistence.api.dao.OIDCOpEntityDAO;
+import org.apache.syncope.core.persistence.api.dao.PolicyDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.am.CASSPClientApp;
+import org.apache.syncope.core.persistence.api.entity.am.ClientApp;
+import org.apache.syncope.core.persistence.api.entity.am.OIDCRPClientApp;
+import org.apache.syncope.core.persistence.api.entity.am.SAML2SPClientApp;
+import org.apache.syncope.core.persistence.api.entity.policy.AccessPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AttrReleasePolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.AuthPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.Policy;
+import org.apache.syncope.core.persistence.api.entity.policy.TicketExpirationPolicy;
+import org.apache.syncope.core.provisioning.api.data.ClientAppDataBinder;
+
+public class ClientAppDataBinderImpl implements ClientAppDataBinder {
+
+    protected final PolicyDAO policyDAO;
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+    protected final OIDCOpEntityDAO oidcOpEntityDAO;
+
+    protected final EntityFactory entityFactory;
+
+    public ClientAppDataBinderImpl(
+            final PolicyDAO policyDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final OIDCOpEntityDAO oidcOpEntityDAO,
+<span class="nc" id="L63">            final EntityFactory entityFactory) {</span>
+
+<span class="nc" id="L65">        this.policyDAO = policyDAO;</span>
+<span class="nc" id="L66">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L67">        this.oidcOpEntityDAO = oidcOpEntityDAO;</span>
+<span class="nc" id="L68">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L69">    }</span>
+
+    @Override
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public &lt;T extends ClientApp&gt; T create(final ClientAppTO clientAppTO) {
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (clientAppTO instanceof SAML2SPClientAppTO sAML2SPClientAppTO) {</span>
+<span class="nc" id="L75">            return (T) doCreate(sAML2SPClientAppTO);</span>
+        }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (clientAppTO instanceof OIDCRPClientAppTO oIDCRPClientAppTO) {</span>
+<span class="nc" id="L78">            return (T) doCreate(oIDCRPClientAppTO);</span>
+        }
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        if (clientAppTO instanceof CASSPClientAppTO cASSPClientAppTO) {</span>
+<span class="nc" id="L81">            return (T) doCreate(cASSPClientAppTO);</span>
+        }
+
+<span class="nc" id="L84">        throw new IllegalArgumentException(&quot;Unsupported client app: &quot; + clientAppTO.getClass().getName());</span>
+    }
+
+    @Override
+    public &lt;T extends ClientApp&gt; void update(final T clientApp, final ClientAppTO clientAppTO) {
+<span class="nc bnc" id="L89" title="All 4 branches missed.">        switch (clientAppTO) {</span>
+<span class="nc" id="L90">            case SAML2SPClientAppTO saml2sp -&gt;</span>
+<span class="nc" id="L91">                doUpdate((SAML2SPClientApp) clientApp, saml2sp);</span>
+<span class="nc" id="L92">            case OIDCRPClientAppTO oidcrp -&gt;</span>
+<span class="nc" id="L93">                doUpdate((OIDCRPClientApp) clientApp, oidcrp);</span>
+<span class="nc" id="L94">            case CASSPClientAppTO cassp -&gt;</span>
+<span class="nc" id="L95">                doUpdate((CASSPClientApp) clientApp, cassp);</span>
+            default -&gt;
+<span class="nc" id="L97">                throw new IllegalArgumentException(&quot;Unsupported client app: &quot; + clientAppTO.getClass().getName());</span>
+        }
+<span class="nc" id="L99">    }</span>
+
+    @Override
+    @SuppressWarnings(&quot;unchecked&quot;)
+    public &lt;T extends ClientAppTO&gt; T getClientAppTO(final ClientApp clientApp) {
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (clientApp instanceof SAML2SPClientApp sAML2SPClientApp) {</span>
+<span class="nc" id="L105">            return (T) getSAMLClientAppTO(sAML2SPClientApp);</span>
+        }
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        if (clientApp instanceof OIDCRPClientApp oIDCRPClientApp) {</span>
+<span class="nc" id="L108">            return (T) getOIDCClientAppTO(oIDCRPClientApp);</span>
+        }
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (clientApp instanceof CASSPClientApp cASSPClientApp) {</span>
+<span class="nc" id="L111">            return (T) getCASClientAppTO(cASSPClientApp);</span>
+        }
+<span class="nc" id="L113">        throw new IllegalArgumentException(&quot;Unsupported client app: &quot; + clientApp.getClass().getName());</span>
+    }
+
+    protected SAML2SPClientApp doCreate(final SAML2SPClientAppTO clientAppTO) {
+<span class="nc" id="L117">        SAML2SPClientApp saml2sp = entityFactory.newEntity(SAML2SPClientApp.class);</span>
+<span class="nc" id="L118">        doUpdate(saml2sp, clientAppTO);</span>
+<span class="nc" id="L119">        return saml2sp;</span>
+    }
+
+    protected CASSPClientApp doCreate(final CASSPClientAppTO clientAppTO) {
+<span class="nc" id="L123">        CASSPClientApp saml2sp = entityFactory.newEntity(CASSPClientApp.class);</span>
+<span class="nc" id="L124">        doUpdate(saml2sp, clientAppTO);</span>
+<span class="nc" id="L125">        return saml2sp;</span>
+    }
+
+    protected void doUpdate(final SAML2SPClientApp clientApp, final SAML2SPClientAppTO clientAppTO) {
+<span class="nc" id="L129">        copyToEntity(clientApp, clientAppTO);</span>
+
+<span class="nc" id="L131">        clientApp.setEntityId(clientAppTO.getEntityId());</span>
+<span class="nc bnc" id="L132" title="All 4 branches missed.">        if (clientAppTO.getIdp() != null &amp;&amp; !SAML2IdPEntityService.DEFAULT_OWNER.equals(clientAppTO.getIdp())) {</span>
+<span class="nc" id="L133">            clientApp.setIdp(clientAppTO.getIdp());</span>
+        }
+<span class="nc" id="L135">        clientApp.setMetadataLocation(clientAppTO.getMetadataLocation());</span>
+<span class="nc" id="L136">        clientApp.setMetadataSignatureLocation(clientAppTO.getMetadataSignatureLocation());</span>
+<span class="nc" id="L137">        clientApp.setMetadataCriteriaPattern(clientAppTO.getMetadataCriteriaPattern());</span>
+<span class="nc" id="L138">        clientApp.setSubjectLocality(clientAppTO.getSubjectLocality());</span>
+<span class="nc" id="L139">        clientApp.setMetadataCriteriaDirection(clientAppTO.getMetadataCriteriaDirection());</span>
+<span class="nc" id="L140">        clientApp.setSigningCredentialType(clientAppTO.getSigningCredentialType());</span>
+<span class="nc" id="L141">        clientApp.setLogoutResponseBinding(clientAppTO.getLogoutResponseBinding());</span>
+<span class="nc" id="L142">        clientApp.setSignAssertions(clientAppTO.isSignAssertions());</span>
+<span class="nc" id="L143">        clientApp.setSignResponses(clientAppTO.isSignResponses());</span>
+<span class="nc" id="L144">        clientApp.setEncryptionOptional(clientAppTO.isEncryptionOptional());</span>
+<span class="nc" id="L145">        clientApp.setEncryptAssertions(clientAppTO.isEncryptAssertions());</span>
+<span class="nc" id="L146">        clientApp.setRequireSignedRoot(clientAppTO.isRequireSignedRoot());</span>
+<span class="nc" id="L147">        clientApp.setLogoutResponseEnabled(clientAppTO.isLogoutResponseEnabled());</span>
+<span class="nc" id="L148">        clientApp.setEncryptAttributes(clientAppTO.isEncryptAttributes());</span>
+<span class="nc" id="L149">        clientApp.setSkipGeneratingAssertionNameId(clientAppTO.isSkipGeneratingAssertionNameId());</span>
+<span class="nc" id="L150">        clientApp.setSkipGeneratingSubjectConfirmationInResponseTo(</span>
+<span class="nc" id="L151">                clientAppTO.isSkipGeneratingSubjectConfirmationInResponseTo());</span>
+<span class="nc" id="L152">        clientApp.setSkipGeneratingResponseInResponseTo(clientAppTO.isSkipGeneratingResponseInResponseTo());</span>
+<span class="nc" id="L153">        clientApp.setSkipGeneratingSubjectConfirmationNotOnOrAfter(</span>
+<span class="nc" id="L154">                clientAppTO.isSkipGeneratingSubjectConfirmationNotOnOrAfter());</span>
+<span class="nc" id="L155">        clientApp.setSkipGeneratingSubjectConfirmationRecipient(</span>
+<span class="nc" id="L156">                clientAppTO.isSkipGeneratingSubjectConfirmationRecipient());</span>
+<span class="nc" id="L157">        clientApp.setSkipGeneratingSubjectConfirmationAddress(clientAppTO.isSkipGeneratingSubjectConfirmationAddress());</span>
+<span class="nc" id="L158">        clientApp.setSkipGeneratingSubjectConfirmationNotBefore(</span>
+<span class="nc" id="L159">                clientAppTO.isSkipGeneratingSubjectConfirmationNotBefore());</span>
+<span class="nc" id="L160">        clientApp.setSkipGeneratingSubjectConfirmationNameId(clientAppTO.isSkipGeneratingSubjectConfirmationNameId());</span>
+<span class="nc" id="L161">        clientApp.setSkipGeneratingNameIdQualifiers(clientAppTO.isSkipGeneratingNameIdQualifiers());</span>
+<span class="nc" id="L162">        clientApp.setSkipGeneratingTransientNameId(clientAppTO.isSkipGeneratingTransientNameId());</span>
+<span class="nc" id="L163">        clientApp.setSkipValidatingAuthnRequest(clientAppTO.isSkipValidatingAuthnRequest());</span>
+<span class="nc" id="L164">        clientApp.setSkipGeneratingServiceProviderNameIdQualifier(</span>
+<span class="nc" id="L165">                clientAppTO.isSkipGeneratingServiceProviderNameIdQualifier());</span>
+<span class="nc" id="L166">        clientApp.setSkipGeneratingAuthenticatingAuthority(clientAppTO.isSkipGeneratingAuthenticatingAuthority());</span>
+<span class="nc" id="L167">        clientApp.setSkipGeneratingNameIdQualifier(clientAppTO.isSkipGeneratingNameIdQualifier());</span>
+<span class="nc" id="L168">        clientApp.setSkipGeneratingSessionNotOnOrAfter(clientAppTO.isSkipGeneratingSessionNotOnOrAfter());</span>
+<span class="nc" id="L169">        clientApp.setValidateMetadataCertificates(clientAppTO.isValidateMetadataCertificates());</span>
+<span class="nc" id="L170">        clientApp.setRequiredAuthenticationContextClass(clientAppTO.getRequiredAuthenticationContextClass());</span>
+<span class="nc" id="L171">        clientApp.setRequiredNameIdFormat(clientAppTO.getRequiredNameIdFormat());</span>
+<span class="nc" id="L172">        clientApp.setSkewAllowance(clientAppTO.getSkewAllowance());</span>
+<span class="nc" id="L173">        clientApp.setValidityUntil(clientAppTO.getValidityUntil());</span>
+<span class="nc" id="L174">        clientApp.setNameIdQualifier(clientAppTO.getNameIdQualifier());</span>
+<span class="nc" id="L175">        clientApp.getAssertionAudiences().clear();</span>
+<span class="nc" id="L176">        clientApp.getAssertionAudiences().addAll(clientAppTO.getAssertionAudiences());</span>
+<span class="nc" id="L177">        clientApp.setServiceProviderNameIdQualifier(clientAppTO.getServiceProviderNameIdQualifier());</span>
+
+<span class="nc" id="L179">        clientApp.getSigningSignatureAlgorithms().clear();</span>
+<span class="nc" id="L180">        clientApp.getSigningSignatureAlgorithms().addAll(</span>
+<span class="nc" id="L181">                clientAppTO.getSigningSignatureAlgorithms());</span>
+<span class="nc" id="L182">        clientApp.getSigningSignatureReferenceDigestMethods().clear();</span>
+<span class="nc" id="L183">        clientApp.getSigningSignatureReferenceDigestMethods().addAll(</span>
+<span class="nc" id="L184">                clientAppTO.getSigningSignatureReferenceDigestMethods());</span>
+<span class="nc" id="L185">        clientApp.getEncryptionKeyAlgorithms().clear();</span>
+<span class="nc" id="L186">        clientApp.getEncryptionKeyAlgorithms().addAll(</span>
+<span class="nc" id="L187">                clientAppTO.getEncryptionKeyAlgorithms());</span>
+<span class="nc" id="L188">        clientApp.getEncryptionDataAlgorithms().clear();</span>
+<span class="nc" id="L189">        clientApp.getEncryptionDataAlgorithms().addAll(</span>
+<span class="nc" id="L190">                clientAppTO.getEncryptionDataAlgorithms());</span>
+
+<span class="nc" id="L192">        clientApp.getSigningSignatureBlackListedAlgorithms().clear();</span>
+<span class="nc" id="L193">        clientApp.getSigningSignatureBlackListedAlgorithms().</span>
+<span class="nc" id="L194">                addAll(clientAppTO.getSigningSignatureBlackListedAlgorithms());</span>
+<span class="nc" id="L195">        clientApp.getEncryptionBlackListedAlgorithms().clear();</span>
+<span class="nc" id="L196">        clientApp.getEncryptionBlackListedAlgorithms().addAll(</span>
+<span class="nc" id="L197">                clientAppTO.getEncryptionBlackListedAlgorithms());</span>
+<span class="nc" id="L198">    }</span>
+
+    protected void copyToTO(final ClientApp clientApp, final ClientAppTO clientAppTO) {
+<span class="nc" id="L201">        clientAppTO.setKey(clientApp.getKey());</span>
+<span class="nc" id="L202">        clientAppTO.setRealm(Optional.ofNullable(clientApp.getRealm()).map(Realm::getFullPath).orElse(null));</span>
+<span class="nc" id="L203">        clientAppTO.setName(clientApp.getName());</span>
+<span class="nc" id="L204">        clientAppTO.setClientAppId(clientApp.getClientAppId());</span>
+<span class="nc" id="L205">        clientAppTO.setEvaluationOrder(clientApp.getEvaluationOrder());</span>
+<span class="nc" id="L206">        clientAppTO.setDescription(clientApp.getDescription());</span>
+<span class="nc" id="L207">        clientAppTO.setLogo(clientApp.getLogo());</span>
+<span class="nc" id="L208">        clientAppTO.setTheme(clientApp.getTheme());</span>
+<span class="nc" id="L209">        clientAppTO.setInformationUrl(clientApp.getInformationUrl());</span>
+<span class="nc" id="L210">        clientAppTO.setPrivacyUrl(clientApp.getPrivacyUrl());</span>
+<span class="nc" id="L211">        clientAppTO.setUsernameAttributeProviderConf(clientApp.getUsernameAttributeProviderConf());</span>
+
+<span class="nc" id="L213">        clientAppTO.setAuthPolicy(Optional.ofNullable(clientApp.getAuthPolicy()).</span>
+<span class="nc" id="L214">                map(AuthPolicy::getKey).orElse(null));</span>
+<span class="nc" id="L215">        clientAppTO.setAccessPolicy(Optional.ofNullable(clientApp.getAccessPolicy()).</span>
+<span class="nc" id="L216">                map(AccessPolicy::getKey).orElse(null));</span>
+<span class="nc" id="L217">        clientAppTO.setAttrReleasePolicy(Optional.ofNullable(clientApp.getAttrReleasePolicy()).</span>
+<span class="nc" id="L218">                map(AttrReleasePolicy::getKey).orElse(null));</span>
+<span class="nc" id="L219">        clientAppTO.setTicketExpirationPolicy(Optional.ofNullable(clientApp.getTicketExpirationPolicy()).</span>
+<span class="nc" id="L220">                map(TicketExpirationPolicy::getKey).orElse(null));</span>
+
+<span class="nc" id="L222">        clientAppTO.getProperties().addAll(clientApp.getProperties());</span>
+<span class="nc" id="L223">        clientAppTO.setLogoutType(clientApp.getLogoutType());</span>
+<span class="nc" id="L224">    }</span>
+
+    protected SAML2SPClientAppTO getSAMLClientAppTO(final SAML2SPClientApp clientApp) {
+<span class="nc" id="L227">        SAML2SPClientAppTO clientAppTO = new SAML2SPClientAppTO();</span>
+<span class="nc" id="L228">        copyToTO(clientApp, clientAppTO);</span>
+
+<span class="nc" id="L230">        clientAppTO.setIdp(clientApp.getIdp().orElse(null));</span>
+<span class="nc" id="L231">        clientAppTO.setEntityId(clientApp.getEntityId());</span>
+<span class="nc" id="L232">        clientAppTO.setMetadataLocation(clientApp.getMetadataLocation());</span>
+<span class="nc" id="L233">        clientAppTO.setMetadataSignatureLocation(clientApp.getMetadataSignatureLocation());</span>
+<span class="nc" id="L234">        clientAppTO.setMetadataCriteriaPattern(clientApp.getMetadataCriteriaPattern());</span>
+<span class="nc" id="L235">        clientAppTO.setSubjectLocality(clientApp.getSubjectLocality());</span>
+<span class="nc" id="L236">        clientAppTO.setMetadataCriteriaDirection(clientApp.getMetadataCriteriaDirection());</span>
+<span class="nc" id="L237">        clientAppTO.setSigningCredentialType(clientApp.getSigningCredentialType());</span>
+<span class="nc" id="L238">        clientAppTO.setLogoutResponseBinding(clientApp.getLogoutResponseBinding());</span>
+<span class="nc" id="L239">        clientAppTO.setSignAssertions(clientApp.isSignAssertions());</span>
+<span class="nc" id="L240">        clientAppTO.setSignResponses(clientApp.isSignResponses());</span>
+<span class="nc" id="L241">        clientAppTO.setEncryptionOptional(clientApp.isEncryptionOptional());</span>
+<span class="nc" id="L242">        clientAppTO.setEncryptAssertions(clientApp.isEncryptAssertions());</span>
+<span class="nc" id="L243">        clientAppTO.setRequireSignedRoot(clientApp.isRequireSignedRoot());</span>
+<span class="nc" id="L244">        clientAppTO.setLogoutResponseEnabled(clientApp.isLogoutResponseEnabled());</span>
+<span class="nc" id="L245">        clientAppTO.setEncryptAttributes(clientApp.isEncryptAttributes());</span>
+<span class="nc" id="L246">        clientAppTO.setSkipGeneratingAssertionNameId(clientApp.isSkipGeneratingAssertionNameId());</span>
+<span class="nc" id="L247">        clientAppTO.setSkipGeneratingSubjectConfirmationInResponseTo(</span>
+<span class="nc" id="L248">                clientApp.isSkipGeneratingSubjectConfirmationInResponseTo());</span>
+<span class="nc" id="L249">        clientAppTO.setSkipGeneratingResponseInResponseTo(clientApp.isSkipGeneratingResponseInResponseTo());</span>
+<span class="nc" id="L250">        clientAppTO.setSkipGeneratingSubjectConfirmationNotOnOrAfter(</span>
+<span class="nc" id="L251">                clientApp.isSkipGeneratingSubjectConfirmationNotOnOrAfter());</span>
+<span class="nc" id="L252">        clientAppTO.setSkipGeneratingSubjectConfirmationRecipient(</span>
+<span class="nc" id="L253">                clientApp.isSkipGeneratingSubjectConfirmationRecipient());</span>
+<span class="nc" id="L254">        clientAppTO.setSkipGeneratingSubjectConfirmationAddress(clientApp.isSkipGeneratingSubjectConfirmationAddress());</span>
+<span class="nc" id="L255">        clientAppTO.setSkipGeneratingSubjectConfirmationNotBefore(</span>
+<span class="nc" id="L256">                clientApp.isSkipGeneratingSubjectConfirmationNotBefore());</span>
+<span class="nc" id="L257">        clientAppTO.setSkipGeneratingSubjectConfirmationNameId(clientApp.isSkipGeneratingSubjectConfirmationNameId());</span>
+<span class="nc" id="L258">        clientAppTO.setSkipGeneratingNameIdQualifiers(clientApp.isSkipGeneratingNameIdQualifiers());</span>
+<span class="nc" id="L259">        clientAppTO.setSkipGeneratingTransientNameId(clientApp.isSkipGeneratingTransientNameId());</span>
+<span class="nc" id="L260">        clientAppTO.setSkipValidatingAuthnRequest(clientApp.isSkipValidatingAuthnRequest());</span>
+<span class="nc" id="L261">        clientAppTO.setSkipGeneratingServiceProviderNameIdQualifier(</span>
+<span class="nc" id="L262">                clientApp.isSkipGeneratingServiceProviderNameIdQualifier());</span>
+<span class="nc" id="L263">        clientAppTO.setSkipGeneratingAuthenticatingAuthority(clientApp.isSkipGeneratingAuthenticatingAuthority());</span>
+<span class="nc" id="L264">        clientAppTO.setSkipGeneratingNameIdQualifier(clientApp.isSkipGeneratingNameIdQualifier());</span>
+<span class="nc" id="L265">        clientAppTO.setSkipGeneratingSessionNotOnOrAfter(clientApp.isSkipGeneratingSessionNotOnOrAfter());</span>
+<span class="nc" id="L266">        clientAppTO.setValidateMetadataCertificates(clientApp.isValidateMetadataCertificates());</span>
+<span class="nc" id="L267">        clientAppTO.setRequiredAuthenticationContextClass(clientApp.getRequiredAuthenticationContextClass());</span>
+<span class="nc" id="L268">        clientAppTO.setRequiredNameIdFormat(clientApp.getRequiredNameIdFormat());</span>
+<span class="nc" id="L269">        clientAppTO.setSkewAllowance(clientApp.getSkewAllowance());</span>
+<span class="nc" id="L270">        clientAppTO.setValidityUntil(clientApp.getValidityUntil());</span>
+<span class="nc" id="L271">        clientAppTO.setNameIdQualifier(clientApp.getNameIdQualifier());</span>
+<span class="nc" id="L272">        clientAppTO.getAssertionAudiences().addAll(clientApp.getAssertionAudiences());</span>
+<span class="nc" id="L273">        clientAppTO.setServiceProviderNameIdQualifier(clientApp.getServiceProviderNameIdQualifier());</span>
+
+<span class="nc" id="L275">        clientAppTO.getSigningSignatureAlgorithms().addAll(</span>
+<span class="nc" id="L276">                clientApp.getSigningSignatureAlgorithms());</span>
+<span class="nc" id="L277">        clientAppTO.getSigningSignatureReferenceDigestMethods().addAll(</span>
+<span class="nc" id="L278">                clientApp.getSigningSignatureReferenceDigestMethods());</span>
+<span class="nc" id="L279">        clientAppTO.getEncryptionKeyAlgorithms().addAll(</span>
+<span class="nc" id="L280">                clientApp.getEncryptionKeyAlgorithms());</span>
+<span class="nc" id="L281">        clientAppTO.getEncryptionDataAlgorithms().addAll(</span>
+<span class="nc" id="L282">                clientApp.getEncryptionDataAlgorithms());</span>
+
+<span class="nc" id="L284">        clientAppTO.getSigningSignatureBlackListedAlgorithms().addAll(</span>
+<span class="nc" id="L285">                clientApp.getSigningSignatureBlackListedAlgorithms());</span>
+<span class="nc" id="L286">        clientAppTO.getEncryptionBlackListedAlgorithms().addAll(</span>
+<span class="nc" id="L287">                clientApp.getEncryptionBlackListedAlgorithms());</span>
+
+<span class="nc" id="L289">        return clientAppTO;</span>
+    }
+
+    protected OIDCRPClientApp doCreate(final OIDCRPClientAppTO clientAppTO) {
+<span class="nc" id="L293">        OIDCRPClientApp oidcrp = entityFactory.newEntity(OIDCRPClientApp.class);</span>
+<span class="nc" id="L294">        doUpdate(oidcrp, clientAppTO);</span>
+<span class="nc" id="L295">        return oidcrp;</span>
+    }
+
+    protected void doUpdate(final OIDCRPClientApp clientApp, final OIDCRPClientAppTO clientAppTO) {
+<span class="nc" id="L299">        copyToEntity(clientApp, clientAppTO);</span>
+
+<span class="nc" id="L301">        clientApp.setClientId(clientAppTO.getClientId());</span>
+<span class="nc" id="L302">        clientApp.setClientSecret(clientAppTO.getClientSecret());</span>
+<span class="nc" id="L303">        clientApp.setIdTokenIssuer(clientAppTO.getIdTokenIssuer());</span>
+<span class="nc" id="L304">        clientApp.setSignIdToken(clientAppTO.isSignIdToken());</span>
+<span class="nc" id="L305">        clientApp.setIdTokenSigningAlg(clientAppTO.getIdTokenSigningAlg());</span>
+<span class="nc" id="L306">        clientApp.setEncryptIdToken(clientAppTO.isEncryptIdToken());</span>
+<span class="nc" id="L307">        clientApp.setIdTokenEncryptionAlg(clientAppTO.getIdTokenEncryptionAlg());</span>
+<span class="nc" id="L308">        clientApp.setIdTokenEncryptionEncoding(clientAppTO.getIdTokenEncryptionEncoding());</span>
+<span class="nc" id="L309">        clientApp.setUserInfoSigningAlg(clientAppTO.getUserInfoSigningAlg());</span>
+<span class="nc" id="L310">        clientApp.setUserInfoEncryptedResponseAlg(clientAppTO.getUserInfoEncryptedResponseAlg());</span>
+<span class="nc" id="L311">        clientApp.setUserInfoEncryptedResponseEncoding(clientAppTO.getUserInfoEncryptedResponseEncoding());</span>
+<span class="nc" id="L312">        clientApp.setJwtAccessToken(clientAppTO.isJwtAccessToken());</span>
+<span class="nc" id="L313">        clientApp.setBypassApprovalPrompt(clientAppTO.isBypassApprovalPrompt());</span>
+<span class="nc" id="L314">        clientApp.setGenerateRefreshToken(clientAppTO.isGenerateRefreshToken());</span>
+<span class="nc" id="L315">        clientApp.setSubjectType(clientAppTO.getSubjectType());</span>
+<span class="nc" id="L316">        clientApp.setApplicationType(clientAppTO.getApplicationType());</span>
+<span class="nc" id="L317">        clientApp.getRedirectUris().clear();</span>
+<span class="nc" id="L318">        clientApp.getRedirectUris().addAll(clientAppTO.getRedirectUris());</span>
+<span class="nc" id="L319">        clientApp.getSupportedGrantTypes().clear();</span>
+<span class="nc" id="L320">        clientApp.getSupportedGrantTypes().addAll(clientAppTO.getSupportedGrantTypes());</span>
+<span class="nc" id="L321">        clientApp.getSupportedResponseTypes().clear();</span>
+<span class="nc" id="L322">        clientApp.getSupportedResponseTypes().addAll(clientAppTO.getSupportedResponseTypes());</span>
+<span class="nc" id="L323">        clientApp.setLogoutUri(clientAppTO.getLogoutUri());</span>
+<span class="nc" id="L324">        clientApp.setJwks(clientAppTO.getJwks());</span>
+<span class="nc" id="L325">        clientApp.setJwksUri(clientAppTO.getJwksUri());</span>
+<span class="nc" id="L326">        clientApp.setTokenEndpointAuthenticationMethod(clientAppTO.getTokenEndpointAuthenticationMethod());</span>
+<span class="nc" id="L327">        clientApp.setAccessTokenMaxActiveTokens(clientAppTO.getAccessTokenMaxActiveTokens());</span>
+<span class="nc" id="L328">        clientApp.setAccessTokenMaxTimeToLive(clientAppTO.getAccessTokenMaxTimeToLive());</span>
+<span class="nc" id="L329">        clientApp.setAccessTokenTimeToKill(clientAppTO.getAccessTokenTimeToKill());</span>
+<span class="nc" id="L330">        clientApp.setRefreshTokenMaxActiveTokens(clientAppTO.getRefreshTokenMaxActiveTokens());</span>
+<span class="nc" id="L331">        clientApp.setRefreshTokenTimeToKill(clientAppTO.getRefreshTokenTimeToKill());</span>
+<span class="nc" id="L332">        clientApp.setDeviceTokenTimeToKill(clientAppTO.getDeviceTokenTimeToKill());</span>
+
+<span class="nc" id="L334">        Set&lt;String&gt; allowedScopes = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L335">        Stream.of(OIDCStandardScope.values()).map(OIDCStandardScope::name).forEach(allowedScopes::add);</span>
+<span class="nc" id="L336">        oidcOpEntityDAO.get().ifPresent(oidcOpEntity -&gt; allowedScopes.addAll(oidcOpEntity.getCustomScopes().keySet()));</span>
+
+<span class="nc bnc" id="L338" title="All 2 branches missed.">        if (!allowedScopes.containsAll(clientAppTO.getScopes())) {</span>
+<span class="nc" id="L339">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidValues);</span>
+<span class="nc" id="L340">            clientAppTO.getScopes().removeAll(allowedScopes);</span>
+<span class="nc" id="L341">            sce.getElements().add(&quot;Undefined OIDC scope(s):&quot; + clientAppTO.getScopes());</span>
+<span class="nc" id="L342">            throw sce;</span>
+        }
+<span class="nc" id="L344">        clientApp.getScopes().clear();</span>
+<span class="nc" id="L345">        clientApp.getScopes().addAll(clientAppTO.getScopes());</span>
+<span class="nc" id="L346">    }</span>
+
+    protected OIDCRPClientAppTO getOIDCClientAppTO(final OIDCRPClientApp clientApp) {
+<span class="nc" id="L349">        OIDCRPClientAppTO clientAppTO = new OIDCRPClientAppTO();</span>
+<span class="nc" id="L350">        copyToTO(clientApp, clientAppTO);</span>
+
+<span class="nc" id="L352">        clientAppTO.setClientId(clientApp.getClientId());</span>
+<span class="nc" id="L353">        clientAppTO.setClientSecret(clientApp.getClientSecret());</span>
+<span class="nc" id="L354">        clientAppTO.setIdTokenIssuer(clientApp.getIdTokenIssuer());</span>
+<span class="nc" id="L355">        clientAppTO.setSignIdToken(clientApp.isSignIdToken());</span>
+<span class="nc" id="L356">        clientAppTO.setIdTokenSigningAlg(clientApp.getIdTokenSigningAlg());</span>
+<span class="nc" id="L357">        clientAppTO.setEncryptIdToken(clientApp.isEncryptIdToken());</span>
+<span class="nc" id="L358">        clientAppTO.setIdTokenEncryptionAlg(clientApp.getIdTokenEncryptionAlg());</span>
+<span class="nc" id="L359">        clientAppTO.setIdTokenEncryptionEncoding(clientApp.getIdTokenEncryptionEncoding());</span>
+<span class="nc" id="L360">        clientAppTO.setUserInfoSigningAlg(clientApp.getUserInfoSigningAlg());</span>
+<span class="nc" id="L361">        clientAppTO.setUserInfoEncryptedResponseAlg(clientApp.getUserInfoEncryptedResponseAlg());</span>
+<span class="nc" id="L362">        clientAppTO.setUserInfoEncryptedResponseEncoding(clientApp.getUserInfoEncryptedResponseEncoding());</span>
+<span class="nc" id="L363">        clientAppTO.setJwtAccessToken(clientApp.isJwtAccessToken());</span>
+<span class="nc" id="L364">        clientAppTO.setBypassApprovalPrompt(clientApp.isBypassApprovalPrompt());</span>
+<span class="nc" id="L365">        clientAppTO.setGenerateRefreshToken(clientApp.isGenerateRefreshToken());</span>
+<span class="nc" id="L366">        clientAppTO.setSubjectType(clientApp.getSubjectType());</span>
+<span class="nc" id="L367">        clientAppTO.setApplicationType(clientApp.getApplicationType());</span>
+<span class="nc" id="L368">        clientAppTO.getRedirectUris().addAll(clientApp.getRedirectUris());</span>
+<span class="nc" id="L369">        clientAppTO.getSupportedGrantTypes().clear();</span>
+<span class="nc" id="L370">        clientAppTO.getSupportedGrantTypes().addAll(clientApp.getSupportedGrantTypes());</span>
+<span class="nc" id="L371">        clientAppTO.getSupportedResponseTypes().clear();</span>
+<span class="nc" id="L372">        clientAppTO.getSupportedResponseTypes().addAll(clientApp.getSupportedResponseTypes());</span>
+<span class="nc" id="L373">        clientAppTO.getScopes().addAll(clientApp.getScopes());</span>
+<span class="nc" id="L374">        clientAppTO.setLogoutUri(clientApp.getLogoutUri());</span>
+<span class="nc" id="L375">        clientAppTO.setJwks(clientApp.getJwks());</span>
+<span class="nc" id="L376">        clientAppTO.setJwksUri(clientApp.getJwksUri());</span>
+<span class="nc" id="L377">        clientAppTO.setTokenEndpointAuthenticationMethod(clientApp.getTokenEndpointAuthenticationMethod());</span>
+<span class="nc" id="L378">        clientAppTO.setAccessTokenMaxActiveTokens(clientApp.getAccessTokenMaxActiveTokens());</span>
+<span class="nc" id="L379">        clientAppTO.setAccessTokenMaxTimeToLive(clientApp.getAccessTokenMaxTimeToLive());</span>
+<span class="nc" id="L380">        clientAppTO.setAccessTokenTimeToKill(clientApp.getAccessTokenTimeToKill());</span>
+<span class="nc" id="L381">        clientAppTO.setRefreshTokenTimeToKill(clientApp.getRefreshTokenTimeToKill());</span>
+<span class="nc" id="L382">        clientAppTO.setRefreshTokenMaxActiveTokens(clientApp.getRefreshTokenMaxActiveTokens());</span>
+<span class="nc" id="L383">        clientAppTO.setDeviceTokenTimeToKill(clientApp.getDeviceTokenTimeToKill());</span>
+<span class="nc" id="L384">        return clientAppTO;</span>
+    }
+
+    protected void doUpdate(final CASSPClientApp clientApp, final CASSPClientAppTO clientAppTO) {
+<span class="nc" id="L388">        copyToEntity(clientApp, clientAppTO);</span>
+
+<span class="nc" id="L390">        clientApp.setServiceId(clientAppTO.getServiceId());</span>
+<span class="nc" id="L391">    }</span>
+
+    protected CASSPClientAppTO getCASClientAppTO(final CASSPClientApp clientApp) {
+<span class="nc" id="L394">        CASSPClientAppTO clientAppTO = new CASSPClientAppTO();</span>
+<span class="nc" id="L395">        copyToTO(clientApp, clientAppTO);</span>
+<span class="nc" id="L396">        clientAppTO.setServiceId(clientApp.getServiceId());</span>
+<span class="nc" id="L397">        return clientAppTO;</span>
+    }
+
+    protected void copyToEntity(final ClientApp clientApp, final ClientAppTO clientAppTO) {
+<span class="nc" id="L401">        Optional.ofNullable(clientAppTO.getRealm()).</span>
+<span class="nc" id="L402">                flatMap(realmSearchDAO::findByFullPath).</span>
+<span class="nc" id="L403">                ifPresentOrElse(clientApp::setRealm, () -&gt; clientApp.setRealm(null));</span>
+
+<span class="nc" id="L405">        clientApp.setName(clientAppTO.getName());</span>
+<span class="nc" id="L406">        clientApp.setClientAppId(clientAppTO.getClientAppId());</span>
+<span class="nc" id="L407">        clientApp.setEvaluationOrder(clientAppTO.getEvaluationOrder());</span>
+<span class="nc" id="L408">        clientApp.setDescription(clientAppTO.getDescription());</span>
+<span class="nc" id="L409">        clientApp.setLogo(clientAppTO.getLogo());</span>
+<span class="nc" id="L410">        clientApp.setTheme(clientAppTO.getTheme());</span>
+<span class="nc" id="L411">        clientApp.setInformationUrl(clientAppTO.getInformationUrl());</span>
+<span class="nc" id="L412">        clientApp.setPrivacyUrl(clientAppTO.getPrivacyUrl());</span>
+<span class="nc" id="L413">        clientApp.setUsernameAttributeProviderConf(clientAppTO.getUsernameAttributeProviderConf());</span>
+
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        if (clientAppTO.getAuthPolicy() == null) {</span>
+<span class="nc" id="L416">            clientApp.setAuthPolicy(null);</span>
+        } else {
+<span class="nc" id="L418">            Policy policy = policyDAO.findById(clientAppTO.getAuthPolicy()).orElse(null);</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">            if (policy instanceof AuthPolicy authPolicy) {</span>
+<span class="nc" id="L420">                clientApp.setAuthPolicy(authPolicy);</span>
+            } else {
+<span class="nc" id="L422">                SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidPolicy);</span>
+<span class="nc" id="L423">                sce.getElements().add(&quot;Expected &quot; + AuthPolicy.class.getSimpleName()</span>
+<span class="nc" id="L424">                        + &quot;, found &quot; + policy.getClass().getSimpleName());</span>
+<span class="nc" id="L425">                throw sce;</span>
+            }
+        }
+
+<span class="nc bnc" id="L429" title="All 2 branches missed.">        if (clientAppTO.getAccessPolicy() == null) {</span>
+<span class="nc" id="L430">            clientApp.setAccessPolicy(null);</span>
+        } else {
+<span class="nc" id="L432">            Policy policy = policyDAO.findById(clientAppTO.getAccessPolicy()).orElse(null);</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">            if (policy instanceof AccessPolicy accessPolicy) {</span>
+<span class="nc" id="L434">                clientApp.setAccessPolicy(accessPolicy);</span>
+            } else {
+<span class="nc" id="L436">                SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidPolicy);</span>
+<span class="nc" id="L437">                sce.getElements().add(&quot;Expected &quot; + AccessPolicy.class.getSimpleName()</span>
+<span class="nc" id="L438">                        + &quot;, found &quot; + policy.getClass().getSimpleName());</span>
+<span class="nc" id="L439">                throw sce;</span>
+            }
+        }
+
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        if (clientAppTO.getAttrReleasePolicy() == null) {</span>
+<span class="nc" id="L444">            clientApp.setAttrReleasePolicy(null);</span>
+        } else {
+<span class="nc" id="L446">            Policy policy = policyDAO.findById(clientAppTO.getAttrReleasePolicy()).orElse(null);</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">            if (policy instanceof AttrReleasePolicy attrReleasePolicy) {</span>
+<span class="nc" id="L448">                clientApp.setAttrReleasePolicy(attrReleasePolicy);</span>
+            } else {
+<span class="nc" id="L450">                SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidPolicy);</span>
+<span class="nc" id="L451">                sce.getElements().add(&quot;Expected &quot; + AttrReleasePolicy.class.getSimpleName()</span>
+<span class="nc" id="L452">                        + &quot;, found &quot; + policy.getClass().getSimpleName());</span>
+<span class="nc" id="L453">                throw sce;</span>
+            }
+        }
+
+<span class="nc bnc" id="L457" title="All 2 branches missed.">        if (clientAppTO.getTicketExpirationPolicy() == null) {</span>
+<span class="nc" id="L458">            clientApp.setTicketExpirationPolicy(null);</span>
+        } else {
+<span class="nc" id="L460">            Policy policy = policyDAO.findById(clientAppTO.getTicketExpirationPolicy()).orElse(null);</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">            if (policy instanceof TicketExpirationPolicy ticketExpirationPolicy) {</span>
+<span class="nc" id="L462">                clientApp.setTicketExpirationPolicy(ticketExpirationPolicy);</span>
+            } else {
+<span class="nc" id="L464">                SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidPolicy);</span>
+<span class="nc" id="L465">                sce.getElements().add(&quot;Expected &quot; + TicketExpirationPolicy.class.getSimpleName()</span>
+<span class="nc" id="L466">                        + &quot;, found &quot; + policy.getClass().getSimpleName());</span>
+<span class="nc" id="L467">                throw sce;</span>
+            }
+        }
+
+<span class="nc" id="L471">        clientApp.setProperties(clientAppTO.getProperties());</span>
+<span class="nc" id="L472">        clientApp.setLogoutType(clientAppTO.getLogoutType());</span>
+<span class="nc" id="L473">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

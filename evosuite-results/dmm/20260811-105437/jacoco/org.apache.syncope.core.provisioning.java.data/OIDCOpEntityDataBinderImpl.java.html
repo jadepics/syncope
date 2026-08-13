@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OIDCOpEntityDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">OIDCOpEntityDataBinderImpl.java</span></div><h1>OIDCOpEntityDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Locale;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.OIDCOpEntityTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.dao.WAConfigDAO;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.am.OIDCOpEntity;
+import org.apache.syncope.core.persistence.api.entity.am.WAConfigEntry;
+import org.apache.syncope.core.provisioning.api.data.OIDCOpEntityDataBinder;
+import org.apache.syncope.core.spring.security.SecureRandomUtils;
+import org.jose4j.jwk.EcJwkGenerator;
+import org.jose4j.jwk.JsonWebKey;
+import org.jose4j.jwk.JsonWebKeySet;
+import org.jose4j.jwk.PublicJsonWebKey;
+import org.jose4j.jwk.RsaJwkGenerator;
+import org.jose4j.jwk.Use;
+import org.jose4j.jws.AlgorithmIdentifiers;
+import org.jose4j.keys.EllipticCurves;
+import org.jose4j.lang.JoseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class OIDCOpEntityDataBinderImpl implements OIDCOpEntityDataBinder {
+
+<span class="nc" id="L49">    protected static final Logger LOG = LoggerFactory.getLogger(OIDCOpEntityDataBinder.class);</span>
+
+    protected final WAConfigDAO waConfigDAO;
+
+    protected final EntityFactory entityFactory;
+
+<span class="nc" id="L55">    public OIDCOpEntityDataBinderImpl(final WAConfigDAO waConfigDAO, final EntityFactory entityFactory) {</span>
+<span class="nc" id="L56">        this.waConfigDAO = waConfigDAO;</span>
+<span class="nc" id="L57">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L58">    }</span>
+
+    protected PublicJsonWebKey generate(
+            final String jwksKeyId,
+            final String jwksType,
+            final int jwksKeySize,
+            final String use,
+            final JsonWebKeyLifecycleState state) throws JoseException {
+
+        PublicJsonWebKey jwk;
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        switch (jwksType.trim().toLowerCase(Locale.ENGLISH)) {</span>
+            case &quot;ec&quot;:
+<span class="nc bnc" id="L70" title="All 3 branches missed.">                switch (jwksKeySize) {</span>
+                    case 384:
+<span class="nc" id="L72">                        jwk = EcJwkGenerator.generateJwk(EllipticCurves.P384);</span>
+<span class="nc" id="L73">                        jwk.setAlgorithm(AlgorithmIdentifiers.ECDSA_USING_P384_CURVE_AND_SHA384);</span>
+<span class="nc" id="L74">                        break;</span>
+
+                    case 512:
+<span class="nc" id="L77">                        jwk = EcJwkGenerator.generateJwk(EllipticCurves.P521);</span>
+<span class="nc" id="L78">                        jwk.setAlgorithm(AlgorithmIdentifiers.ECDSA_USING_P521_CURVE_AND_SHA512);</span>
+<span class="nc" id="L79">                        break;</span>
+
+                    default:
+<span class="nc" id="L82">                        jwk = EcJwkGenerator.generateJwk(EllipticCurves.P256);</span>
+<span class="nc" id="L83">                        jwk.setAlgorithm(AlgorithmIdentifiers.ECDSA_USING_P521_CURVE_AND_SHA512);</span>
+                }
+<span class="nc" id="L85">                break;</span>
+
+            case &quot;rsa&quot;:
+            default:
+<span class="nc" id="L89">                jwk = RsaJwkGenerator.generateJwk(jwksKeySize);</span>
+        }
+
+<span class="nc" id="L92">        jwk.setKeyId(jwksKeyId.concat(&quot;-&quot;).concat(SecureRandomUtils.generateRandomLetters(8)));</span>
+<span class="nc" id="L93">        jwk.setUse(use);</span>
+<span class="nc" id="L94">        jwk.setOtherParameter(PARAMETER_STATE, state.getState());</span>
+<span class="nc" id="L95">        return jwk;</span>
+    }
+
+    @Override
+    public byte[] generateJWKS(final String jwksKeyId, final String jwksType, final int jwksKeySize) {
+<span class="nc" id="L100">        List&lt;PublicJsonWebKey&gt; keys = new ArrayList&lt;&gt;();</span>
+        try {
+<span class="nc" id="L102">            keys.add(generate(jwksKeyId, jwksType, jwksKeySize, Use.SIGNATURE, JsonWebKeyLifecycleState.CURRENT));</span>
+<span class="nc" id="L103">            keys.add(generate(jwksKeyId, jwksType, jwksKeySize, Use.ENCRYPTION, JsonWebKeyLifecycleState.CURRENT));</span>
+<span class="nc" id="L104">            keys.add(generate(jwksKeyId, jwksType, jwksKeySize, Use.SIGNATURE, JsonWebKeyLifecycleState.FUTURE));</span>
+<span class="nc" id="L105">            keys.add(generate(jwksKeyId, jwksType, jwksKeySize, Use.ENCRYPTION, JsonWebKeyLifecycleState.FUTURE));</span>
+<span class="nc" id="L106">        } catch (JoseException e) {</span>
+<span class="nc" id="L107">            LOG.error(&quot;Could not generate OIDC JWKS&quot;, e);</span>
+
+<span class="nc" id="L109">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.Unknown);</span>
+<span class="nc" id="L110">            sce.getElements().add(e.getMessage());</span>
+<span class="nc" id="L111">            throw sce;</span>
+<span class="nc" id="L112">        }</span>
+
+<span class="nc" id="L114">        WAConfigEntry jwksKeyIdConfig = entityFactory.newEntity(WAConfigEntry.class);</span>
+<span class="nc" id="L115">        jwksKeyIdConfig.setKey(&quot;cas.authn.oidc.jwks.core.jwks-key-id&quot;);</span>
+<span class="nc" id="L116">        jwksKeyIdConfig.setValues(List.of(jwksKeyId));</span>
+<span class="nc" id="L117">        waConfigDAO.save(jwksKeyIdConfig);</span>
+
+<span class="nc" id="L119">        WAConfigEntry jwksTypeConfig = entityFactory.newEntity(WAConfigEntry.class);</span>
+<span class="nc" id="L120">        jwksTypeConfig.setKey(&quot;cas.authn.oidc.jwks.core.jwks-type&quot;);</span>
+<span class="nc" id="L121">        jwksTypeConfig.setValues(List.of(jwksType));</span>
+<span class="nc" id="L122">        waConfigDAO.save(jwksTypeConfig);</span>
+
+<span class="nc" id="L124">        WAConfigEntry jwksKeySizeConfig = entityFactory.newEntity(WAConfigEntry.class);</span>
+<span class="nc" id="L125">        jwksKeySizeConfig.setKey(&quot;cas.authn.oidc.jwks.core.jwks-key-size&quot;);</span>
+<span class="nc" id="L126">        jwksKeySizeConfig.setValues(List.of(String.valueOf(jwksKeySize)));</span>
+<span class="nc" id="L127">        waConfigDAO.save(jwksKeySizeConfig);</span>
+
+<span class="nc" id="L129">        return new JsonWebKeySet(keys).</span>
+<span class="nc" id="L130">                toJson(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE).</span>
+<span class="nc" id="L131">                getBytes(StandardCharsets.UTF_8);</span>
+    }
+
+    @Override
+    public OIDCOpEntityTO getOIDCOpEntityTO(final OIDCOpEntity oidcOpEntity) {
+<span class="nc" id="L136">        OIDCOpEntityTO oidcOpEntityTO = new OIDCOpEntityTO();</span>
+<span class="nc" id="L137">        oidcOpEntityTO.setKey(oidcOpEntity.getKey());</span>
+<span class="nc" id="L138">        oidcOpEntityTO.setJWKS(Base64.getEncoder().encodeToString(oidcOpEntity.getJWKS()));</span>
+<span class="nc" id="L139">        oidcOpEntityTO.getCustomScopes().putAll(oidcOpEntity.getCustomScopes());</span>
+
+<span class="nc" id="L141">        return oidcOpEntityTO;</span>
+    }
+
+    @Override
+    public void update(final OIDCOpEntity oidcOpEntity, final OIDCOpEntityTO oidcOpEntityTO) {
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        oidcOpEntity.setJWKS(oidcOpEntityTO.getJWKS() == null</span>
+<span class="nc" id="L147">                ? generateJWKS(&quot;syncope&quot;, &quot;RSA&quot;, 2048)</span>
+<span class="nc" id="L148">                : Base64.getDecoder().decode(oidcOpEntityTO.getJWKS()));</span>
+
+<span class="nc" id="L150">        oidcOpEntity.getCustomScopes().clear();</span>
+<span class="nc" id="L151">        oidcOpEntity.getCustomScopes().putAll(oidcOpEntityTO.getCustomScopes());</span>
+<span class="nc" id="L152">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

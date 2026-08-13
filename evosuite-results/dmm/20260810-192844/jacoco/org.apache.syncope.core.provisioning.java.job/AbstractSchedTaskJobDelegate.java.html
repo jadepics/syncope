@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractSchedTaskJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">AbstractSchedTaskJobDelegate.java</span></div><h1>AbstractSchedTaskJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import java.time.OffsetDateTime;
+import java.util.Optional;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.task.SchedTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.persistence.api.utils.ExceptionUtils2;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.event.JobStatusEvent;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.JobNamer;
+import org.apache.syncope.core.provisioning.api.job.SchedTaskJobDelegate;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecureRandomUtils;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L47">public abstract class AbstractSchedTaskJobDelegate&lt;T extends SchedTask&gt; implements SchedTaskJobDelegate {</span>
+
+<span class="nc" id="L49">    protected static final Logger LOG = LoggerFactory.getLogger(SchedTaskJobDelegate.class);</span>
+
+    @Autowired
+    protected SecurityProperties securityProperties;
+
+    protected TaskType taskType;
+
+    /**
+     * The actual task to be executed.
+     */
+    protected T task;
+
+    /**
+     * Task DAO.
+     */
+    @Autowired
+    protected TaskDAO taskDAO;
+
+    @Autowired
+    protected TaskUtilsFactory taskUtilsFactory;
+
+    /**
+     * Notification manager.
+     */
+    @Autowired
+    protected NotificationManager notificationManager;
+
+    /**
+     * Audit manager.
+     */
+    @Autowired
+    protected AuditManager auditManager;
+
+    @Autowired
+    protected ApplicationEventPublisher publisher;
+
+    protected boolean manageOperationId;
+
+    protected String executor;
+
+    protected void setStatus(final String status) {
+<span class="nc" id="L90">        publisher.publishEvent(new JobStatusEvent(</span>
+<span class="nc" id="L91">                this, AuthContextUtils.getDomain(), JobNamer.getJobName(task), status));</span>
+<span class="nc" id="L92">    }</span>
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    protected void init(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context)
+            throws JobExecutionException {
+
+<span class="nc" id="L101">        this.taskType = taskType;</span>
+<span class="nc" id="L102">        task = (T) taskDAO.findById(taskType, taskKey).</span>
+<span class="nc" id="L103">                orElseThrow(() -&gt; new JobExecutionException(&quot;Not found: &quot; + taskType + &quot; Task &quot; + taskKey));</span>
+
+<span class="nc" id="L105">        manageOperationId = Optional.ofNullable(MDC.get(Job.OPERATION_ID)).</span>
+<span class="nc" id="L106">                map(operationId -&gt; false).</span>
+<span class="nc" id="L107">                orElseGet(() -&gt; {</span>
+<span class="nc" id="L108">                    MDC.put(Job.OPERATION_ID, SecureRandomUtils.generateRandomUUID().toString());</span>
+<span class="nc" id="L109">                    return true;</span>
+                });
+
+<span class="nc" id="L112">        executor = Optional.ofNullable(context.getExecutor()).orElseGet(() -&gt; securityProperties.getAdminUser());</span>
+<span class="nc" id="L113">    }</span>
+
+    protected TaskExec&lt;SchedTask&gt; initExecution() {
+<span class="nc" id="L116">        TaskExec&lt;SchedTask&gt; execution = taskUtilsFactory.getInstance(taskType).newTaskExec();</span>
+<span class="nc" id="L117">        execution.setStart(OffsetDateTime.now());</span>
+<span class="nc" id="L118">        execution.setTask(task);</span>
+<span class="nc" id="L119">        execution.setExecutor(executor);</span>
+
+<span class="nc" id="L121">        return execution;</span>
+    }
+
+    protected void endExecution(
+            final TaskExec&lt;SchedTask&gt; execution,
+            final String message,
+            final String status,
+            final OpEvent.Outcome result) {
+
+<span class="nc" id="L130">        execution.setMessage(message);</span>
+<span class="nc" id="L131">        execution.setStatus(status);</span>
+<span class="nc" id="L132">        execution.setEnd(OffsetDateTime.now());</span>
+
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        if (hasToBeRegistered(execution)) {</span>
+<span class="nc" id="L135">            register(execution);</span>
+        }
+
+<span class="nc" id="L138">        notificationManager.createTasks(</span>
+                executor,
+                OpEvent.CategoryType.TASK,
+<span class="nc" id="L141">                this.getClass().getSimpleName(),</span>
+                null,
+<span class="nc" id="L143">                this.getClass().getSimpleName(),</span>
+                result,
+                task,
+                execution);
+
+<span class="nc" id="L148">        auditManager.audit(</span>
+<span class="nc" id="L149">                AuthContextUtils.getDomain(),</span>
+                executor,
+                OpEvent.CategoryType.TASK,
+<span class="nc" id="L152">                task.getClass().getSimpleName(),</span>
+                null,
+<span class="nc" id="L154">                this.getClass().getSimpleName(),</span>
+                result,
+                task,
+                execution);
+<span class="nc" id="L158">    }</span>
+
+    protected void end() {
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (manageOperationId) {</span>
+<span class="nc" id="L162">            MDC.remove(Job.OPERATION_ID);</span>
+        }
+<span class="nc" id="L164">    }</span>
+
+    @Transactional
+    @Override
+    public void execute(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context)
+            throws JobExecutionException {
+
+<span class="nc" id="L174">        init(taskType, taskKey, context);</span>
+
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (!task.isActive()) {</span>
+<span class="nc" id="L177">            LOG.info(&quot;Task {} not active, aborting...&quot;, taskKey);</span>
+<span class="nc" id="L178">            return;</span>
+        }
+
+<span class="nc" id="L181">        setStatus(&quot;Initialization completed&quot;);</span>
+
+<span class="nc" id="L183">        TaskExec&lt;SchedTask&gt; execution = initExecution();</span>
+
+        String message;
+        String status;
+        OpEvent.Outcome result;
+        try {
+<span class="nc" id="L189">            message = doExecute(context);</span>
+<span class="nc" id="L190">            status = TaskJob.Status.SUCCESS.name();</span>
+<span class="nc" id="L191">            result = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L192">        } catch (SecurityException | JobExecutionException e) {</span>
+<span class="nc" id="L193">            LOG.error(&quot;While executing task {}&quot;, taskKey, e);</span>
+
+<span class="nc" id="L195">            message = ExceptionUtils2.getFullStackTrace(e);</span>
+<span class="nc" id="L196">            status = TaskJob.Status.FAILURE.name();</span>
+<span class="nc" id="L197">            result = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L198">        }</span>
+<span class="nc" id="L199">        endExecution(execution, message, status, result);</span>
+
+<span class="nc" id="L201">        end();</span>
+<span class="nc" id="L202">    }</span>
+
+    /**
+     * The actual execution, delegated to child classes.
+     *
+     * @param context job execution context, can be used to pass parameters to the job
+     * @return the task execution status to be set
+     * @throws JobExecutionException if anything goes wrong
+     */
+    protected abstract String doExecute(JobExecutionContext context) throws JobExecutionException;
+
+    /**
+     * Template method to determine whether this job's task execution has to be persisted or not.
+     *
+     * @param execution task execution
+     * @return whether to persist or not
+     */
+    protected boolean hasToBeRegistered(final TaskExec&lt;?&gt; execution) {
+<span class="nc" id="L220">        return false;</span>
+    }
+
+    protected void register(final TaskExec&lt;SchedTask&gt; execution) {
+<span class="nc" id="L224">        task.add(execution);</span>
+<span class="nc" id="L225">        task = taskDAO.save(task);</span>
+<span class="nc" id="L226">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

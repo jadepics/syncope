@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultAccountRule.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.policy</a> &gt; <span class="el_source">DefaultAccountRule.java</span></div><h1>DefaultAccountRule.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.policy;
+
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
+import org.apache.syncope.common.lib.policy.AccountRuleConf;
+import org.apache.syncope.common.lib.policy.DefaultAccountRuleConf;
+import org.apache.syncope.core.persistence.api.entity.Entity;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.user.LinkedAccount;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.rules.AccountRule;
+import org.apache.syncope.core.provisioning.api.rules.AccountRuleConfClass;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
+@AccountRuleConfClass(DefaultAccountRuleConf.class)
+<span class="nc" id="L41">public class DefaultAccountRule implements AccountRule {</span>
+
+    private DefaultAccountRuleConf conf;
+
+    @Override
+    public void setConf(final AccountRuleConf conf) {
+<span class="nc bnc" id="L47" title="All 2 branches missed.">        if (conf instanceof DefaultAccountRuleConf) {</span>
+<span class="nc" id="L48">            this.conf = DefaultAccountRuleConf.class.cast(conf);</span>
+        } else {
+<span class="nc" id="L50">            throw new IllegalArgumentException(</span>
+<span class="nc" id="L51">                    DefaultAccountRuleConf.class.getName() + &quot; expected, got &quot; + conf.getClass().getName());</span>
+        }
+<span class="nc" id="L53">    }</span>
+
+    protected void enforce(final String username, final Set&lt;String&gt; wordsNotPermitted) {
+        // check min length
+<span class="nc bnc" id="L57" title="All 4 branches missed.">        if (conf.getMinLength() &gt; 0 &amp;&amp; conf.getMinLength() &gt; username.length()) {</span>
+<span class="nc" id="L58">            throw new AccountPolicyException(&quot;Username too short&quot;);</span>
+        }
+
+        // check max length
+<span class="nc bnc" id="L62" title="All 4 branches missed.">        if (conf.getMaxLength() &gt; 0 &amp;&amp; conf.getMaxLength() &lt; username.length()) {</span>
+<span class="nc" id="L63">            throw new AccountPolicyException(&quot;Username too long&quot;);</span>
+        }
+
+        // check words not permitted
+<span class="nc" id="L67">        wordsNotPermitted.stream().</span>
+<span class="nc" id="L68">                filter(word -&gt; Strings.CI.contains(username, word)).</span>
+<span class="nc" id="L69">                forEach(item -&gt; {</span>
+<span class="nc" id="L70">                    throw new AccountPolicyException(&quot;Used word(s) not permitted&quot;);</span>
+                });
+
+        // check case
+<span class="nc bnc" id="L74" title="All 4 branches missed.">        if (conf.isAllUpperCase() &amp;&amp; !username.equals(username.toUpperCase())) {</span>
+<span class="nc" id="L75">            throw new AccountPolicyException(&quot;No lowercase characters permitted&quot;);</span>
+        }
+<span class="nc bnc" id="L77" title="All 4 branches missed.">        if (conf.isAllLowerCase() &amp;&amp; !username.equals(username.toLowerCase())) {</span>
+<span class="nc" id="L78">            throw new AccountPolicyException(&quot;No uppercase characters permitted&quot;);</span>
+        }
+
+        // check pattern
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        Pattern pattern = conf.getPattern() == null ? Entity.ID_PATTERN : Pattern.compile(conf.getPattern());</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        if (!pattern.matcher(username).matches()) {</span>
+<span class="nc" id="L84">            throw new AccountPolicyException(&quot;Username does not match pattern&quot;);</span>
+        }
+
+        // check prefix
+<span class="nc" id="L88">        conf.getPrefixesNotPermitted().stream().</span>
+<span class="nc" id="L89">                filter(username::startsWith).findAny().</span>
+<span class="nc" id="L90">                ifPresent(item -&gt; {</span>
+<span class="nc" id="L91">                    throw new AccountPolicyException(&quot;Prefix not permitted&quot;);</span>
+                });
+
+        // check suffix
+<span class="nc" id="L95">        conf.getSuffixesNotPermitted().stream().</span>
+<span class="nc" id="L96">                filter(username::endsWith).findAny().</span>
+<span class="nc" id="L97">                ifPresent(item -&gt; {</span>
+<span class="nc" id="L98">                    throw new AccountPolicyException(&quot;Suffix not permitted&quot;);</span>
+                });
+<span class="nc" id="L100">    }</span>
+
+    @Override
+    public void enforce(final String username) {
+<span class="nc" id="L104">        Set&lt;String&gt; wordsNotPermitted = new HashSet&lt;&gt;(conf.getWordsNotPermitted());</span>
+<span class="nc" id="L105">        enforce(username, wordsNotPermitted);</span>
+<span class="nc" id="L106">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public void enforce(final User user) {
+<span class="nc" id="L111">        Set&lt;String&gt; wordsNotPermitted = new HashSet&lt;&gt;(conf.getWordsNotPermitted());</span>
+<span class="nc" id="L112">        wordsNotPermitted.addAll(</span>
+<span class="nc" id="L113">                conf.getSchemasNotPermitted().stream().</span>
+<span class="nc" id="L114">                        map(schema -&gt; user.getPlainAttr(schema).</span>
+<span class="nc" id="L115">                        map(PlainAttr::getValuesAsStrings).orElse(null)).</span>
+<span class="nc" id="L116">                        filter(Objects::nonNull).</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">                        filter(values -&gt; !CollectionUtils.isEmpty(values)).</span>
+<span class="nc" id="L118">                        flatMap(Collection::stream).</span>
+<span class="nc" id="L119">                        collect(Collectors.toSet()));</span>
+
+<span class="nc" id="L121">        enforce(user.getUsername(), wordsNotPermitted);</span>
+<span class="nc" id="L122">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public void enforce(final LinkedAccount account) {
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        if (StringUtils.isBlank(account.getUsername())) {</span>
+<span class="nc" id="L128">            return;</span>
+        }
+
+<span class="nc" id="L131">        Set&lt;String&gt; wordsNotPermitted = new HashSet&lt;&gt;(conf.getWordsNotPermitted());</span>
+<span class="nc" id="L132">        wordsNotPermitted.addAll(</span>
+<span class="nc" id="L133">                conf.getSchemasNotPermitted().stream().</span>
+<span class="nc" id="L134">                        map(schema -&gt; account.getPlainAttr(schema).</span>
+<span class="nc" id="L135">                        map(PlainAttr::getValuesAsStrings).orElse(null)).</span>
+<span class="nc" id="L136">                        filter(Objects::nonNull).</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                        filter(values -&gt; !CollectionUtils.isEmpty(values)).</span>
+<span class="nc" id="L138">                        flatMap(Collection::stream).</span>
+<span class="nc" id="L139">                        collect(Collectors.toSet()));</span>
+
+<span class="nc" id="L141">        enforce(account.getUsername(), wordsNotPermitted);</span>
+<span class="nc" id="L142">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

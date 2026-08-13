@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultNotificationManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.notification</a> &gt; <span class="el_source">DefaultNotificationManager.java</span></div><h1>DefaultNotificationManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.notification;
+
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.jexl3.JexlContext;
+import org.apache.commons.jexl3.MapContext;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.common.lib.to.AnyObjectTO;
+import org.apache.syncope.common.lib.to.GroupTO;
+import org.apache.syncope.common.lib.to.ProvisioningResult;
+import org.apache.syncope.common.lib.to.UserTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.AnyMatchDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnySearchDAO;
+import org.apache.syncope.core.persistence.api.dao.DerSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.NotificationDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.Notification;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.Relatable;
+import org.apache.syncope.core.persistence.api.entity.anyobject.AnyObject;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.task.NotificationTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.user.UMembership;
+import org.apache.syncope.core.persistence.api.entity.user.URelationship;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.persistence.api.search.AnySearchCondVisitor;
+import org.apache.syncope.core.persistence.api.search.SearchCondConverter;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrName;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.data.AnyObjectDataBinder;
+import org.apache.syncope.core.provisioning.api.data.GroupDataBinder;
+import org.apache.syncope.core.provisioning.api.data.UserDataBinder;
+import org.apache.syncope.core.provisioning.api.event.AfterHandlingEvent;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.provisioning.api.notification.RecipientsProvider;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+@Transactional(rollbackFor = { Throwable.class })
+public class DefaultNotificationManager implements NotificationManager {
+
+<span class="nc" id="L89">    protected static final Logger LOG = LoggerFactory.getLogger(NotificationManager.class);</span>
+
+    protected final DerSchemaDAO derSchemaDAO;
+
+    protected final NotificationDAO notificationDAO;
+
+    protected final AnyObjectDAO anyObjectDAO;
+
+    protected final UserDAO userDAO;
+
+    protected final GroupDAO groupDAO;
+
+    protected final AnySearchDAO anySearchDAO;
+
+    protected final AnyMatchDAO anyMatchDAO;
+
+    protected final TaskDAO taskDAO;
+
+    protected final RelationshipTypeDAO relationshipTypeDAO;
+
+    protected final DerAttrHandler derAttrHandler;
+
+    protected final UserDataBinder userDataBinder;
+
+    protected final GroupDataBinder groupDataBinder;
+
+    protected final AnyObjectDataBinder anyObjectDataBinder;
+
+    protected final ConfParamOps confParamOps;
+
+    protected final EntityFactory entityFactory;
+
+    protected final IntAttrNameParser intAttrNameParser;
+
+    protected final AnySearchCondVisitor searchCondVisitor;
+
+    protected final JexlTools jexlTools;
+
+<span class="nc" id="L127">    protected Optional&lt;RecipientsProvider&gt; perContextRecipientsProvider = Optional.empty();</span>
+
+    public DefaultNotificationManager(
+            final DerSchemaDAO derSchemaDAO,
+            final NotificationDAO notificationDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final AnySearchDAO anySearchDAO,
+            final AnyMatchDAO anyMatchDAO,
+            final TaskDAO taskDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final DerAttrHandler derAttrHandler,
+            final UserDataBinder userDataBinder,
+            final GroupDataBinder groupDataBinder,
+            final AnyObjectDataBinder anyObjectDataBinder,
+            final ConfParamOps confParamOps,
+            final EntityFactory entityFactory,
+            final IntAttrNameParser intAttrNameParser,
+            final AnySearchCondVisitor searchCondVisitor,
+<span class="nc" id="L147">            final JexlTools jexlTools) {</span>
+
+<span class="nc" id="L149">        this.derSchemaDAO = derSchemaDAO;</span>
+<span class="nc" id="L150">        this.notificationDAO = notificationDAO;</span>
+<span class="nc" id="L151">        this.anyObjectDAO = anyObjectDAO;</span>
+<span class="nc" id="L152">        this.userDAO = userDAO;</span>
+<span class="nc" id="L153">        this.groupDAO = groupDAO;</span>
+<span class="nc" id="L154">        this.anySearchDAO = anySearchDAO;</span>
+<span class="nc" id="L155">        this.anyMatchDAO = anyMatchDAO;</span>
+<span class="nc" id="L156">        this.taskDAO = taskDAO;</span>
+<span class="nc" id="L157">        this.relationshipTypeDAO = relationshipTypeDAO;</span>
+<span class="nc" id="L158">        this.derAttrHandler = derAttrHandler;</span>
+<span class="nc" id="L159">        this.userDataBinder = userDataBinder;</span>
+<span class="nc" id="L160">        this.groupDataBinder = groupDataBinder;</span>
+<span class="nc" id="L161">        this.anyObjectDataBinder = anyObjectDataBinder;</span>
+<span class="nc" id="L162">        this.confParamOps = confParamOps;</span>
+<span class="nc" id="L163">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L164">        this.intAttrNameParser = intAttrNameParser;</span>
+<span class="nc" id="L165">        this.searchCondVisitor = searchCondVisitor;</span>
+<span class="nc" id="L166">        this.jexlTools = jexlTools;</span>
+<span class="nc" id="L167">    }</span>
+
+    /**
+     * Create a notification task.
+     *
+     * @param notification notification to take as model
+     * @param any the any object this task is about
+     * @param jexlVars JEXL variables
+     * @return notification task, fully populated
+     */
+    protected NotificationTask getNotificationTask(
+            final Notification notification,
+            final Any any,
+            final Map&lt;String, Object&gt; jexlVars) {
+
+<span class="nc" id="L182">        jexlVars.put(&quot;syncopeConf&quot;, confParamOps.list(AuthContextUtils.getDomain()));</span>
+<span class="nc" id="L183">        jexlVars.put(&quot;events&quot;, notification.getEvents());</span>
+
+<span class="nc" id="L185">        List&lt;User&gt; recipients = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L187">        Optional.ofNullable(notification.getRecipientsFIQL()).</span>
+<span class="nc" id="L188">                ifPresent(fiql -&gt; recipients.addAll(anySearchDAO.search(</span>
+<span class="nc" id="L189">                SearchCondConverter.convert(searchCondVisitor, fiql), List.of(), AnyTypeKind.USER)));</span>
+
+<span class="nc bnc" id="L191" title="All 4 branches missed.">        if (notification.isSelfAsRecipient() &amp;&amp; any instanceof final User user) {</span>
+<span class="nc" id="L192">            recipients.add(user);</span>
+        }
+
+<span class="nc" id="L195">        Set&lt;String&gt; recipientEmails = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L196">        List&lt;UserTO&gt; recipientTOs = new ArrayList&lt;&gt;(recipients.size());</span>
+<span class="nc" id="L197">        recipients.forEach(recipient -&gt; Optional.ofNullable(</span>
+<span class="nc" id="L198">                getRecipientEmail(notification.getRecipientAttrName(), recipient)).ifPresentOrElse(</span>
+                email -&gt; {
+<span class="nc" id="L200">                    recipientEmails.add(email);</span>
+<span class="nc" id="L201">                    recipientTOs.add(userDataBinder.getUserTO(recipient, true));</span>
+<span class="nc" id="L202">                },</span>
+<span class="nc" id="L203">                () -&gt; LOG.warn(&quot;{} cannot be notified: {} not found&quot;,</span>
+<span class="nc" id="L204">                        recipient, notification.getRecipientAttrName())));</span>
+<span class="nc" id="L205">        jexlVars.put(&quot;recipients&quot;, recipientTOs);</span>
+
+<span class="nc" id="L207">        Optional.ofNullable(notification.getStaticRecipients()).ifPresent(recipientEmails::addAll);</span>
+
+<span class="nc" id="L209">        Optional.ofNullable(notification.getRecipientsProvider()).ifPresent(impl -&gt; {</span>
+            try {
+<span class="nc" id="L211">                RecipientsProvider recipientsProvider = ImplementationManager.build(</span>
+<span class="nc" id="L212">                        AuthContextUtils.getDomain(),</span>
+                        impl,
+<span class="nc" id="L214">                        () -&gt; perContextRecipientsProvider.orElse(null),</span>
+<span class="nc" id="L215">                        instance -&gt; perContextRecipientsProvider = Optional.of(instance));</span>
+
+<span class="nc" id="L217">                recipientEmails.addAll(recipientsProvider.provideRecipients(notification, any, jexlVars));</span>
+<span class="nc" id="L218">            } catch (Exception e) {</span>
+<span class="nc" id="L219">                LOG.error(&quot;While building {}&quot;, notification.getRecipientsProvider(), e);</span>
+<span class="nc" id="L220">            }</span>
+<span class="nc" id="L221">        });</span>
+
+<span class="nc" id="L223">        JexlContext ctx = new MapContext(jexlVars);</span>
+
+<span class="nc" id="L225">        NotificationTask task = entityFactory.newEntity(NotificationTask.class);</span>
+<span class="nc" id="L226">        task.setNotification(notification);</span>
+<span class="nc" id="L227">        Optional.ofNullable(any).ifPresent(a -&gt; {</span>
+<span class="nc" id="L228">            task.setEntityKey(a.getKey());</span>
+<span class="nc" id="L229">            task.setAnyTypeKind(a.getType().getKind());</span>
+<span class="nc" id="L230">        });</span>
+<span class="nc" id="L231">        task.setTraceLevel(notification.getTraceLevel());</span>
+<span class="nc" id="L232">        task.getRecipients().addAll(recipientEmails);</span>
+<span class="nc" id="L233">        task.setSender(notification.getSender());</span>
+<span class="nc" id="L234">        task.setSubject(jexlTools.evaluateTemplate(notification.getSubject(), ctx));</span>
+
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (StringUtils.isNotBlank(notification.getTemplate().getTextTemplate())) {</span>
+<span class="nc" id="L237">            task.setTextBody(jexlTools.evaluateTemplate(notification.getTemplate().getTextTemplate(), ctx));</span>
+        }
+<span class="nc bnc" id="L239" title="All 2 branches missed.">        if (StringUtils.isNotBlank(notification.getTemplate().getHTMLTemplate())) {</span>
+<span class="nc" id="L240">            task.setHtmlBody(jexlTools.evaluateTemplate(notification.getTemplate().getHTMLTemplate(), ctx));</span>
+        }
+
+<span class="nc" id="L243">        return task;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public boolean notificationsAvailable(
+            final String domain,
+            final OpEvent.CategoryType type,
+            final String category,
+            final String subcategory,
+            final String op) {
+
+<span class="nc" id="L255">        String successEvent = OpEvent.toString(type, category, subcategory, op, OpEvent.Outcome.SUCCESS);</span>
+<span class="nc" id="L256">        String failureEvent = OpEvent.toString(type, category, subcategory, op, OpEvent.Outcome.FAILURE);</span>
+<span class="nc" id="L257">        return AuthContextUtils.callAsAdmin(domain, () -&gt; notificationDAO.findAll().stream().</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">                anyMatch(notification -&gt; notification.isActive()</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">                &amp;&amp; (notification.getEvents().contains(successEvent)</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                || notification.getEvents().contains(failureEvent))));</span>
+    }
+
+    @Override
+    public void createTasks(final AfterHandlingEvent event) {
+<span class="nc" id="L265">        AuthContextUtils.runAsAdmin(event.getDomain(), () -&gt; createTasks(</span>
+<span class="nc" id="L266">                event.getWho(),</span>
+<span class="nc" id="L267">                event.getType(),</span>
+<span class="nc" id="L268">                event.getCategory(),</span>
+<span class="nc" id="L269">                event.getSubcategory(),</span>
+<span class="nc" id="L270">                event.getOp(),</span>
+<span class="nc" id="L271">                event.getOutcome(),</span>
+<span class="nc" id="L272">                event.getBefore(),</span>
+<span class="nc" id="L273">                event.getOutput(),</span>
+<span class="nc" id="L274">                event.getInput()));</span>
+<span class="nc" id="L275">    }</span>
+
+    @Override
+    public List&lt;NotificationTask&gt; createTasks(
+            final String who,
+            final OpEvent.CategoryType type,
+            final String category,
+            final String subcategory,
+            final String op,
+            final OpEvent.Outcome outcome,
+            final Object before,
+            final Object output,
+            final Object... input) {
+
+<span class="nc" id="L289">        Optional&lt;? extends Any&gt; any = Optional.empty();</span>
+
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (before instanceof Any a) {</span>
+<span class="nc" id="L292">            any = Optional.of(a);</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        } else if (before instanceof UserTO userTO) {</span>
+<span class="nc" id="L294">            any = userDAO.findById(userTO.getKey());</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        } else if (output instanceof UserTO userTO) {</span>
+<span class="nc" id="L296">            any = userDAO.findById(userTO.getKey());</span>
+<span class="nc bnc" id="L297" title="All 4 branches missed.">        } else if (output instanceof final Pair&lt;?, ?&gt; pair &amp;&amp; pair.getRight() instanceof final UserTO userTO) {</span>
+<span class="nc" id="L298">            any = userDAO.findById(userTO.getKey());</span>
+<span class="nc bnc" id="L299" title="All 4 branches missed.">        } else if (output instanceof final ProvisioningResult&lt;?&gt; result &amp;&amp; result.getEntity() instanceof UserTO) {</span>
+<span class="nc" id="L300">            any = userDAO.findById(result.getEntity().getKey());</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        } else if (before instanceof AnyObjectTO anyObjectTO) {</span>
+<span class="nc" id="L302">            any = anyObjectDAO.findById(anyObjectTO.getKey());</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        } else if (output instanceof AnyObjectTO anyObjectTO) {</span>
+<span class="nc" id="L304">            any = anyObjectDAO.findById(anyObjectTO.getKey());</span>
+<span class="nc bnc" id="L305" title="All 4 branches missed.">        } else if (output instanceof final ProvisioningResult&lt;?&gt; result &amp;&amp; result.getEntity() instanceof AnyObjectTO) {</span>
+<span class="nc" id="L306">            any = anyObjectDAO.findById(result.getEntity().getKey());</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">        } else if (before instanceof GroupTO groupTO) {</span>
+<span class="nc" id="L308">            any = groupDAO.findById(groupTO.getKey());</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        } else if (output instanceof GroupTO groupTO) {</span>
+<span class="nc" id="L310">            any = groupDAO.findById(groupTO.getKey());</span>
+<span class="nc bnc" id="L311" title="All 4 branches missed.">        } else if (output instanceof final ProvisioningResult&lt;?&gt; result &amp;&amp; result.getEntity() instanceof GroupTO) {</span>
+<span class="nc" id="L312">            any = groupDAO.findById(result.getEntity().getKey());</span>
+        }
+
+<span class="nc" id="L315">        AnyType anyType = any.map(Any::getType).orElse(null);</span>
+<span class="nc" id="L316">        LOG.debug(&quot;Search notification for [{}]{}&quot;, anyType, any);</span>
+
+<span class="nc" id="L318">        List&lt;NotificationTask&gt; notifications = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L319" title="All 2 branches missed.">        for (Notification notification : notificationDAO.findAll()) {</span>
+<span class="nc bnc" id="L320" title="All 2 branches missed.">            if (LOG.isDebugEnabled()) {</span>
+<span class="nc" id="L321">                notification.getAbouts().</span>
+<span class="nc" id="L322">                        forEach(a -&gt; LOG.debug(&quot;Notification about {} defined: {}&quot;, a.getAnyType(), a.get()));</span>
+            }
+
+<span class="nc bnc" id="L325" title="All 2 branches missed.">            if (notification.isActive()) {</span>
+<span class="nc" id="L326">                String currentEvent = OpEvent.toString(type, category, subcategory, op, outcome);</span>
+
+<span class="nc bnc" id="L328" title="All 2 branches missed.">                if (!notification.getEvents().contains(currentEvent)) {</span>
+<span class="nc" id="L329">                    LOG.debug(&quot;No events found about {}&quot;, any);</span>
+<span class="nc bnc" id="L330" title="All 4 branches missed.">                } else if (anyType == null || any.isEmpty()</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">                        || notification.getAbout(anyType).isEmpty()</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">                        || anyMatchDAO.matches(any.get(), SearchCondConverter.convert(</span>
+<span class="nc" id="L333">                                searchCondVisitor, notification.getAbout(anyType).get().get()))) {</span>
+
+<span class="nc" id="L335">                    LOG.debug(&quot;Creating notification task for event {} about {}&quot;, currentEvent, any);</span>
+
+<span class="nc" id="L337">                    Map&lt;String, Object&gt; jexlVars = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L338">                    jexlVars.put(&quot;who&quot;, who);</span>
+<span class="nc" id="L339">                    jexlVars.put(&quot;type&quot;, type);</span>
+<span class="nc" id="L340">                    jexlVars.put(&quot;category&quot;, category);</span>
+<span class="nc" id="L341">                    jexlVars.put(&quot;subcategory&quot;, subcategory);</span>
+<span class="nc" id="L342">                    jexlVars.put(&quot;event&quot;, op);</span>
+<span class="nc" id="L343">                    jexlVars.put(&quot;condition&quot;, outcome);</span>
+<span class="nc" id="L344">                    jexlVars.put(&quot;before&quot;, before);</span>
+<span class="nc" id="L345">                    jexlVars.put(&quot;output&quot;, output);</span>
+<span class="nc" id="L346">                    jexlVars.put(&quot;input&quot;, input);</span>
+
+<span class="nc" id="L348">                    any.ifPresentOrElse(</span>
+                            a -&gt; {
+<span class="nc bnc" id="L350" title="All 4 branches missed.">                                switch (a) {</span>
+<span class="nc" id="L351">                                    case User user -&gt;</span>
+<span class="nc" id="L352">                                        jexlVars.put(&quot;user&quot;, userDataBinder.getUserTO(user, true));</span>
+<span class="nc" id="L353">                                    case Group group -&gt;</span>
+<span class="nc" id="L354">                                        jexlVars.put(&quot;group&quot;, groupDataBinder.getGroupTO(group, true));</span>
+<span class="nc" id="L355">                                    case AnyObject anyObject -&gt;</span>
+<span class="nc" id="L356">                                        jexlVars.put(&quot;anyObject&quot;, anyObjectDataBinder.getAnyObjectTO(anyObject, true));</span>
+                                    default -&gt; {
+                                    }
+                                }
+<span class="nc" id="L360">                            },</span>
+                            () -&gt; {
+<span class="nc bnc" id="L362" title="All 4 branches missed.">                                switch (before) {</span>
+<span class="nc" id="L363">                                    case UserTO userTO -&gt;</span>
+<span class="nc" id="L364">                                        jexlVars.put(&quot;user&quot;, userTO);</span>
+<span class="nc" id="L365">                                    case GroupTO groupTO -&gt;</span>
+<span class="nc" id="L366">                                        jexlVars.put(&quot;group&quot;, groupTO);</span>
+<span class="nc" id="L367">                                    case AnyObjectTO anyObjectTO -&gt;</span>
+<span class="nc" id="L368">                                        jexlVars.put(&quot;anyObject&quot;, anyObjectTO);</span>
+                                    case null, default -&gt; {
+                                    }
+                                }
+<span class="nc" id="L372">                            });</span>
+
+<span class="nc" id="L374">                    NotificationTask notificationTask = getNotificationTask(notification, any.orElse(null), jexlVars);</span>
+<span class="nc" id="L375">                    notificationTask = taskDAO.save(notificationTask);</span>
+<span class="nc" id="L376">                    notifications.add(notificationTask);</span>
+                }
+<span class="nc" id="L378">            } else {</span>
+<span class="nc" id="L379">                LOG.debug(&quot;Notification {} is not active, task will not be created&quot;, notification.getKey());</span>
+            }
+<span class="nc" id="L381">        }</span>
+<span class="nc" id="L382">        return notifications;</span>
+    }
+
+    protected String getRecipientEmail(final String recipientAttrName, final User user) {
+<span class="nc" id="L386">        String email = null;</span>
+
+        IntAttrName intAttrName;
+        try {
+<span class="nc" id="L390">            intAttrName = intAttrNameParser.parse(recipientAttrName, AnyTypeKind.USER);</span>
+<span class="nc" id="L391">        } catch (ParseException e) {</span>
+<span class="nc" id="L392">            LOG.error(&quot;Invalid intAttrName '{}' specified as recipient, ignoring&quot;, recipientAttrName, e);</span>
+<span class="nc" id="L393">            return null;</span>
+<span class="nc" id="L394">        }</span>
+
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        if (&quot;username&quot;.equals(intAttrName.getField())) {</span>
+<span class="nc" id="L397">            email = user.getUsername();</span>
+<span class="nc bnc" id="L398" title="All 2 branches missed.">        } else if (intAttrName.getSchemaInfo() != null) {</span>
+<span class="nc" id="L399">            UMembership membership = Optional.ofNullable(intAttrName.getMembership()).</span>
+<span class="nc" id="L400">                    flatMap(groupDAO::findByName).</span>
+<span class="nc" id="L401">                    flatMap(group -&gt; user.getMembership(group.getKey())).</span>
+<span class="nc" id="L402">                    orElse(null);</span>
+
+<span class="nc" id="L404">            Mutable&lt;URelationship&gt; relationship = new MutableObject&lt;&gt;();</span>
+<span class="nc" id="L405">            Optional.ofNullable(intAttrName.getRelationshipInfo()).</span>
+<span class="nc" id="L406">                    ifPresent(ri -&gt; relationshipTypeDAO.findById(ri.type()).</span>
+<span class="nc" id="L407">                    ifPresent(relationshipType -&gt; anyObjectDAO.findByName(</span>
+<span class="nc" id="L408">                    relationshipType.getRightEndAnyType().getKey(), ri.anyObject()).</span>
+<span class="nc" id="L409">                    ifPresent(otherEnd -&gt; user.getRelationship(relationshipType, otherEnd.getKey()).</span>
+<span class="nc" id="L410">                    ifPresent(relationship::setValue))));</span>
+
+<span class="nc bnc" id="L412" title="All 3 branches missed.">            switch (intAttrName.getSchemaInfo().type()) {</span>
+                case PLAIN -&gt; {
+<span class="nc bnc" id="L414" title="All 4 branches missed.">                    Optional&lt;PlainAttr&gt; attr = membership == null &amp;&amp; relationship.get() == null</span>
+<span class="nc" id="L415">                            ? user.getPlainAttr(recipientAttrName)</span>
+<span class="nc bnc" id="L416" title="All 2 branches missed.">                            : relationship.get() == null</span>
+<span class="nc" id="L417">                            ? user.getPlainAttr(recipientAttrName, membership)</span>
+<span class="nc" id="L418">                            : user.getPlainAttr(recipientAttrName, relationship.get());</span>
+<span class="nc bnc" id="L419" title="All 2 branches missed.">                    email = attr.map(a -&gt; a.getValuesAsStrings().isEmpty()</span>
+<span class="nc" id="L420">                            ? null</span>
+<span class="nc" id="L421">                            : a.getValuesAsStrings().getFirst()).</span>
+<span class="nc" id="L422">                            orElse(null);</span>
+<span class="nc" id="L423">                }</span>
+
+                case DERIVED -&gt; {
+<span class="nc" id="L426">                    email = derSchemaDAO.findById(recipientAttrName).</span>
+<span class="nc bnc" id="L427" title="All 4 branches missed.">                            map(derSchema -&gt; membership == null &amp;&amp; relationship.get() == null</span>
+<span class="nc" id="L428">                            ? derAttrHandler.getValue(user, derSchema)</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">                            : relationship.get() == null</span>
+<span class="nc" id="L430">                            ? derAttrHandler.getValue((Groupable&lt;?, ?, ?&gt;) user, membership, derSchema)</span>
+<span class="nc" id="L431">                            : derAttrHandler.getValue((Relatable&lt;?, ?&gt;) user, relationship.get(), derSchema)).</span>
+<span class="nc" id="L432">                            orElse(null);</span>
+<span class="nc" id="L433">                }</span>
+
+                default -&gt; {
+                }
+            }
+        }
+
+<span class="nc" id="L440">        return email;</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public TaskExec&lt;NotificationTask&gt; storeExec(final String taskKey, final TaskExec&lt;NotificationTask&gt; execution) {
+<span class="nc" id="L446">        NotificationTask task = taskDAO.findById(TaskType.NOTIFICATION, taskKey).</span>
+<span class="nc" id="L447">                map(NotificationTask.class::cast).</span>
+<span class="nc" id="L448">                orElseThrow(() -&gt; new NotFoundException(&quot;NotificationTask &quot; + execution.getTask().getKey()));</span>
+<span class="nc" id="L449">        execution.setTask(task);</span>
+<span class="nc" id="L450">        task.add(execution);</span>
+<span class="nc" id="L451">        task.setExecuted(true);</span>
+<span class="nc" id="L452">        taskDAO.save(task);</span>
+
+<span class="nc" id="L454">        execution.setTask(null);</span>
+<span class="nc" id="L455">        return execution;</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public void setTaskExecuted(final String taskKey, final boolean executed) {
+<span class="nc" id="L461">        NotificationTask task = taskDAO.findById(TaskType.NOTIFICATION, taskKey).</span>
+<span class="nc" id="L462">                map(NotificationTask.class::cast).</span>
+<span class="nc" id="L463">                orElseThrow(() -&gt; new NotFoundException(&quot;NotificationTask &quot; + taskKey));</span>
+<span class="nc" id="L464">        task.setExecuted(executed);</span>
+<span class="nc" id="L465">        taskDAO.save(task);</span>
+<span class="nc" id="L466">    }</span>
+
+    @Override
+    public long countExecutionsWithStatus(final String taskKey, final String status) {
+<span class="nc" id="L470">        NotificationTask task = taskDAO.findById(TaskType.NOTIFICATION, taskKey).</span>
+<span class="nc" id="L471">                map(NotificationTask.class::cast).</span>
+<span class="nc" id="L472">                orElseThrow(() -&gt; new NotFoundException(&quot;NotificationTask &quot; + taskKey));</span>
+<span class="nc" id="L473">        long count = 0;</span>
+<span class="nc bnc" id="L474" title="All 2 branches missed.">        for (TaskExec&lt;NotificationTask&gt; taskExec : task.getExecs()) {</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">            if (status == null) {</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">                if (taskExec.getStatus() == null) {</span>
+<span class="nc" id="L477">                    count++;</span>
+                }
+<span class="nc bnc" id="L479" title="All 2 branches missed.">            } else if (status.equals(taskExec.getStatus())) {</span>
+<span class="nc" id="L480">                count++;</span>
+            }
+<span class="nc" id="L482">        }</span>
+<span class="nc" id="L483">        return count;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

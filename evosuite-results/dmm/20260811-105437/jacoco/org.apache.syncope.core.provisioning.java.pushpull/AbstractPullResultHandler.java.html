@@ -1,0 +1,1043 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractPullResultHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">AbstractPullResultHandler.java</span></div><h1>AbstractPullResultHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.syncope.common.lib.AnyOperations;
+import org.apache.syncope.common.lib.request.AnyCR;
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.request.StringPatchItem;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.MatchType;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.PullMode;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.RemediationDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Remediation;
+import org.apache.syncope.core.persistence.api.entity.group.Group;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.ProvisioningManager;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationException;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.IgnoreProvisionException;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.rules.InboundMatch;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.DelegatedAdministrationException;
+import org.identityconnectors.framework.common.objects.SyncDelta;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L73">public abstract class AbstractPullResultHandler</span>
+        extends AbstractSyncopeResultHandler&lt;PullTask, InboundActions&gt;
+        implements AnyPullResultHandler {
+
+    @Autowired
+    protected InboundMatcher inboundMatcher;
+
+    @Autowired
+    protected NotificationManager notificationManager;
+
+    @Autowired
+    protected AuditManager auditManager;
+
+    @Autowired
+    protected ConnObjectUtils connObjectUtils;
+
+    @Autowired
+    protected AnyTypeDAO anyTypeDAO;
+
+    @Autowired
+    protected TaskDAO taskDAO;
+
+    @Autowired
+    protected RemediationDAO remediationDAO;
+
+    @Autowired
+    protected EntityFactory entityFactory;
+
+<span class="nc" id="L101">    protected final Map&lt;String, Optional&lt;String&gt;&gt; uManagers = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L103">    protected final Map&lt;String, Optional&lt;String&gt;&gt; gManagers = new HashMap&lt;&gt;();</span>
+
+    protected abstract String getName(AnyTO anyTO);
+
+    protected abstract String getName(AnyCR anyCR);
+
+    protected abstract ProvisioningManager&lt;?, ?&gt; provisioningManager();
+
+    protected abstract AnyTO doCreate(AnyCR anyCR, SyncDelta delta);
+
+    protected abstract AnyUR doUpdate(AnyTO before, AnyUR anyUR, SyncDelta delta, ProvisioningReport result);
+
+    @Transactional(rollbackFor = Throwable.class, propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public boolean handle(final SyncDelta delta) {
+<span class="nc" id="L118">        Provision provision = null;</span>
+        try {
+<span class="nc" id="L120">            provision = profile.getTask().getResource().</span>
+<span class="nc" id="L121">                    getProvisionByObjectClass(delta.getObject().getObjectClass().getObjectClassValue()).</span>
+<span class="nc" id="L122">                    orElseThrow(() -&gt; new JobExecutionException(</span>
+<span class="nc" id="L123">                    &quot;No provision found on &quot; + profile.getTask().getResource()</span>
+<span class="nc" id="L124">                    + &quot; for &quot; + delta.getObject().getObjectClass()));</span>
+
+<span class="nc" id="L126">            String anyType = provision.getAnyType();</span>
+<span class="nc" id="L127">            OpEvent.Outcome latestResult = doHandle(</span>
+                    delta,
+                    provision,
+<span class="nc" id="L130">                    anyTypeDAO.findById(anyType).</span>
+<span class="nc" id="L131">                            orElseThrow(() -&gt; new NotFoundException(&quot;AnyType &quot; + anyType)).</span>
+<span class="nc" id="L132">                            getKind());</span>
+
+<span class="nc" id="L134">            LOG.debug(&quot;Successfully handled {}&quot;, delta);</span>
+
+<span class="nc bnc" id="L136" title="All 2 branches missed.">            if (stopRequested) {</span>
+<span class="nc" id="L137">                LOG.debug(&quot;Stop was requested&quot;);</span>
+<span class="nc" id="L138">                return false;</span>
+            }
+
+<span class="nc bnc" id="L141" title="All 2 branches missed.">            if (profile.getTask().getPullMode() != PullMode.INCREMENTAL) {</span>
+<span class="nc" id="L142">                return true;</span>
+            }
+<span class="nc bnc" id="L144" title="All 2 branches missed.">            return latestResult == OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L145">        } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L146">            ProvisioningReport ignoreResult = new ProvisioningReport();</span>
+<span class="nc" id="L147">            ignoreResult.setOperation(ResourceOperation.NONE);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">            ignoreResult.setAnyType(provision == null</span>
+<span class="nc" id="L149">                    ? anyUtils().anyTypeKind().name() : provision.getAnyType());</span>
+<span class="nc" id="L150">            ignoreResult.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L151">            ignoreResult.setMessage(e.getMessage());</span>
+<span class="nc" id="L152">            ignoreResult.setKey(null);</span>
+<span class="nc" id="L153">            ignoreResult.setUidValue(delta.getUid().getUidValue());</span>
+<span class="nc" id="L154">            ignoreResult.setName(delta.getObject().getName().getNameValue());</span>
+<span class="nc" id="L155">            profile.getResults().add(ignoreResult);</span>
+
+<span class="nc" id="L157">            LOG.warn(&quot;Ignoring during pull&quot;, e);</span>
+
+<span class="nc" id="L159">            return true;</span>
+<span class="nc" id="L160">        } catch (JobExecutionException e) {</span>
+<span class="nc" id="L161">            LOG.error(&quot;Pull failed&quot;, e);</span>
+
+<span class="nc" id="L163">            return false;</span>
+        }
+    }
+
+    protected void throwIgnoreProvisionException(final SyncDelta delta, final Exception exception) {
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (exception instanceof IgnoreProvisionException) {</span>
+<span class="nc" id="L169">            throw IgnoreProvisionException.class.cast(exception);</span>
+        }
+
+<span class="nc" id="L172">        IgnoreProvisionException ipe = null;</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">            if (ipe == null) {</span>
+<span class="nc" id="L175">                ipe = action.onError(profile, delta, exception);</span>
+            }
+<span class="nc" id="L177">        }</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        if (ipe != null) {</span>
+<span class="nc" id="L179">            throw ipe;</span>
+        }
+<span class="nc" id="L181">    }</span>
+
+    protected OpEvent.Outcome provision(
+            final UnmatchingRule rule,
+            final SyncDelta delta,
+            final AnyTypeKind anyTypeKind,
+            final Provision provision) throws JobExecutionException {
+
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L190">            LOG.debug(&quot;PullTask not configured for create&quot;);</span>
+<span class="nc" id="L191">            end(Optional.empty(),</span>
+<span class="nc" id="L192">                    provision.getAnyType(),</span>
+<span class="nc" id="L193">                    UnmatchingRule.toOp(rule), OpEvent.Outcome.SUCCESS,</span>
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L197">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L200">        AnyCR req = connObjectUtils.getAnyCR(</span>
+<span class="nc" id="L201">                delta.getObject(),</span>
+<span class="nc" id="L202">                profile.getTask(),</span>
+                anyTypeKind,
+                provision,
+                true);
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (rule == UnmatchingRule.ASSIGN) {</span>
+<span class="nc" id="L207">            req.getResources().add(profile.getTask().getResource().getKey());</span>
+        }
+
+<span class="nc" id="L210">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L211">        result.setOperation(ResourceOperation.CREATE);</span>
+<span class="nc" id="L212">        result.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L213">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L214">        result.setName(getName(req));</span>
+<span class="nc" id="L215">        result.setUidValue(delta.getUid().getUidValue());</span>
+
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (profile.isDryRun()) {</span>
+<span class="nc" id="L218">            result.setKey(null);</span>
+<span class="nc" id="L219">            end(Optional.empty(),</span>
+<span class="nc" id="L220">                    provision.getAnyType(),</span>
+<span class="nc" id="L221">                    UnmatchingRule.toOp(rule),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L226">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+        Object output;
+        OpEvent.Outcome resultStatus;
+        try {
+<span class="nc bnc" id="L232" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">                if (rule == UnmatchingRule.ASSIGN) {</span>
+<span class="nc" id="L234">                    action.beforeAssign(profile, delta, req);</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">                } else if (rule == UnmatchingRule.PROVISION) {</span>
+<span class="nc" id="L236">                    action.beforeProvision(profile, delta, req);</span>
+                }
+<span class="nc" id="L238">            }</span>
+<span class="nc" id="L239">            result.setName(getName(req));</span>
+
+<span class="nc" id="L241">            Optional&lt;String&gt; uManager = Optional.ofNullable(req.getUManager());</span>
+<span class="nc" id="L242">            req.setUManager(null);</span>
+<span class="nc" id="L243">            Optional&lt;String&gt; gManager = Optional.ofNullable(req.getGManager());</span>
+<span class="nc" id="L244">            req.setGManager(null);</span>
+
+<span class="nc" id="L246">            AnyTO created = doCreate(req, delta);</span>
+<span class="nc" id="L247">            output = created;</span>
+<span class="nc" id="L248">            result.setKey(created.getKey());</span>
+<span class="nc" id="L249">            result.setName(getName(created));</span>
+<span class="nc" id="L250">            resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L252">            uManager.ifPresent(v -&gt; uManagers.put(created.getKey(), Optional.of(v)));</span>
+<span class="nc" id="L253">            gManager.ifPresent(v -&gt; gManagers.put(created.getKey(), Optional.of(v)));</span>
+
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L256">                action.after(profile, delta, created, result);</span>
+<span class="nc" id="L257">            }</span>
+
+<span class="nc" id="L259">            LOG.debug(&quot;{} {} successfully created&quot;, created.getType(), created.getKey());</span>
+<span class="nc" id="L260">        } catch (PropagationException e) {</span>
+            // A propagation failure doesn't imply a pull failure.
+            // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L263">            LOG.error(&quot;Could not propagate {} {}&quot;,</span>
+<span class="nc" id="L264">                    provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L265">            output = e;</span>
+<span class="nc" id="L266">            resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L267">        } catch (Exception e) {</span>
+<span class="nc" id="L268">            throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L270">            result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L271">            result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L272">            LOG.error(&quot;Could not create {} {} &quot;, provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L273">            output = e;</span>
+
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if (profile.getTask().isRemediation()) {</span>
+                // set to SUCCESS to let the incremental flow go on in case of errors
+<span class="nc" id="L277">                resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L278">                createRemediation(null, req, null, result, delta);</span>
+            } else {
+<span class="nc" id="L280">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+            }
+<span class="nc" id="L282">        }</span>
+
+<span class="nc" id="L284">        end(Optional.ofNullable(result.getKey()),</span>
+<span class="nc" id="L285">                provision.getAnyType(),</span>
+<span class="nc" id="L286">                UnmatchingRule.toOp(rule),</span>
+                resultStatus,
+                null,
+                output,
+                delta);
+<span class="nc" id="L291">        profile.getResults().add(result);</span>
+<span class="nc" id="L292">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome update(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision) throws JobExecutionException {
+
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L301">            LOG.debug(&quot;PullTask not configured for update&quot;);</span>
+<span class="nc" id="L302">            end(Optional.empty(),</span>
+<span class="nc" id="L303">                    provision.getAnyType(),</span>
+<span class="nc" id="L304">                    MatchingRule.toOp(MatchingRule.UPDATE),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L309">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L312">        LOG.debug(&quot;About to update {}&quot;, match);</span>
+
+<span class="nc" id="L314">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L315">        result.setOperation(ResourceOperation.UPDATE);</span>
+<span class="nc" id="L316">        result.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L317">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L318">        result.setKey(match.getAny().getKey());</span>
+<span class="nc" id="L319">        result.setUidValue(delta.getUid().getUidValue());</span>
+
+<span class="nc" id="L321">        AnyTO before = getAnyTO(match.getAny());</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">        if (before == null) {</span>
+<span class="nc" id="L323">            result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L324">            result.setMessage(&quot;Any '%s(%s)' not found&quot;.formatted(provision.getAnyType(), match));</span>
+        } else {
+<span class="nc" id="L326">            result.setName(getName(before));</span>
+        }
+
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (profile.isDryRun()) {</span>
+<span class="nc" id="L330">            end(Optional.of(result.getKey()),</span>
+<span class="nc" id="L331">                    provision.getAnyType(),</span>
+<span class="nc" id="L332">                    MatchingRule.toOp(MatchingRule.UPDATE),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    before,
+                    null,
+                    delta);
+<span class="nc" id="L337">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+        OpEvent.Outcome resultStatus;
+        Object output;
+<span class="nc" id="L342">        AnyUR req = null;</span>
+
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (before == null) {</span>
+<span class="nc" id="L345">            resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L346">            output = null;</span>
+        } else {
+            try {
+<span class="nc" id="L349">                req = connObjectUtils.getAnyUR(</span>
+<span class="nc" id="L350">                        before.getKey(),</span>
+<span class="nc" id="L351">                        delta.getObject(),</span>
+                        before,
+<span class="nc" id="L353">                        profile.getTask(),</span>
+<span class="nc" id="L354">                        match.getAny().getType().getKind(),</span>
+                        provision);
+
+<span class="nc bnc" id="L357" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L358">                    action.beforeUpdate(profile, delta, before, req);</span>
+<span class="nc" id="L359">                }</span>
+
+<span class="nc" id="L361">                Optional.ofNullable(req.getUManager()).ifPresent(patch -&gt; uManagers.put(</span>
+<span class="nc" id="L362">                        before.getKey(),</span>
+<span class="nc" id="L363">                        Optional.ofNullable(patch.getValue())));</span>
+<span class="nc" id="L364">                req.setUManager(null);</span>
+<span class="nc" id="L365">                Optional.ofNullable(req.getGManager()).ifPresent(patch -&gt; gManagers.put(</span>
+<span class="nc" id="L366">                        before.getKey(),</span>
+<span class="nc" id="L367">                        Optional.ofNullable(patch.getValue())));</span>
+<span class="nc" id="L368">                req.setGManager(null);</span>
+
+<span class="nc" id="L370">                req = doUpdate(before, req, delta, result);</span>
+<span class="nc" id="L371">                AnyTO updated = AnyOperations.patch(before, req);</span>
+
+<span class="nc bnc" id="L373" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L374">                    action.after(profile, delta, updated, result);</span>
+<span class="nc" id="L375">                }</span>
+
+<span class="nc" id="L377">                output = updated;</span>
+<span class="nc" id="L378">                resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L379">                result.setName(getName(updated));</span>
+
+<span class="nc" id="L381">                LOG.debug(&quot;{} {} successfully updated&quot;, provision.getAnyType(), match);</span>
+<span class="nc" id="L382">            } catch (PropagationException e) {</span>
+                // A propagation failure doesn't imply a pull failure.
+                // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L385">                LOG.error(&quot;Could not propagate {} {}&quot;,</span>
+<span class="nc" id="L386">                        provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L387">                output = e;</span>
+<span class="nc" id="L388">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L389">            } catch (Exception e) {</span>
+<span class="nc" id="L390">                throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L392">                result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L393">                result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L394">                LOG.error(&quot;Could not update {} {}&quot;,</span>
+<span class="nc" id="L395">                        provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L396">                output = e;</span>
+
+<span class="nc bnc" id="L398" title="All 2 branches missed.">                if (profile.getTask().isRemediation()) {</span>
+                    // set to SUCCESS to let the incremental flow go on in case of errors
+<span class="nc" id="L400">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L401">                    createRemediation(null, null, req, result, delta);</span>
+                } else {
+<span class="nc" id="L403">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+                }
+<span class="nc" id="L405">            }</span>
+        }
+<span class="nc" id="L407">        end(Optional.of(result.getKey()),</span>
+<span class="nc" id="L408">                provision.getAnyType(),</span>
+<span class="nc" id="L409">                MatchingRule.toOp(MatchingRule.UPDATE),</span>
+                resultStatus,
+                before,
+                output,
+                delta,
+                req);
+
+<span class="nc" id="L416">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L418">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome deprovision(
+            final MatchingRule matchingRule,
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision)
+            throws JobExecutionException {
+
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L429">            LOG.debug(&quot;PullTask not configured for update&quot;);</span>
+<span class="nc" id="L430">            end(Optional.empty(),</span>
+<span class="nc" id="L431">                    provision.getAnyType(),</span>
+<span class="nc" id="L432">                    MatchingRule.toOp(matchingRule),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L437">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L440">        LOG.debug(&quot;About to deprovision {}&quot;, match);</span>
+
+<span class="nc" id="L442">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L443">        result.setOperation(ResourceOperation.DELETE);</span>
+<span class="nc" id="L444">        result.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L445">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L446">        result.setKey(match.getAny().getKey());</span>
+<span class="nc" id="L447">        result.setUidValue(delta.getUid().getUidValue());</span>
+
+<span class="nc" id="L449">        AnyTO before = getAnyTO(match.getAny());</span>
+
+<span class="nc bnc" id="L451" title="All 2 branches missed.">        if (before == null) {</span>
+<span class="nc" id="L452">            result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L453">            result.setMessage(&quot;Any '%s(%s)' not found&quot;.formatted(provision.getAnyType(), match));</span>
+        }
+
+<span class="nc" id="L456">        OpEvent.Outcome resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc bnc" id="L457" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+            Object output;
+<span class="nc bnc" id="L459" title="All 2 branches missed.">            if (before == null) {</span>
+<span class="nc" id="L460">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L461">                output = null;</span>
+            } else {
+<span class="nc" id="L463">                result.setName(getName(before));</span>
+
+                try {
+<span class="nc bnc" id="L466" title="All 2 branches missed.">                    if (matchingRule == MatchingRule.UNASSIGN) {</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">                        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L468">                            action.beforeUnassign(profile, delta, before);</span>
+<span class="nc" id="L469">                        }</span>
+<span class="nc bnc" id="L470" title="All 2 branches missed.">                    } else if (matchingRule == MatchingRule.DEPROVISION) {</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">                        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L472">                            action.beforeDeprovision(profile, delta, before);</span>
+<span class="nc" id="L473">                        }</span>
+                    }
+
+<span class="nc" id="L476">                    PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L477">                    propByRes.add(ResourceOperation.DELETE, profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L479">                    taskExecutor.execute(propagationManager.getDeleteTasks(</span>
+<span class="nc" id="L480">                            match.getAny().getType().getKind(),</span>
+<span class="nc" id="L481">                            match.getAny().getKey(),</span>
+                            propByRes,
+                            null,
+                            null),
+                            false,
+<span class="nc" id="L486">                            securityProperties.getAdminUser());</span>
+
+<span class="nc bnc" id="L488" title="All 2 branches missed.">                    if (matchingRule == MatchingRule.UNASSIGN) {</span>
+<span class="nc" id="L489">                        AnyUR req = anyUtils().newAnyUR(match.getAny().getKey());</span>
+<span class="nc" id="L490">                        req.getResources().add(new StringPatchItem.Builder().</span>
+<span class="nc" id="L491">                                operation(PatchOperation.DELETE).</span>
+<span class="nc" id="L492">                                value(profile.getTask().getResource().getKey()).build());</span>
+<span class="nc" id="L493">                        output = doUpdate(before, req, delta, result);</span>
+<span class="nc" id="L494">                    } else {</span>
+<span class="nc" id="L495">                        output = getAnyTO(match.getAny());</span>
+                    }
+
+<span class="nc bnc" id="L498" title="All 2 branches missed.">                    for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L499">                        action.after(profile, delta, AnyTO.class.cast(output), result);</span>
+<span class="nc" id="L500">                    }</span>
+
+<span class="nc" id="L502">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L504">                    LOG.debug(&quot;{} {} successfully updated&quot;, provision.getAnyType(), match);</span>
+<span class="nc" id="L505">                } catch (PropagationException e) {</span>
+                    // A propagation failure doesn't imply a pull failure.
+                    // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L508">                    LOG.error(&quot;Could not propagate {} {}&quot;,</span>
+<span class="nc" id="L509">                            provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L510">                    output = e;</span>
+<span class="nc" id="L511">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L512">                } catch (Exception e) {</span>
+<span class="nc" id="L513">                    throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L515">                    result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L516">                    result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L517">                    LOG.error(&quot;Could not update {} {}&quot;,</span>
+<span class="nc" id="L518">                            provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L519">                    output = e;</span>
+<span class="nc" id="L520">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L521">                }</span>
+            }
+<span class="nc" id="L523">            end(Optional.of(result.getKey()),</span>
+<span class="nc" id="L524">                    provision.getAnyType(),</span>
+<span class="nc" id="L525">                    MatchingRule.toOp(matchingRule),</span>
+                    resultStatus,
+                    before,
+                    output,
+                    delta);
+        }
+
+<span class="nc" id="L532">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L534">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome link(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision,
+            final boolean unlink)
+            throws JobExecutionException {
+
+<span class="nc bnc" id="L544" title="All 2 branches missed.">        if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L545">            LOG.debug(&quot;PullTask not configured for update&quot;);</span>
+<span class="nc" id="L546">            end(Optional.empty(),</span>
+<span class="nc" id="L547">                    provision.getAnyType(),</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">                    unlink ? MatchingRule.toOp(MatchingRule.UNLINK) : MatchingRule.toOp(MatchingRule.LINK),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L553">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc bnc" id="L556" title="All 2 branches missed.">        LOG.debug(&quot;About to &quot; + (unlink ? &quot;un&quot; : &quot;&quot;) + &quot;link {}&quot;, match);</span>
+
+<span class="nc" id="L558">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L559">        result.setOperation(ResourceOperation.NONE);</span>
+<span class="nc" id="L560">        result.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L561">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L562">        result.setKey(match.getAny().getKey());</span>
+<span class="nc" id="L563">        result.setUidValue(delta.getUid().getUidValue());</span>
+
+<span class="nc" id="L565">        AnyTO before = getAnyTO(match.getAny());</span>
+
+<span class="nc bnc" id="L567" title="All 2 branches missed.">        if (before == null) {</span>
+<span class="nc" id="L568">            result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L569">            result.setMessage(&quot;Any '%s(%s)' not found&quot;.formatted(provision.getAnyType(), match));</span>
+        }
+
+<span class="nc" id="L572">        OpEvent.Outcome resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+            Object output;
+<span class="nc" id="L575">            AnyUR effectiveReq = null;</span>
+
+<span class="nc bnc" id="L577" title="All 2 branches missed.">            if (before == null) {</span>
+<span class="nc" id="L578">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L579">                output = null;</span>
+            } else {
+<span class="nc" id="L581">                result.setName(getName(before));</span>
+
+                try {
+<span class="nc bnc" id="L584" title="All 2 branches missed.">                    if (unlink) {</span>
+<span class="nc bnc" id="L585" title="All 2 branches missed.">                        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L586">                            action.beforeUnlink(profile, delta, before);</span>
+<span class="nc" id="L587">                        }</span>
+                    } else {
+<span class="nc bnc" id="L589" title="All 2 branches missed.">                        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L590">                            action.beforeLink(profile, delta, before);</span>
+<span class="nc" id="L591">                        }</span>
+                    }
+
+<span class="nc" id="L594">                    AnyUR req = anyUtils().newAnyUR(before.getKey());</span>
+<span class="nc" id="L595">                    req.getResources().add(new StringPatchItem.Builder().</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">                            operation(unlink ? PatchOperation.DELETE : PatchOperation.ADD_REPLACE).</span>
+<span class="nc" id="L597">                            value(profile.getTask().getResource().getKey()).build());</span>
+
+<span class="nc" id="L599">                    effectiveReq = update(req).getResult();</span>
+<span class="nc" id="L600">                    output = AnyOperations.patch(before, effectiveReq);</span>
+
+<span class="nc bnc" id="L602" title="All 2 branches missed.">                    for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L603">                        action.after(profile, delta, AnyTO.class.cast(output), result);</span>
+<span class="nc" id="L604">                    }</span>
+
+<span class="nc" id="L606">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L608">                    LOG.debug(&quot;{} {} successfully updated&quot;, provision.getAnyType(), match);</span>
+<span class="nc" id="L609">                } catch (PropagationException e) {</span>
+                    // A propagation failure doesn't imply a pull failure.
+                    // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L612">                    LOG.error(&quot;Could not propagate {} {}&quot;,</span>
+<span class="nc" id="L613">                            provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L614">                    output = e;</span>
+<span class="nc" id="L615">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L616">                } catch (Exception e) {</span>
+<span class="nc" id="L617">                    throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L619">                    result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L620">                    result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L621">                    LOG.error(&quot;Could not update {} {}&quot;,</span>
+<span class="nc" id="L622">                            provision.getAnyType(), delta.getUid().getUidValue(), e);</span>
+<span class="nc" id="L623">                    output = e;</span>
+<span class="nc" id="L624">                    resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L625">                }</span>
+            }
+<span class="nc" id="L627">            end(Optional.of(result.getKey()),</span>
+<span class="nc" id="L628">                    provision.getAnyType(),</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">                    unlink ? MatchingRule.toOp(MatchingRule.UNLINK) : MatchingRule.toOp(MatchingRule.LINK),</span>
+                    resultStatus,
+                    before,
+                    output,
+                    delta,
+                    effectiveReq);
+
+<span class="nc" id="L636">            profile.getResults().add(result);</span>
+        }
+
+<span class="nc" id="L639">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome delete(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision) {
+
+<span class="nc bnc" id="L647" title="All 2 branches missed.">        if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L648">            LOG.debug(&quot;PullTask not configured for delete&quot;);</span>
+<span class="nc" id="L649">            end(Optional.empty(),</span>
+<span class="nc" id="L650">                    provision.getAnyType(),</span>
+<span class="nc" id="L651">                    ResourceOperation.DELETE.name().toLowerCase(),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L656">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L659">        LOG.debug(&quot;About to delete {}&quot;, match);</span>
+
+<span class="nc" id="L661">        OpEvent.Outcome resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L663">        ProvisioningReport result = new ProvisioningReport();</span>
+        try {
+<span class="nc" id="L665">            AnyTO before = getAnyTO(match.getAny());</span>
+
+<span class="nc" id="L667">            result.setKey(match.getAny().getKey());</span>
+<span class="nc" id="L668">            result.setName(getName(before));</span>
+<span class="nc" id="L669">            result.setOperation(ResourceOperation.DELETE);</span>
+<span class="nc" id="L670">            result.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L671">            result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L672">            result.setUidValue(delta.getUid().getUidValue());</span>
+
+<span class="nc bnc" id="L674" title="All 2 branches missed.">            if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L675" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L676">                    action.beforeDelete(profile, delta, before);</span>
+<span class="nc" id="L677">                }</span>
+
+                Object output;
+                try {
+<span class="nc" id="L681">                    provisioningManager().delete(</span>
+<span class="nc" id="L682">                            match.getAny().getKey(),</span>
+<span class="nc" id="L683">                            Set.of(profile.getTask().getResource().getKey()),</span>
+                            true,
+<span class="nc" id="L685">                            profile.getExecutor(),</span>
+<span class="nc" id="L686">                            profile.getContext());</span>
+<span class="nc" id="L687">                    output = null;</span>
+<span class="nc" id="L688">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc bnc" id="L690" title="All 2 branches missed.">                    for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L691">                        action.after(profile, delta, before, result);</span>
+<span class="nc" id="L692">                    }</span>
+<span class="nc" id="L693">                } catch (Exception e) {</span>
+<span class="nc" id="L694">                    throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L696">                    result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L697">                    result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L698">                    LOG.error(&quot;Could not delete {} {}&quot;, provision.getAnyType(), match, e);</span>
+<span class="nc" id="L699">                    output = e;</span>
+
+<span class="nc bnc" id="L701" title="All 2 branches missed.">                    if (profile.getTask().isRemediation()) {</span>
+                        // set to SUCCESS to let the incremental flow go on in case of errors
+<span class="nc" id="L703">                        resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L704">                        createRemediation(match.getAny().getKey(), null, null, result, delta);</span>
+                    }
+<span class="nc" id="L706">                }</span>
+
+<span class="nc" id="L708">                end(Optional.of(result.getKey()),</span>
+<span class="nc" id="L709">                        provision.getAnyType(),</span>
+<span class="nc" id="L710">                        ResourceOperation.DELETE.name().toLowerCase(),</span>
+                        resultStatus,
+                        before,
+                        output,
+                        delta);
+            }
+
+<span class="nc" id="L717">            profile.getResults().add(result);</span>
+<span class="nc" id="L718">        } catch (NotFoundException e) {</span>
+<span class="nc" id="L719">            LOG.error(&quot;Could not find {} {}&quot;, provision.getAnyType(), match, e);</span>
+<span class="nc" id="L720">        } catch (DelegatedAdministrationException e) {</span>
+<span class="nc" id="L721">            LOG.error(&quot;Not allowed to read {} {}&quot;, provision.getAnyType(), match, e);</span>
+<span class="nc" id="L722">        } catch (Exception e) {</span>
+<span class="nc" id="L723">            LOG.error(&quot;Could not delete {} {}&quot;, provision.getAnyType(), match, e);</span>
+<span class="nc" id="L724">        }</span>
+
+<span class="nc" id="L726">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome ignore(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision,
+            final boolean matching,
+            final String... message) {
+
+<span class="nc" id="L736">        LOG.debug(&quot;About to ignore {}&quot;, match);</span>
+
+<span class="nc" id="L738">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L739">        result.setKey(Optional.ofNullable(match).map(InboundMatch::getAny).map(Any::getKey).orElse(null));</span>
+<span class="nc" id="L740">        result.setName(delta.getObject().getUid().getUidValue());</span>
+<span class="nc" id="L741">        result.setOperation(ResourceOperation.NONE);</span>
+<span class="nc" id="L742">        result.setAnyType(provision.getAnyType());</span>
+<span class="nc" id="L743">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L744">        result.setUidValue(delta.getUid().getUidValue());</span>
+<span class="nc bnc" id="L745" title="All 4 branches missed.">        if (message != null &amp;&amp; message.length &gt;= 1) {</span>
+<span class="nc" id="L746">            result.setMessage(message[0]);</span>
+        }
+
+<span class="nc" id="L749">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L751">        end(Optional.ofNullable(result.getKey()),</span>
+<span class="nc" id="L752">                provision.getAnyType(),</span>
+<span class="nc bnc" id="L753" title="All 2 branches missed.">                matching ? MatchingRule.toOp(MatchingRule.IGNORE) : UnmatchingRule.toOp(UnmatchingRule.IGNORE),</span>
+                OpEvent.Outcome.SUCCESS,
+                null,
+                null,
+                delta);
+
+<span class="nc" id="L759">        return OpEvent.Outcome.SUCCESS;</span>
+    }
+
+    protected OpEvent.Outcome handleAny(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final AnyTypeKind anyTypeKind,
+            final Provision provision) throws JobExecutionException {
+
+<span class="nc" id="L768">        OpEvent.Outcome result = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc bnc" id="L769" title="All 3 branches missed.">        switch (delta.getDeltaType()) {</span>
+            case CREATE:
+            case UPDATE:
+            case CREATE_OR_UPDATE:
+<span class="nc bnc" id="L773" title="All 2 branches missed.">                if (match.getAny() == null) {</span>
+<span class="nc bnc" id="L774" title="All 3 branches missed.">                    switch (profile.getTask().getUnmatchingRule()) {</span>
+                        case ASSIGN:
+                        case PROVISION:
+<span class="nc" id="L777">                            result = provision(profile.getTask().getUnmatchingRule(), delta, anyTypeKind, provision);</span>
+<span class="nc" id="L778">                            break;</span>
+
+                        case IGNORE:
+<span class="nc" id="L781">                            result = ignore(delta, null, provision, false);</span>
+<span class="nc" id="L782">                            break;</span>
+
+                        default:
+                        // do nothing
+                    }
+                } else {
+<span class="nc bnc" id="L788" title="All 6 branches missed.">                    switch (profile.getTask().getMatchingRule()) {</span>
+                        case UPDATE:
+<span class="nc" id="L790">                            result = update(delta, match, provision);</span>
+<span class="nc" id="L791">                            break;</span>
+
+                        case DEPROVISION:
+                        case UNASSIGN:
+<span class="nc" id="L795">                            result = deprovision(profile.getTask().getMatchingRule(), delta, match, provision);</span>
+<span class="nc" id="L796">                            break;</span>
+
+                        case LINK:
+<span class="nc" id="L799">                            result = link(delta, match, provision, false);</span>
+<span class="nc" id="L800">                            break;</span>
+
+                        case UNLINK:
+<span class="nc" id="L803">                            result = link(delta, match, provision, true);</span>
+<span class="nc" id="L804">                            break;</span>
+
+                        case IGNORE:
+<span class="nc" id="L807">                            result = ignore(delta, match, provision, true);</span>
+<span class="nc" id="L808">                            break;</span>
+
+                        default:
+                        // do nothing
+                    }
+                }
+<span class="nc" id="L814">                break;</span>
+
+            case DELETE:
+                // Skip DELETE in case of InboundCorrelationRule.NO_MATCH
+<span class="nc bnc" id="L818" title="All 2 branches missed.">                result = match.getAny() == null</span>
+<span class="nc" id="L819">                        ? OpEvent.Outcome.SUCCESS : delete(delta, match, provision);</span>
+<span class="nc" id="L820">                break;</span>
+
+            default:
+        }
+
+<span class="nc" id="L825">        return result;</span>
+    }
+
+    protected OpEvent.Outcome handleLinkedAccount(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision) throws JobExecutionException {
+
+        // nothing to do in the general case
+<span class="nc" id="L834">        LOG.warn(&quot;Unexpected linked account found for {}: {}&quot;, provision.getAnyType(), match);</span>
+<span class="nc" id="L835">        return OpEvent.Outcome.SUCCESS;</span>
+    }
+
+    /**
+     * Look into SyncDelta and take necessary profile.getActions() (create / update / delete) on any object(s).
+     *
+     * @param delta returned by the underlying profile.getConnector()
+     * @param provision provisioning info
+     * @param anyTypeKind any type kind
+     * @return if handle was successful or not
+     * @throws JobExecutionException in case of pull failure.
+     */
+    protected OpEvent.Outcome doHandle(
+            final SyncDelta delta,
+            final Provision provision,
+            final AnyTypeKind anyTypeKind) throws JobExecutionException {
+
+<span class="nc" id="L852">        LOG.debug(&quot;Process {} for {} as {}&quot;,</span>
+<span class="nc" id="L853">                delta.getDeltaType(), delta.getUid().getUidValue(), delta.getObject().getObjectClass());</span>
+
+<span class="nc" id="L855">        SyncDelta finalDelta = delta;</span>
+<span class="nc bnc" id="L856" title="All 2 branches missed.">        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L857">            finalDelta = action.preprocess(profile, finalDelta);</span>
+<span class="nc" id="L858">        }</span>
+
+<span class="nc" id="L860">        LOG.debug(&quot;Transformed {} for {} as {}&quot;,</span>
+<span class="nc" id="L861">                finalDelta.getDeltaType(), finalDelta.getUid().getUidValue(), finalDelta.getObject().getObjectClass());</span>
+
+        try {
+<span class="nc" id="L864">            List&lt;InboundMatch&gt; matches = inboundMatcher.match(</span>
+                    finalDelta,
+<span class="nc" id="L866">                    profile.getTask().getResource(),</span>
+                    provision,
+                    anyTypeKind);
+<span class="nc" id="L869">            LOG.debug(&quot;Match(es) found for {} as {}: {}&quot;,</span>
+<span class="nc" id="L870">                    finalDelta.getUid().getUidValue(), finalDelta.getObject().getObjectClass(), matches);</span>
+
+<span class="nc bnc" id="L872" title="All 2 branches missed.">            if (matches.isEmpty()) {</span>
+<span class="nc" id="L873">                LOG.debug(&quot;Nothing to do&quot;);</span>
+<span class="nc" id="L874">                return OpEvent.Outcome.SUCCESS;</span>
+            }
+
+<span class="nc" id="L877">            InboundMatch match = matches.getFirst();</span>
+<span class="nc bnc" id="L878" title="All 2 branches missed.">            if (matches.size() &gt; 1) {</span>
+<span class="nc bnc" id="L879" title="All 3 branches missed.">                switch (profile.getConflictResolutionAction()) {</span>
+                    case IGNORE:
+<span class="nc" id="L881">                        throw new IgnoreProvisionException(&quot;More than one match found for &quot;</span>
+<span class="nc" id="L882">                                + finalDelta.getObject().getUid().getUidValue() + &quot;: &quot; + matches);</span>
+
+                    case LASTMATCH:
+<span class="nc" id="L885">                        match = matches.getLast();</span>
+<span class="nc" id="L886">                        break;</span>
+
+                    case FIRSTMATCH:
+                    default:
+                }
+            }
+
+            // users, groups and any objects
+<span class="nc bnc" id="L894" title="All 2 branches missed.">            if (match.getMatchTarget() == MatchType.ANY) {</span>
+<span class="nc" id="L895">                return handleAny(</span>
+                        finalDelta,
+                        match,
+                        anyTypeKind,
+                        provision);
+            }
+
+            // linked accounts
+<span class="nc bnc" id="L903" title="All 2 branches missed.">            if (match.getMatchTarget() == MatchType.LINKED_ACCOUNT) {</span>
+<span class="nc" id="L904">                return handleLinkedAccount(</span>
+                        finalDelta,
+                        match,
+                        provision);
+            }
+
+<span class="nc" id="L910">            LOG.debug(&quot;Unsupported match target: {}&quot;, match);</span>
+<span class="nc" id="L911">        } catch (IllegalStateException | IllegalArgumentException e) {</span>
+<span class="nc" id="L912">            LOG.warn(e.getMessage());</span>
+<span class="nc" id="L913">        }</span>
+
+<span class="nc" id="L915">        return OpEvent.Outcome.SUCCESS;</span>
+    }
+
+    protected void end(
+            final Optional&lt;String&gt; key,
+            final String anyType,
+            final String event,
+            final OpEvent.Outcome result,
+            final Object before,
+            final Object output,
+            final SyncDelta delta,
+            final Object... furtherInput) {
+
+<span class="nc" id="L928">        key.ifPresent(k -&gt; anyUtils().dao().evict(anyUtils().anyClass(), k));</span>
+
+<span class="nc" id="L930">        notificationManager.createTasks(</span>
+<span class="nc" id="L931">                profile.getExecutor(),</span>
+                OpEvent.CategoryType.PULL,
+                anyType,
+<span class="nc" id="L934">                profile.getTask().getResource().getKey(),</span>
+                event,
+                result,
+                before,
+                output,
+                delta,
+                furtherInput);
+
+<span class="nc" id="L942">        auditManager.audit(</span>
+<span class="nc" id="L943">                AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L944">                profile.getExecutor(),</span>
+                OpEvent.CategoryType.PULL,
+                anyType,
+<span class="nc" id="L947">                profile.getTask().getResource().getKey(),</span>
+                event,
+                result,
+                before,
+                output,
+                delta,
+                furtherInput);
+<span class="nc" id="L954">    }</span>
+
+    protected void createRemediationIfNeeded(
+            final AnyUR anyUR,
+            final SyncDelta delta,
+            final ProvisioningReport result) {
+
+<span class="nc bnc" id="L961" title="All 4 branches missed.">        if (ProvisioningReport.Status.FAILURE == result.getStatus() &amp;&amp; profile.getTask().isRemediation()) {</span>
+<span class="nc" id="L962">            createRemediation(null, null, anyUR, result, delta);</span>
+        }
+<span class="nc" id="L964">    }</span>
+
+    private void createRemediation(
+            final String anyKey,
+            final AnyCR anyCR,
+            final AnyUR anyUR,
+            final ProvisioningReport result,
+            final SyncDelta delta) {
+
+<span class="nc" id="L973">        Remediation remediation = entityFactory.newEntity(Remediation.class);</span>
+
+<span class="nc" id="L975">        remediation.setAnyType(anyTypeDAO.findById(result.getAnyType()).</span>
+<span class="nc" id="L976">                orElseThrow(() -&gt; new NotFoundException(&quot;AnyType &quot; + result.getAnyType())));</span>
+<span class="nc bnc" id="L977" title="All 2 branches missed.">        remediation.setOperation(anyUR == null ? ResourceOperation.CREATE : ResourceOperation.UPDATE);</span>
+<span class="nc bnc" id="L978" title="All 2 branches missed.">        if (StringUtils.isNotBlank(anyKey)) {</span>
+<span class="nc" id="L979">            remediation.setPayload(anyKey);</span>
+<span class="nc bnc" id="L980" title="All 2 branches missed.">        } else if (anyCR != null) {</span>
+<span class="nc" id="L981">            remediation.setPayload(anyCR);</span>
+<span class="nc bnc" id="L982" title="All 2 branches missed.">        } else if (anyUR != null) {</span>
+<span class="nc" id="L983">            remediation.setPayload(anyUR);</span>
+        }
+<span class="nc" id="L985">        remediation.setError(result.getMessage());</span>
+<span class="nc" id="L986">        remediation.setInstant(OffsetDateTime.now());</span>
+<span class="nc" id="L987">        remediation.setRemoteName(delta.getObject().getName().getNameValue());</span>
+<span class="nc" id="L988">        taskDAO.findById(TaskType.PULL, profile.getTask().getKey()).</span>
+<span class="nc" id="L989">                map(PullTask.class::cast).ifPresent(remediation::setPullTask);</span>
+
+<span class="nc" id="L991">        remediation = remediationDAO.save(remediation);</span>
+
+<span class="nc" id="L993">        ProvisioningReport remediationResult = new ProvisioningReport();</span>
+<span class="nc" id="L994">        remediationResult.setOperation(remediation.getOperation());</span>
+<span class="nc" id="L995">        remediationResult.setAnyType(result.getAnyType());</span>
+<span class="nc" id="L996">        remediationResult.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L997">        remediationResult.setMessage(remediation.getError());</span>
+<span class="nc bnc" id="L998" title="All 2 branches missed.">        if (StringUtils.isNotBlank(anyKey)) {</span>
+<span class="nc" id="L999">            remediationResult.setKey(anyKey);</span>
+<span class="nc bnc" id="L1000" title="All 2 branches missed.">        } else if (anyUR != null) {</span>
+<span class="nc" id="L1001">            remediationResult.setKey(anyUR.getKey());</span>
+        }
+<span class="nc" id="L1003">        remediationResult.setUidValue(delta.getUid().getUidValue());</span>
+<span class="nc" id="L1004">        remediationResult.setName(remediation.getRemoteName());</span>
+<span class="nc" id="L1005">        profile.getResults().add(remediationResult);</span>
+<span class="nc" id="L1006">    }</span>
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public void setManagers() {
+<span class="nc" id="L1011">        uManagers.forEach((anyKey, uManager) -&gt; {</span>
+<span class="nc" id="L1012">            Any any = anyUtils().dao().findById(anyKey).</span>
+<span class="nc" id="L1013">                    orElseThrow(() -&gt; new NotFoundException(anyUtils().anyTypeKind() + &quot; &quot; + anyKey));</span>
+
+<span class="nc" id="L1015">            uManager.ifPresentOrElse(</span>
+<span class="nc" id="L1016">                    manager -&gt; inboundMatcher.match(</span>
+<span class="nc" id="L1017">                            anyTypeDAO.getUser(),</span>
+                            manager,
+<span class="nc" id="L1019">                            profile.getTask().getResource(),</span>
+<span class="nc" id="L1020">                            profile.getConnector()).</span>
+<span class="nc" id="L1021">                            ifPresent(match -&gt; any.setUManager((User) match.getAny())),</span>
+<span class="nc" id="L1022">                    () -&gt; any.setUManager(null));</span>
+
+<span class="nc" id="L1024">            anyUtils().dao().save(any);</span>
+<span class="nc" id="L1025">        });</span>
+<span class="nc" id="L1026">        gManagers.forEach((anyKey, gManager) -&gt; {</span>
+<span class="nc" id="L1027">            Any any = anyUtils().dao().findById(anyKey).</span>
+<span class="nc" id="L1028">                    orElseThrow(() -&gt; new NotFoundException(anyUtils().anyTypeKind() + &quot; &quot; + anyKey));</span>
+
+<span class="nc" id="L1030">            gManager.ifPresentOrElse(</span>
+<span class="nc" id="L1031">                    manager -&gt; inboundMatcher.match(</span>
+<span class="nc" id="L1032">                            anyTypeDAO.getGroup(),</span>
+                            manager,
+<span class="nc" id="L1034">                            profile.getTask().getResource(),</span>
+<span class="nc" id="L1035">                            profile.getConnector()).</span>
+<span class="nc" id="L1036">                            ifPresent(match -&gt; any.setGManager((Group) match.getAny())),</span>
+<span class="nc" id="L1037">                    () -&gt; any.setGManager(null));</span>
+
+<span class="nc" id="L1039">            anyUtils().dao().save(any);</span>
+<span class="nc" id="L1040">        });</span>
+<span class="nc" id="L1041">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

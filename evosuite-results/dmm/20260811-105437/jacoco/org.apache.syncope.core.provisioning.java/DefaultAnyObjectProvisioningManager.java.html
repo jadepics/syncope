@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultAnyObjectProvisioningManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultAnyObjectProvisioningManager.java</span></div><h1>DefaultAnyObjectProvisioningManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+import org.apache.syncope.common.lib.request.AnyObjectCR;
+import org.apache.syncope.common.lib.request.AnyObjectUR;
+import org.apache.syncope.common.lib.to.PropagationStatus;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.provisioning.api.AnyObjectProvisioningManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.WorkflowResult;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.workflow.api.AnyObjectWorkflowAdapter;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+public class DefaultAnyObjectProvisioningManager implements AnyObjectProvisioningManager {
+
+    protected final AnyObjectWorkflowAdapter awfAdapter;
+
+    protected final PropagationManager propagationManager;
+
+    protected final PropagationTaskExecutor taskExecutor;
+
+    protected final AnyObjectDAO anyObjectDAO;
+
+    public DefaultAnyObjectProvisioningManager(
+            final AnyObjectWorkflowAdapter awfAdapter,
+            final PropagationManager propagationManager,
+            final PropagationTaskExecutor taskExecutor,
+<span class="nc" id="L55">            final AnyObjectDAO anyObjectDAO) {</span>
+
+<span class="nc" id="L57">        this.awfAdapter = awfAdapter;</span>
+<span class="nc" id="L58">        this.propagationManager = propagationManager;</span>
+<span class="nc" id="L59">        this.taskExecutor = taskExecutor;</span>
+<span class="nc" id="L60">        this.anyObjectDAO = anyObjectDAO;</span>
+<span class="nc" id="L61">    }</span>
+
+    @Override
+    public ProvisioningResult&lt;String&gt; create(
+            final AnyObjectCR anyObjectCR,
+            final boolean nullPriorityAsync,
+            final String creator,
+            final String context) {
+
+<span class="nc" id="L70">        return create(anyObjectCR, Set.of(), nullPriorityAsync, creator, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public ProvisioningResult&lt;String&gt; create(
+            final AnyObjectCR anyObjectCR,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String creator,
+            final String context) {
+
+<span class="nc" id="L82">        WorkflowResult&lt;String&gt; created = awfAdapter.create(anyObjectCR, creator, context);</span>
+
+<span class="nc" id="L84">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getCreateTasks(</span>
+                AnyTypeKind.ANY_OBJECT,
+<span class="nc" id="L86">                created.getResult(),</span>
+                null,
+<span class="nc" id="L88">                created.getPropByRes(),</span>
+                excludedResources);
+<span class="nc" id="L90">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, creator);</span>
+
+<span class="nc" id="L92">        return new ProvisioningResult&lt;&gt;(created.getResult(), propagationReporter.getStatuses());</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public ProvisioningResult&lt;AnyObjectUR&gt; update(
+            final AnyObjectUR anyObjectUR,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String updater,
+            final String context) {
+
+<span class="nc" id="L104">        List&lt;PropagationManager.PropagationAttrs&gt; beforeAttrs = propagationManager.prepareAttrs(</span>
+                AnyTypeKind.ANY_OBJECT,
+<span class="nc" id="L106">                anyObjectUR.getKey(),</span>
+                null,
+<span class="nc" id="L108">                List.of(),</span>
+                null,
+                excludedResources);
+
+<span class="nc" id="L112">        WorkflowResult&lt;AnyObjectUR&gt; updated = awfAdapter.update(anyObjectUR, updater, context);</span>
+
+<span class="nc" id="L114">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.setAttributeDeltas(</span>
+<span class="nc" id="L115">                propagationManager.getUpdateTasks(</span>
+<span class="nc" id="L116">                        updated.getResult(),</span>
+                        AnyTypeKind.ANY_OBJECT,
+<span class="nc" id="L118">                        updated.getResult().getKey(),</span>
+<span class="nc" id="L119">                        List.of(),</span>
+                        null,
+<span class="nc" id="L121">                        updated.getPropByRes(),</span>
+                        null,
+                        excludedResources),
+                beforeAttrs);
+<span class="nc" id="L125">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, updater);</span>
+
+<span class="nc" id="L127">        return new ProvisioningResult&lt;&gt;(updated.getResult(), propagationReporter.getStatuses());</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; delete(
+            final String key, final boolean nullPriorityAsync, final String eraser, final String context) {
+
+<span class="nc" id="L134">        return delete(key, Set.of(), nullPriorityAsync, eraser, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public List&lt;PropagationStatus&gt; delete(
+            final String key,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String eraser,
+            final String context) {
+
+<span class="nc" id="L146">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L147">        propByRes.set(ResourceOperation.DELETE, anyObjectDAO.findAllResourceKeys(key));</span>
+
+        // Note here that we can only notify about &quot;delete&quot;, not any other
+        // task defined in workflow process definition: this because this
+        // information could only be available after awfAdapter.delete(), which
+        // will also effectively remove user from db, thus making virtually
+        // impossible by NotificationManager to fetch required any object information
+<span class="nc" id="L154">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+                AnyTypeKind.ANY_OBJECT,
+                key,
+                propByRes,
+                null,
+                excludedResources);
+<span class="nc" id="L160">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, eraser);</span>
+
+<span class="nc" id="L162">        awfAdapter.delete(key, eraser, context);</span>
+
+<span class="nc" id="L164">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public String unlink(final AnyObjectUR anyObjectUR, final String updater, final String context) {
+<span class="nc" id="L169">        return awfAdapter.update(anyObjectUR, updater, context).getResult().getKey();</span>
+    }
+
+    @Override
+    public String link(final AnyObjectUR anyObjectUR, final String updater, final String context) {
+<span class="nc" id="L174">        return awfAdapter.update(anyObjectUR, updater, context).getResult().getKey();</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; provision(
+            final String key,
+            final Collection&lt;String&gt; resources,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L184">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L185">        propByRes.addAll(ResourceOperation.UPDATE, resources);</span>
+
+<span class="nc" id="L187">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUpdateTasks(</span>
+                null,
+                AnyTypeKind.ANY_OBJECT,
+                key,
+<span class="nc" id="L191">                List.of(),</span>
+                null,
+                propByRes,
+                null,
+                null);
+<span class="nc" id="L196">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, executor);</span>
+
+<span class="nc" id="L198">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; deprovision(
+            final String key,
+            final Collection&lt;String&gt; resources,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L208">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L209">        propByRes.addAll(ResourceOperation.DELETE, resources);</span>
+
+<span class="nc" id="L211">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+                AnyTypeKind.ANY_OBJECT,
+                key,
+                propByRes,
+                null,
+<span class="nc" id="L216">                anyObjectDAO.findAllResourceKeys(key).stream().</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">                        filter(resource -&gt; !resources.contains(resource)).</span>
+<span class="nc" id="L218">                        toList());</span>
+<span class="nc" id="L219">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, executor);</span>
+
+<span class="nc" id="L221">        return propagationReporter.getStatuses();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

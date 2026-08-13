@@ -1,0 +1,550 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConnectorFacadeProxy.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">ConnectorFacadeProxy.java</span></div><h1>ConnectorFacadeProxy.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.io.File;
+import java.net.URI;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.syncope.common.lib.types.ConnectorCapability;
+import org.apache.syncope.core.persistence.api.entity.ConnInstance;
+import org.apache.syncope.core.persistence.api.utils.ConnPoolConfUtils;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.TimeoutException;
+import org.apache.syncope.core.provisioning.api.pushpull.ReconFilterBuilder;
+import org.identityconnectors.common.CollectionUtil;
+import org.identityconnectors.common.security.GuardedByteArray;
+import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.framework.api.APIConfiguration;
+import org.identityconnectors.framework.api.ConfigurationProperties;
+import org.identityconnectors.framework.api.ConnectorFacade;
+import org.identityconnectors.framework.api.ConnectorFacadeFactory;
+import org.identityconnectors.framework.api.ConnectorInfo;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeDelta;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.LiveSyncResultsHandler;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.ObjectClassInfo;
+import org.identityconnectors.framework.common.objects.OperationOptions;
+import org.identityconnectors.framework.common.objects.OperationOptionsBuilder;
+import org.identityconnectors.framework.common.objects.SearchResult;
+import org.identityconnectors.framework.common.objects.SyncResultsHandler;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.identityconnectors.framework.common.objects.filter.Filter;
+import org.identityconnectors.framework.spi.SearchResultsHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.util.ClassUtils;
+
+public class ConnectorFacadeProxy implements Connector {
+
+<span class="nc" id="L63">    private static final Logger LOG = LoggerFactory.getLogger(ConnectorFacadeProxy.class);</span>
+
+<span class="nc" id="L65">    private static final Integer DEFAULT_PAGE_SIZE = 100;</span>
+
+    /**
+     * Connector facade wrapped instance.
+     */
+    private final ConnectorFacade connector;
+
+    /**
+     * Active connector instance.
+     */
+    private final ConnInstance connInstance;
+
+    private final AsyncConnectorFacade asyncFacade;
+
+    public ConnectorFacadeProxy(
+            final ConnInstance connInstance,
+            final AsyncConnectorFacade asyncFacade,
+<span class="nc" id="L82">            final ConnectorInfo connectorInfo) {</span>
+
+<span class="nc" id="L84">        this.connInstance = connInstance;</span>
+<span class="nc" id="L85">        this.asyncFacade = asyncFacade;</span>
+
+        // create default configuration
+<span class="nc" id="L88">        APIConfiguration apiConfig = connectorInfo.createDefaultAPIConfiguration();</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">        if (connInstance.getDisplayName() != null) {</span>
+<span class="nc" id="L90">            apiConfig.setInstanceName(connInstance.getDisplayName());</span>
+        }
+        // enable filtered results handler in validation mode
+<span class="nc" id="L93">        apiConfig.getResultsHandlerConfiguration().setFilteredResultsHandlerInValidationMode(true);</span>
+
+        // set connector configuration according to conninstance's
+<span class="nc" id="L96">        ConfigurationProperties properties = apiConfig.getConfigurationProperties();</span>
+<span class="nc" id="L97">        connInstance.getConf().stream().</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">                filter(property -&gt; !CollectionUtil.isEmpty(property.getValues())).</span>
+<span class="nc" id="L99">                forEach(property -&gt; properties.setPropertyValue(</span>
+<span class="nc" id="L100">                property.getSchema().getName(),</span>
+<span class="nc" id="L101">                getPropertyValue(property.getSchema().getType(), property.getValues())));</span>
+
+        // set pooling configuration (if supported) according to conninstance's
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (connInstance.getPoolConf() != null) {</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">            if (apiConfig.isConnectorPoolingSupported()) {</span>
+<span class="nc" id="L106">                ConnPoolConfUtils.updateObjectPoolConfiguration(</span>
+<span class="nc" id="L107">                        apiConfig.getConnectorPoolConfiguration(), connInstance.getPoolConf());</span>
+            } else {
+<span class="nc" id="L109">                LOG.warn(&quot;Connector pooling not supported for {}&quot;, connectorInfo);</span>
+            }
+        }
+
+        // gets new connector, with the given configuration
+<span class="nc" id="L114">        connector = ConnectorFacadeFactory.getInstance().newInstance(apiConfig);</span>
+
+        // make sure we have set up the Configuration properly
+<span class="nc" id="L117">        connector.validate();</span>
+<span class="nc" id="L118">    }</span>
+
+    @Override
+    public Uid authenticate(final String username, final String password, final OperationOptions options) {
+<span class="nc" id="L122">        Uid result = null;</span>
+
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.AUTHENTICATE)) {</span>
+<span class="nc" id="L125">            Future&lt;Uid&gt; future = asyncFacade.authenticate(</span>
+<span class="nc" id="L126">                    connector, username, new GuardedString(password.toCharArray()), options);</span>
+            try {
+<span class="nc" id="L128">                result = future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L129">            } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L130">                future.cancel(true);</span>
+<span class="nc" id="L131">                throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L132">            } catch (Exception e) {</span>
+<span class="nc" id="L133">                LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">                if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L135">                    throw runtimeException;</span>
+                } else {
+<span class="nc" id="L137">                    throw new RuntimeException(e.getCause());</span>
+                }
+<span class="nc" id="L139">            }</span>
+<span class="nc" id="L140">        } else {</span>
+<span class="nc" id="L141">            LOG.info(&quot;Authenticate was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L142">                    connInstance.getCapabilities());</span>
+        }
+
+<span class="nc" id="L145">        return result;</span>
+    }
+
+    @Override
+    public Uid create(
+            final ObjectClass objectClass,
+            final Set&lt;Attribute&gt; attrs,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L155">        Uid result = null;</span>
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.CREATE)) {</span>
+<span class="nc" id="L158">            propagationAttempted.setValue(true);</span>
+
+<span class="nc" id="L160">            Future&lt;Uid&gt; future = asyncFacade.create(connector, objectClass, attrs, options);</span>
+            try {
+<span class="nc" id="L162">                result = future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L163">            } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L164">                future.cancel(true);</span>
+<span class="nc" id="L165">                throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L166">            } catch (Exception e) {</span>
+<span class="nc" id="L167">                LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">                if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L169">                    throw runtimeException;</span>
+                } else {
+<span class="nc" id="L171">                    throw new RuntimeException(e.getCause());</span>
+                }
+<span class="nc" id="L173">            }</span>
+<span class="nc" id="L174">        } else {</span>
+<span class="nc" id="L175">            LOG.info(&quot;Create was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L176">                    connInstance.getCapabilities());</span>
+        }
+
+<span class="nc" id="L179">        return result;</span>
+    }
+
+    @Override
+    public Uid update(
+            final ObjectClass objectClass,
+            final Uid uid,
+            final Set&lt;Attribute&gt; attrs,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L190">        Uid result = null;</span>
+
+<span class="nc bnc" id="L192" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.UPDATE)) {</span>
+<span class="nc" id="L193">            propagationAttempted.setValue(true);</span>
+
+<span class="nc" id="L195">            Future&lt;Uid&gt; future = asyncFacade.update(connector, objectClass, uid, attrs, options);</span>
+
+            try {
+<span class="nc" id="L198">                result = future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L199">            } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L200">                future.cancel(true);</span>
+<span class="nc" id="L201">                throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L202">            } catch (Exception e) {</span>
+<span class="nc" id="L203">                LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L205">                    throw runtimeException;</span>
+                } else {
+<span class="nc" id="L207">                    throw new RuntimeException(e.getCause());</span>
+                }
+<span class="nc" id="L209">            }</span>
+<span class="nc" id="L210">        } else {</span>
+<span class="nc" id="L211">            LOG.info(&quot;Update for {} was attempted, although the &quot;</span>
+                    + &quot;connector only has these capabilities: {}. No action.&quot;,
+<span class="nc" id="L213">                    uid.getUidValue(), connInstance.getCapabilities());</span>
+        }
+
+<span class="nc" id="L216">        return result;</span>
+    }
+
+    @Override
+    public Set&lt;AttributeDelta&gt; updateDelta(
+            final ObjectClass objectClass,
+            final Uid uid,
+            final Set&lt;AttributeDelta&gt; modifications,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L227">        Set&lt;AttributeDelta&gt; result = null;</span>
+
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.UPDATE_DELTA)) {</span>
+<span class="nc" id="L230">            propagationAttempted.setValue(true);</span>
+
+<span class="nc" id="L232">            Future&lt;Set&lt;AttributeDelta&gt;&gt; future =</span>
+<span class="nc" id="L233">                    asyncFacade.updateDelta(connector, objectClass, uid, modifications, options);</span>
+
+            try {
+<span class="nc" id="L236">                result = future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L237">            } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L238">                future.cancel(true);</span>
+<span class="nc" id="L239">                throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L240">            } catch (Exception e) {</span>
+<span class="nc" id="L241">                LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">                if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L243">                    throw runtimeException;</span>
+                } else {
+<span class="nc" id="L245">                    throw new RuntimeException(e.getCause());</span>
+                }
+<span class="nc" id="L247">            }</span>
+<span class="nc" id="L248">        } else {</span>
+<span class="nc" id="L249">            LOG.info(&quot;UpdateDelta for {} was attempted, although the &quot;</span>
+                    + &quot;connector only has these capabilities: {}. No action.&quot;,
+<span class="nc" id="L251">                    uid.getUidValue(), connInstance.getCapabilities());</span>
+        }
+
+<span class="nc" id="L254">        return result;</span>
+    }
+
+    @Override
+    public void delete(
+            final ObjectClass objectClass,
+            final Uid uid,
+            final OperationOptions options,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.DELETE)) {</span>
+<span class="nc" id="L265">            propagationAttempted.setValue(true);</span>
+
+<span class="nc" id="L267">            Future&lt;Uid&gt; future = asyncFacade.delete(connector, objectClass, uid, options);</span>
+
+            try {
+<span class="nc" id="L270">                future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L271">            } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L272">                future.cancel(true);</span>
+<span class="nc" id="L273">                throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L274">            } catch (Exception e) {</span>
+<span class="nc" id="L275">                LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">                if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L277">                    throw runtimeException;</span>
+                } else {
+<span class="nc" id="L279">                    throw new RuntimeException(e.getCause());</span>
+                }
+<span class="nc" id="L281">            }</span>
+<span class="nc" id="L282">        } else {</span>
+<span class="nc" id="L283">            LOG.info(&quot;Delete for {} was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L284">                    uid.getUidValue(), connInstance.getCapabilities());</span>
+        }
+<span class="nc" id="L286">    }</span>
+
+    @Override
+    public void sync(
+            final ObjectClass objectClass,
+            final SyncToken token,
+            final SyncResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.SYNC)) {</span>
+<span class="nc" id="L296">            connector.sync(objectClass, token, handler, options);</span>
+        } else {
+<span class="nc" id="L298">            LOG.info(&quot;Sync was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L299">                    connInstance.getCapabilities());</span>
+        }
+<span class="nc" id="L301">    }</span>
+
+    @Override
+    public SyncToken getLatestSyncToken(final ObjectClass objectClass) {
+<span class="nc" id="L305">        SyncToken result = null;</span>
+
+<span class="nc bnc" id="L307" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.SYNC)) {</span>
+<span class="nc" id="L308">            Future&lt;SyncToken&gt; future = asyncFacade.getLatestSyncToken(connector, objectClass);</span>
+
+            try {
+<span class="nc" id="L311">                result = future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L312">            } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L313">                future.cancel(true);</span>
+<span class="nc" id="L314">                throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L315">            } catch (Exception e) {</span>
+<span class="nc" id="L316">                LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L318">                    throw runtimeException;</span>
+                } else {
+<span class="nc" id="L320">                    throw new RuntimeException(e.getCause());</span>
+                }
+<span class="nc" id="L322">            }</span>
+<span class="nc" id="L323">        } else {</span>
+<span class="nc" id="L324">            LOG.info(&quot;getLatestSyncToken was attempted, although the &quot;</span>
+<span class="nc" id="L325">                    + &quot;connector only has these capabilities: {}. No action.&quot;, connInstance.getCapabilities());</span>
+        }
+
+<span class="nc" id="L328">        return result;</span>
+    }
+
+    @Override
+    public void livesync(
+            final ObjectClass objectClass,
+            final LiveSyncResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.LIVE_SYNC)) {</span>
+<span class="nc" id="L338">            connector.livesync(objectClass, handler, options);</span>
+        } else {
+<span class="nc" id="L340">            LOG.info(&quot;livesync was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L341">                    connInstance.getCapabilities());</span>
+        }
+<span class="nc" id="L343">    }</span>
+
+    @Override
+    public void fullReconciliation(
+            final ObjectClass objectClass,
+            final SyncResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc" id="L351">        Connector.super.fullReconciliation(objectClass, handler, options);</span>
+<span class="nc" id="L352">    }</span>
+
+    @Override
+    public void filteredReconciliation(
+            final ObjectClass objectClass,
+            final ReconFilterBuilder filterBuilder,
+            final SyncResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc" id="L361">        Connector.super.filteredReconciliation(objectClass, filterBuilder, handler, options);</span>
+<span class="nc" id="L362">    }</span>
+
+    @Override
+    public Set&lt;ObjectClassInfo&gt; getObjectClassInfo() {
+<span class="nc" id="L366">        Future&lt;Set&lt;ObjectClassInfo&gt;&gt; future = asyncFacade.getObjectClassInfo(connector);</span>
+        try {
+<span class="nc" id="L368">            return future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L369">        } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L370">            future.cancel(true);</span>
+<span class="nc" id="L371">            throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L372">        } catch (Exception e) {</span>
+<span class="nc" id="L373">            LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">            if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L375">                throw runtimeException;</span>
+            } else {
+<span class="nc" id="L377">                throw new RuntimeException(e.getCause());</span>
+            }
+        }
+    }
+
+    @Override
+    public void validate() {
+<span class="nc" id="L384">        Future&lt;String&gt; future = asyncFacade.test(connector);</span>
+        try {
+<span class="nc" id="L386">            future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L387">        } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L388">            future.cancel(true);</span>
+<span class="nc" id="L389">            throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L390">        } catch (Exception e) {</span>
+<span class="nc" id="L391">            LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">            if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L393">                throw runtimeException;</span>
+            } else {
+<span class="nc" id="L395">                throw new RuntimeException(e.getCause());</span>
+            }
+<span class="nc" id="L397">        }</span>
+<span class="nc" id="L398">    }</span>
+
+    @Override
+    public void test() {
+<span class="nc" id="L402">        Future&lt;String&gt; future = asyncFacade.test(connector);</span>
+        try {
+<span class="nc" id="L404">            future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L405">        } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L406">            future.cancel(true);</span>
+<span class="nc" id="L407">            throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L408">        } catch (Exception e) {</span>
+<span class="nc" id="L409">            LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">            if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L411">                throw runtimeException;</span>
+            } else {
+<span class="nc" id="L413">                throw new RuntimeException(e.getCause());</span>
+            }
+<span class="nc" id="L415">        }</span>
+<span class="nc" id="L416">    }</span>
+
+    @Override
+    public ConnectorObject getObject(
+            final ObjectClass objectClass,
+            final Attribute connObjectKey,
+            final boolean ignoreCaseMatch,
+            final OperationOptions options) {
+
+        Future&lt;ConnectorObject&gt; future;
+
+<span class="nc bnc" id="L427" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.SEARCH)) {</span>
+<span class="nc" id="L428">            future = asyncFacade.getObject(connector, objectClass, connObjectKey, ignoreCaseMatch, options);</span>
+        } else {
+<span class="nc" id="L430">            LOG.info(&quot;Search was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L431">                    connInstance.getCapabilities());</span>
+<span class="nc" id="L432">            return null;</span>
+        }
+
+        try {
+<span class="nc" id="L436">            return future.get(connInstance.getConnRequestTimeout(), TimeUnit.SECONDS);</span>
+<span class="nc" id="L437">        } catch (java.util.concurrent.TimeoutException e) {</span>
+<span class="nc" id="L438">            future.cancel(true);</span>
+<span class="nc" id="L439">            throw new TimeoutException(&quot;Request timeout&quot;);</span>
+<span class="nc" id="L440">        } catch (Exception e) {</span>
+<span class="nc" id="L441">            LOG.error(&quot;Connector request execution failure&quot;, e);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">            if (e.getCause() instanceof RuntimeException runtimeException) {</span>
+<span class="nc" id="L443">                throw runtimeException;</span>
+            } else {
+<span class="nc" id="L445">                throw new RuntimeException(e.getCause());</span>
+            }
+        }
+    }
+
+    @Override
+    public SearchResult search(
+            final ObjectClass objectClass,
+            final Filter filter,
+            final SearchResultsHandler handler,
+            final OperationOptions options) {
+
+<span class="nc" id="L457">        SearchResult result = null;</span>
+
+<span class="nc bnc" id="L459" title="All 2 branches missed.">        if (connInstance.getCapabilities().contains(ConnectorCapability.SEARCH)) {</span>
+<span class="nc bnc" id="L460" title="All 4 branches missed.">            if (options.getPageSize() == null &amp;&amp; options.getPagedResultsCookie() == null) {</span>
+<span class="nc" id="L461">                OperationOptionsBuilder builder = new OperationOptionsBuilder(options).</span>
+<span class="nc" id="L462">                        setPageSize(DEFAULT_PAGE_SIZE).setPagedResultsOffset(-1);</span>
+
+<span class="nc" id="L464">                final String[] cookies = { null };</span>
+                do {
+<span class="nc bnc" id="L466" title="All 2 branches missed.">                    if (cookies[0] != null) {</span>
+<span class="nc" id="L467">                        builder.setPagedResultsCookie(cookies[0]);</span>
+                    }
+
+<span class="nc" id="L470">                    result = connector.search(objectClass, filter, new SearchResultsHandler() {</span>
+
+                        @Override
+                        public void handleResult(final SearchResult result) {
+<span class="nc" id="L474">                            handler.handleResult(result);</span>
+<span class="nc" id="L475">                            cookies[0] = result.getPagedResultsCookie();</span>
+<span class="nc" id="L476">                        }</span>
+
+                        @Override
+                        public boolean handle(final ConnectorObject connectorObject) {
+<span class="nc" id="L480">                            return handler.handle(connectorObject);</span>
+                        }
+<span class="nc" id="L482">                    }, builder.build());</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">                } while (cookies[0] != null);</span>
+<span class="nc" id="L484">            } else {</span>
+<span class="nc" id="L485">                result = connector.search(objectClass, filter, handler, options);</span>
+            }
+        } else {
+<span class="nc" id="L488">            LOG.info(&quot;Search was attempted, although the connector only has these capabilities: {}. No action.&quot;,</span>
+<span class="nc" id="L489">                    connInstance.getCapabilities());</span>
+        }
+
+<span class="nc" id="L492">        return result;</span>
+    }
+
+    @Override
+    public void dispose() {
+<span class="nc" id="L497">        connector.dispose();</span>
+<span class="nc" id="L498">    }</span>
+
+    @Override
+    public ConnInstance getConnInstance() {
+<span class="nc" id="L502">        return connInstance;</span>
+    }
+
+    private static Object getPropertyValue(final String propType, final List&lt;?&gt; values) {
+<span class="nc" id="L506">        Object value = null;</span>
+
+        try {
+<span class="nc" id="L509">            Class&lt;?&gt; propertySchemaClass = ClassUtils.forName(propType, ConnectorFacadeProxy.class.getClassLoader());</span>
+
+<span class="nc bnc" id="L511" title="All 2 branches missed.">            if (GuardedString.class.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L512">                value = new GuardedString(values.getFirst().toString().toCharArray());</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">            } else if (GuardedByteArray.class.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L514">                value = new GuardedByteArray((byte[]) values.getFirst());</span>
+<span class="nc bnc" id="L515" title="All 4 branches missed.">            } else if (Character.class.equals(propertySchemaClass) || Character.TYPE.equals(propertySchemaClass)) {</span>
+<span class="nc bnc" id="L516" title="All 4 branches missed.">                value = values.getFirst() == null || values.getFirst().toString().isEmpty()</span>
+<span class="nc" id="L517">                        ? null : values.getFirst().toString().charAt(0);</span>
+<span class="nc bnc" id="L518" title="All 4 branches missed.">            } else if (Integer.class.equals(propertySchemaClass) || Integer.TYPE.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L519">                value = Integer.valueOf(values.getFirst().toString());</span>
+<span class="nc bnc" id="L520" title="All 4 branches missed.">            } else if (Long.class.equals(propertySchemaClass) || Long.TYPE.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L521">                value = Long.valueOf(values.getFirst().toString());</span>
+<span class="nc bnc" id="L522" title="All 4 branches missed.">            } else if (Float.class.equals(propertySchemaClass) || Float.TYPE.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L523">                value = Float.valueOf(values.getFirst().toString());</span>
+<span class="nc bnc" id="L524" title="All 4 branches missed.">            } else if (Double.class.equals(propertySchemaClass) || Double.TYPE.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L525">                value = Double.valueOf(values.getFirst().toString());</span>
+<span class="nc bnc" id="L526" title="All 4 branches missed.">            } else if (Boolean.class.equals(propertySchemaClass) || Boolean.TYPE.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L527">                value = Boolean.valueOf(values.getFirst().toString());</span>
+<span class="nc bnc" id="L528" title="All 2 branches missed.">            } else if (URI.class.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L529">                value = URI.create(values.getFirst().toString());</span>
+<span class="nc bnc" id="L530" title="All 2 branches missed.">            } else if (File.class.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L531">                value = Path.of(values.getFirst().toString()).toFile();</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">            } else if (String[].class.equals(propertySchemaClass)) {</span>
+<span class="nc" id="L533">                value = values.toArray(String[]::new);</span>
+            } else {
+<span class="nc bnc" id="L535" title="All 2 branches missed.">                value = values.getFirst() == null ? null : values.getFirst().toString();</span>
+            }
+<span class="nc" id="L537">        } catch (Exception e) {</span>
+<span class="nc" id="L538">            LOG.error(&quot;Invalid ConnConfProperty specified: {} {}&quot;, propType, values, e);</span>
+<span class="nc" id="L539">        }</span>
+
+<span class="nc" id="L541">        return value;</span>
+    }
+
+    @Override
+    public String toString() {
+<span class="nc" id="L546">        return &quot;ConnectorFacadeProxy{&quot;</span>
+<span class="nc" id="L547">                + &quot;connector=&quot; + connector + '\n' + &quot;capabitilies=&quot; + connInstance.getCapabilities() + '}';</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

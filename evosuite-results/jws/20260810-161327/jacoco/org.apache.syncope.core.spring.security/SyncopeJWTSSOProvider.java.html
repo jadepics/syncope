@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SyncopeJWTSSOProvider.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">SyncopeJWTSSOProvider.java</span></div><h1>SyncopeJWTSSOProvider.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.jca.JCAContext;
+import com.nimbusds.jose.util.Base64URL;
+import com.nimbusds.jwt.JWTClaimsSet;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.syncope.common.lib.types.CipherAlgorithm;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.AccessToken;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.apache.syncope.core.spring.security.jws.AccessTokenJWSVerifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.type.TypeReference;
+
+/**
+ * Default implementation for internal JWT validation.
+ */
+public class SyncopeJWTSSOProvider implements JWTSSOProvider {
+
+<span class="nc" id="L48">    protected static final Logger LOG = LoggerFactory.getLogger(SyncopeJWTSSOProvider.class);</span>
+
+    protected final SecurityProperties securityProperties;
+
+    protected final EncryptorManager encryptorManager;
+
+    protected final AccessTokenJWSVerifier delegate;
+
+    protected final UserDAO userDAO;
+
+    protected final AccessTokenDAO accessTokenDAO;
+
+    public SyncopeJWTSSOProvider(
+            final SecurityProperties securityProperties,
+            final EncryptorManager encryptorManager,
+            final AccessTokenJWSVerifier delegate,
+            final UserDAO userDAO,
+<span class="nc" id="L65">            final AccessTokenDAO accessTokenDAO) {</span>
+
+<span class="nc" id="L67">        this.securityProperties = securityProperties;</span>
+<span class="nc" id="L68">        this.encryptorManager = encryptorManager;</span>
+<span class="nc" id="L69">        this.delegate = delegate;</span>
+<span class="nc" id="L70">        this.userDAO = userDAO;</span>
+<span class="nc" id="L71">        this.accessTokenDAO = accessTokenDAO;</span>
+<span class="nc" id="L72">    }</span>
+
+    @Override
+    public String getIssuer() {
+<span class="nc" id="L76">        return securityProperties.getJwtIssuer();</span>
+    }
+
+    @Override
+    public Set&lt;JWSAlgorithm&gt; supportedJWSAlgorithms() {
+<span class="nc" id="L81">        return delegate.supportedJWSAlgorithms();</span>
+    }
+
+    @Override
+    public JCAContext getJCAContext() {
+<span class="nc" id="L86">        return delegate.getJCAContext();</span>
+    }
+
+    @Override
+    public boolean verify(
+            final JWSHeader header,
+            final byte[] signingInput,
+            final Base64URL signature) throws JOSEException {
+
+<span class="nc" id="L95">        return delegate.verify(header, signingInput, signature);</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Optional&lt;ResolvedClaims&gt; resolve(final JWTClaimsSet jwtClaims) {
+<span class="nc" id="L101">        AccessToken accessToken = accessTokenDAO.findById(jwtClaims.getJWTID()).</span>
+<span class="nc" id="L102">                orElseThrow(() -&gt; new AuthenticationCredentialsNotFoundException(</span>
+<span class="nc" id="L103">                &quot;Could not find an Access Token for JWT &quot; + jwtClaims.getJWTID()));</span>
+
+<span class="nc" id="L105">        Set&lt;SyncopeGrantedAuthority&gt; authorities = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        if (accessToken.getAuthorities() != null) {</span>
+            try {
+<span class="nc" id="L108">                authorities.addAll(POJOHelper.deserialize(</span>
+<span class="nc" id="L109">                        encryptorManager.getInstance().decode(accessToken.getAuthorities(), CipherAlgorithm.AES),</span>
+<span class="nc" id="L110">                        new TypeReference&lt;&gt;() {</span>
+                }));
+<span class="nc" id="L112">            } catch (Throwable t) {</span>
+<span class="nc" id="L113">                LOG.error(&quot;Could not read stored authorities&quot;, t);</span>
+<span class="nc" id="L114">            }</span>
+        }
+
+<span class="nc" id="L117">        return userDAO.findByUsername(jwtClaims.getSubject()).map(user -&gt; new ResolvedClaims(user, authorities));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

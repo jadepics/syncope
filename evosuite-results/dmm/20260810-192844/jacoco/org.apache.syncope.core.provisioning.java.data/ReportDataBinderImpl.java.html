@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReportDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">ReportDataBinderImpl.java</span></div><h1>ReportDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.Comparator;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.ExecTO;
+import org.apache.syncope.common.lib.to.ReportTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.IdRepoImplementationType;
+import org.apache.syncope.common.lib.types.JobType;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.ReportExecDAO;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Report;
+import org.apache.syncope.core.persistence.api.entity.ReportExec;
+import org.apache.syncope.core.provisioning.api.data.ReportDataBinder;
+import org.apache.syncope.core.provisioning.api.job.JobNamer;
+import org.apache.syncope.core.provisioning.java.job.SyncopeTaskScheduler;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ReportDataBinderImpl extends AbstractExecutableDatabinder implements ReportDataBinder {
+
+<span class="nc" id="L43">    protected static final Logger LOG = LoggerFactory.getLogger(ReportDataBinder.class);</span>
+
+    protected final ReportExecDAO reportExecDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final SyncopeTaskScheduler scheduler;
+
+    public ReportDataBinderImpl(
+            final ReportExecDAO reportExecDAO,
+            final ImplementationDAO implementationDAO,
+<span class="nc" id="L54">            final SyncopeTaskScheduler scheduler) {</span>
+
+<span class="nc" id="L56">        this.reportExecDAO = reportExecDAO;</span>
+<span class="nc" id="L57">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L58">        this.scheduler = scheduler;</span>
+<span class="nc" id="L59">    }</span>
+
+    @Override
+    public void getReport(final Report report, final ReportTO reportTO) {
+<span class="nc" id="L63">        report.setName(reportTO.getName());</span>
+<span class="nc" id="L64">        report.setMimeType(reportTO.getMimeType());</span>
+<span class="nc" id="L65">        report.setFileExt(reportTO.getFileExt());</span>
+<span class="nc" id="L66">        report.setCronExpression(reportTO.getCronExpression());</span>
+<span class="nc" id="L67">        report.setActive(reportTO.isActive());</span>
+
+<span class="nc" id="L69">        Implementation jobDelegate = implementationDAO.findById(reportTO.getJobDelegate()).orElse(null);</span>
+<span class="nc bnc" id="L70" title="All 4 branches missed.">        if (jobDelegate == null || !IdRepoImplementationType.REPORT_DELEGATE.equals(jobDelegate.getType())) {</span>
+<span class="nc" id="L71">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidImplementation);</span>
+<span class="nc" id="L72">            sce.getElements().add(&quot;Null or invalid JobDelegate, expected &quot; + IdRepoImplementationType.REPORT_DELEGATE);</span>
+<span class="nc" id="L73">            throw sce;</span>
+        }
+<span class="nc" id="L75">        report.setJobDelegate(jobDelegate);</span>
+<span class="nc" id="L76">    }</span>
+
+    @Override
+    public ReportTO getReportTO(final Report report) {
+<span class="nc" id="L80">        ReportTO reportTO = new ReportTO();</span>
+<span class="nc" id="L81">        reportTO.setKey(report.getKey());</span>
+<span class="nc" id="L82">        reportTO.setName(report.getName());</span>
+<span class="nc" id="L83">        reportTO.setMimeType(report.getMimeType());</span>
+<span class="nc" id="L84">        reportTO.setFileExt(report.getFileExt());</span>
+<span class="nc" id="L85">        reportTO.setCronExpression(report.getCronExpression());</span>
+<span class="nc" id="L86">        reportTO.setJobDelegate(report.getJobDelegate().getKey());</span>
+<span class="nc" id="L87">        reportTO.setActive(report.isActive());</span>
+
+<span class="nc" id="L89">        ReportExec latestExec = reportExecDAO.findLatestStarted(report);</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (latestExec == null) {</span>
+<span class="nc" id="L91">            reportTO.setLatestExecStatus(StringUtils.EMPTY);</span>
+        } else {
+<span class="nc" id="L93">            reportTO.setLatestExecStatus(latestExec.getStatus());</span>
+<span class="nc" id="L94">            reportTO.setStart(latestExec.getStart());</span>
+<span class="nc" id="L95">            reportTO.setEnd(latestExec.getEnd());</span>
+
+<span class="nc" id="L97">            reportTO.setLastExecutor(latestExec.getExecutor());</span>
+<span class="nc" id="L98">            reportTO.setLastExec(reportTO.getStart());</span>
+        }
+
+<span class="nc" id="L101">        reportTO.getExecutions().addAll(report.getExecs().stream().map(this::getExecTO).toList());</span>
+
+<span class="nc" id="L103">        reportTO.getExecutions().stream().max(Comparator.comparing(ExecTO::getStart)).</span>
+<span class="nc" id="L104">                map(ExecTO::getStart).ifPresent(reportTO::setLastExec);</span>
+
+<span class="nc" id="L106">        scheduler.getNextTrigger(AuthContextUtils.getDomain(), JobNamer.getJobName(report)).</span>
+<span class="nc" id="L107">                ifPresent(reportTO::setNextExec);</span>
+
+<span class="nc" id="L109">        return reportTO;</span>
+    }
+
+    @Override
+    public String buildRefDesc(final Report report) {
+<span class="nc" id="L114">        return &quot;Report &quot;</span>
+<span class="nc" id="L115">                + report.getKey() + ' '</span>
+<span class="nc" id="L116">                + report.getName();</span>
+    }
+
+    @Override
+    public ExecTO getExecTO(final ReportExec execution) {
+<span class="nc" id="L121">        ExecTO execTO = new ExecTO();</span>
+<span class="nc" id="L122">        execTO.setKey(execution.getKey());</span>
+<span class="nc" id="L123">        execTO.setJobType(JobType.REPORT);</span>
+<span class="nc" id="L124">        execTO.setRefKey(execution.getReport().getKey());</span>
+<span class="nc" id="L125">        execTO.setRefDesc(buildRefDesc(execution.getReport()));</span>
+<span class="nc" id="L126">        execTO.setStatus(execution.getStatus());</span>
+<span class="nc" id="L127">        execTO.setMessage(execution.getMessage());</span>
+<span class="nc" id="L128">        execTO.setStart(execution.getStart());</span>
+<span class="nc" id="L129">        execTO.setEnd(execution.getEnd());</span>
+
+<span class="nc" id="L131">        execTO.setExecutor(execution.getExecutor());</span>
+<span class="nc" id="L132">        return execTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

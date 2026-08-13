@@ -1,0 +1,892 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AbstractPropagationTaskExecutor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.propagation</a> &gt; <span class="el_source">AbstractPropagationTaskExecutor.java</span></div><h1>AbstractPropagationTaskExecutor.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.propagation;
+
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.mutable.Mutable;
+import org.apache.commons.lang3.mutable.MutableObject;
+import org.apache.syncope.common.lib.to.ExecTO;
+import org.apache.syncope.common.lib.to.Item;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.BackOffStrategy;
+import org.apache.syncope.common.lib.types.ExecStatus;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.TraceLevel;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.policy.PropagationPolicy;
+import org.apache.syncope.core.persistence.api.entity.task.PropagationData;
+import org.apache.syncope.core.persistence.api.entity.task.PropagationTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.persistence.api.utils.ExceptionUtils2;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.ConnectorManager;
+import org.apache.syncope.core.provisioning.api.TimeoutException;
+import org.apache.syncope.core.provisioning.api.data.TaskDataBinder;
+import org.apache.syncope.core.provisioning.api.event.AfterHandlingEvent;
+import org.apache.syncope.core.provisioning.api.event.EntityLifecycleEvent;
+import org.apache.syncope.core.provisioning.api.notification.NotificationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationActions;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecureRandomUtils;
+import org.identityconnectors.framework.common.exceptions.ConnectorException;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeBuilder;
+import org.identityconnectors.framework.common.objects.AttributeDelta;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder;
+import org.identityconnectors.framework.common.objects.Name;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.OperationalAttributes;
+import org.identityconnectors.framework.common.objects.SyncDeltaType;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.retry.RetryException;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
+import org.springframework.core.retry.Retryable;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.backoff.BackOff;
+import org.springframework.util.backoff.ExponentialBackOff;
+import org.springframework.util.backoff.FixedBackOff;
+
+@Transactional(rollbackFor = { Throwable.class })
+public abstract class AbstractPropagationTaskExecutor implements PropagationTaskExecutor {
+
+<span class="nc" id="L105">    protected static final Logger LOG = LoggerFactory.getLogger(PropagationTaskExecutor.class);</span>
+
+<span class="nc" id="L107">    protected final Map&lt;String, RetryTemplate&gt; retryTemplates = Collections.synchronizedMap(new HashMap&lt;&gt;());</span>
+
+    protected final ConnectorManager connectorManager;
+
+    protected final ConnObjectUtils connObjectUtils;
+
+    protected final TaskDAO taskDAO;
+
+    protected final ExternalResourceDAO resourceDAO;
+
+    protected final PlainSchemaDAO plainSchemaDAO;
+
+    protected final NotificationManager notificationManager;
+
+    protected final AuditManager auditManager;
+
+    protected final TaskDataBinder taskDataBinder;
+
+    protected final AnyUtilsFactory anyUtilsFactory;
+
+    protected final TaskUtilsFactory taskUtilsFactory;
+
+    protected final OutboundMatcher outboundMatcher;
+
+    protected final PlainAttrValidationManager validator;
+
+    protected final ApplicationEventPublisher publisher;
+
+<span class="nc" id="L135">    protected final Map&lt;String, PropagationActions&gt; perContextActions = new ConcurrentHashMap&lt;&gt;();</span>
+
+    public AbstractPropagationTaskExecutor(
+            final ConnectorManager connectorManager,
+            final ConnObjectUtils connObjectUtils,
+            final TaskDAO taskDAO,
+            final ExternalResourceDAO resourceDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final NotificationManager notificationManager,
+            final AuditManager auditManager,
+            final TaskDataBinder taskDataBinder,
+            final AnyUtilsFactory anyUtilsFactory,
+            final TaskUtilsFactory taskUtilsFactory,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+<span class="nc" id="L150">            final ApplicationEventPublisher publisher) {</span>
+
+<span class="nc" id="L152">        this.connectorManager = connectorManager;</span>
+<span class="nc" id="L153">        this.connObjectUtils = connObjectUtils;</span>
+<span class="nc" id="L154">        this.taskDAO = taskDAO;</span>
+<span class="nc" id="L155">        this.resourceDAO = resourceDAO;</span>
+<span class="nc" id="L156">        this.plainSchemaDAO = plainSchemaDAO;</span>
+<span class="nc" id="L157">        this.notificationManager = notificationManager;</span>
+<span class="nc" id="L158">        this.auditManager = auditManager;</span>
+<span class="nc" id="L159">        this.taskDataBinder = taskDataBinder;</span>
+<span class="nc" id="L160">        this.anyUtilsFactory = anyUtilsFactory;</span>
+<span class="nc" id="L161">        this.taskUtilsFactory = taskUtilsFactory;</span>
+<span class="nc" id="L162">        this.outboundMatcher = outboundMatcher;</span>
+<span class="nc" id="L163">        this.validator = validator;</span>
+<span class="nc" id="L164">        this.publisher = publisher;</span>
+<span class="nc" id="L165">    }</span>
+
+    @Override
+    public void expireRetryTemplate(final String resource) {
+<span class="nc" id="L169">        retryTemplates.remove(resource);</span>
+<span class="nc" id="L170">    }</span>
+
+    protected List&lt;PropagationActions&gt; getPropagationActions(final ExternalResource resource) {
+<span class="nc" id="L173">        List&lt;PropagationActions&gt; result = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L175">        resource.getPropagationActions().forEach(impl -&gt; {</span>
+            try {
+<span class="nc" id="L177">                result.add(ImplementationManager.build(</span>
+<span class="nc" id="L178">                        AuthContextUtils.getDomain(),</span>
+                        impl,
+<span class="nc" id="L180">                        () -&gt; perContextActions.get(impl.getKey()),</span>
+<span class="nc" id="L181">                        instance -&gt; perContextActions.put(impl.getKey(), instance)));</span>
+<span class="nc" id="L182">            } catch (Exception e) {</span>
+<span class="nc" id="L183">                LOG.error(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L184">            }</span>
+<span class="nc" id="L185">        });</span>
+
+<span class="nc" id="L187">        return result;</span>
+    }
+
+    protected void checkMandatoryMissing(
+            final PropagationTaskInfo taskInfo,
+            final Set&lt;Attribute&gt; attrs,
+            final boolean enablePasswordCheck) {
+
+        // check if there is any missing or null / empty mandatory attribute
+<span class="nc" id="L196">        Set&lt;Object&gt; mandatoryAttrNames = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L197">        Optional.ofNullable(AttributeUtil.find(PropagationManager.MANDATORY_MISSING_ATTR_NAME, attrs)).</span>
+<span class="nc" id="L198">                ifPresent(missing -&gt; {</span>
+<span class="nc" id="L199">                    attrs.remove(missing);</span>
+
+<span class="nc bnc" id="L201" title="All 2 branches missed.">                    if (taskInfo.getOperation() == ResourceOperation.CREATE) {</span>
+                        // SYNCOPE-1751 remove __PASSWORD__ if enablePasswordCheck is false, this is needed to support
+                        // LinkedAccount update propagation without password
+<span class="nc bnc" id="L204" title="All 2 branches missed.">                        mandatoryAttrNames.addAll(enablePasswordCheck</span>
+<span class="nc" id="L205">                                ? missing.getValue()</span>
+<span class="nc" id="L206">                                : missing.getValue().stream().</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                                        filter(v -&gt; !OperationalAttributes.PASSWORD_NAME.equals(v)).</span>
+<span class="nc" id="L208">                                        toList());</span>
+                    }
+<span class="nc" id="L210">                });</span>
+<span class="nc" id="L211">        Optional.ofNullable(AttributeUtil.find(PropagationManager.MANDATORY_NULL_OR_EMPTY_ATTR_NAME, attrs)).</span>
+<span class="nc" id="L212">                ifPresent(nullOrEmpty -&gt; {</span>
+<span class="nc" id="L213">                    attrs.remove(nullOrEmpty);</span>
+
+<span class="nc" id="L215">                    mandatoryAttrNames.addAll(nullOrEmpty.getValue());</span>
+<span class="nc" id="L216">                });</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (!mandatoryAttrNames.isEmpty()) {</span>
+<span class="nc" id="L218">            throw new IllegalArgumentException(</span>
+                    &quot;Not attempted because there are mandatory attributes without value(s): &quot; + mandatoryAttrNames);
+        }
+<span class="nc" id="L221">    }</span>
+
+    protected Uid doCreate(
+            final PropagationTaskInfo taskInfo,
+            final Connector connector,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L228">        Set&lt;Attribute&gt; attrs = taskInfo.getPropagationData().getAttributes();</span>
+
+<span class="nc" id="L230">        checkMandatoryMissing(taskInfo, attrs, true);</span>
+
+<span class="nc" id="L232">        LOG.debug(&quot;Create {} on {}&quot;, attrs, taskInfo.getResource().getKey());</span>
+
+<span class="nc" id="L234">        Uid result = connector.create(taskInfo.getObjectClass(), attrs, null, propagationAttempted);</span>
+
+<span class="nc" id="L236">        taskInfo.getResource().getProvisionByAnyType(taskInfo.getAnyType()).</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">                filter(provision -&gt; provision.getUidOnCreate() != null).</span>
+<span class="nc" id="L238">                ifPresent(provision -&gt; {</span>
+<span class="nc" id="L239">                    LOG.debug(&quot;Adding uidOnCreate [{}] attribute to [{}] on create&quot;,</span>
+<span class="nc" id="L240">                            provision.getUidOnCreate(), taskInfo.getEntityKey());</span>
+<span class="nc" id="L241">                    AnyUtils anyUtils = anyUtilsFactory.getInstance(taskInfo.getAnyTypeKind());</span>
+<span class="nc" id="L242">                    anyUtils.addAttr(</span>
+                            validator,
+<span class="nc" id="L244">                            taskInfo.getEntityKey(),</span>
+<span class="nc" id="L245">                            plainSchemaDAO.findById(provision.getUidOnCreate()).</span>
+<span class="nc" id="L246">                                    orElseThrow(() -&gt; new NotFoundException(</span>
+<span class="nc" id="L247">                                    &quot;PlainSchema &quot; + (provision.getUidOnCreate()))),</span>
+<span class="nc" id="L248">                            result.getUidValue());</span>
+<span class="nc" id="L249">                    publisher.publishEvent(new EntityLifecycleEvent&lt;&gt;(</span>
+                            this,
+                            SyncDeltaType.UPDATE,
+<span class="nc" id="L252">                            anyUtils.dao().findById(taskInfo.getEntityKey()).</span>
+<span class="nc" id="L253">                                    orElseThrow(() -&gt; new NotFoundException(</span>
+<span class="nc" id="L254">                                    anyUtils.anyTypeKind() + &quot;&quot; + taskInfo.getEntityKey())),</span>
+<span class="nc" id="L255">                            AuthContextUtils.getDomain()));</span>
+<span class="nc" id="L256">                });</span>
+
+<span class="nc" id="L258">        return result;</span>
+    }
+
+    protected Uid doUpdate(
+            final PropagationTaskInfo taskInfo,
+            final Connector connector,
+            final ConnectorObject beforeObj,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L267">        Set&lt;Attribute&gt; attrs = taskInfo.getPropagationData().getAttributes();</span>
+
+<span class="nc" id="L269">        checkMandatoryMissing(taskInfo, attrs, false);</span>
+
+<span class="nc" id="L271">        LOG.debug(&quot;Update {} on {}&quot;, attrs, taskInfo.getResource().getKey());</span>
+
+        // 1. check if rename is really required
+<span class="nc" id="L274">        Name newName = AttributeUtil.getNameFromAttributes(attrs);</span>
+
+<span class="nc" id="L276">        LOG.debug(&quot;Rename required with value {}&quot;, newName);</span>
+
+<span class="nc bnc" id="L278" title="All 4 branches missed.">        if (beforeObj != null</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                &amp;&amp; newName != null &amp;&amp; newName.equals(beforeObj.getName())</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">                &amp;&amp; !newName.getNameValue().equals(beforeObj.getUid().getUidValue())) {</span>
+
+<span class="nc" id="L282">            LOG.debug(&quot;Remote object name unchanged&quot;);</span>
+<span class="nc" id="L283">            attrs.remove(newName);</span>
+        }
+
+        // 2. check whether anything is actually needing to be propagated, i.e. if there is attribute
+        // difference between beforeObj - just read above from the connector - and the values to be propagated
+<span class="nc" id="L288">        Map&lt;String, Attribute&gt; originalAttrMap = Map.of();</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (beforeObj != null) {</span>
+<span class="nc" id="L290">            originalAttrMap = beforeObj.getAttributes().stream().</span>
+<span class="nc" id="L291">                    collect(Collectors.toMap(attr -&gt; attr.getName().toUpperCase(), Function.identity()));</span>
+<span class="nc" id="L292">            Map&lt;String, Attribute&gt; updateAttrMap = attrs.stream().</span>
+<span class="nc" id="L293">                    collect(Collectors.toMap(attr -&gt; attr.getName().toUpperCase(), Function.identity()));</span>
+
+            // Only compare attribute from beforeObj that are also being updated
+<span class="nc" id="L296">            originalAttrMap.keySet().removeAll(updateAttrMap.keySet());</span>
+        }
+
+        Uid result;
+<span class="nc bnc" id="L300" title="All 4 branches missed.">        if (!originalAttrMap.isEmpty() &amp;&amp; originalAttrMap.values().equals(attrs)) {</span>
+<span class="nc" id="L301">            LOG.debug(&quot;Don't need to propagate anything: {} is equal to {}&quot;, originalAttrMap.values(), attrs);</span>
+<span class="nc" id="L302">            result = AttributeUtil.getUidAttribute(attrs);</span>
+        } else {
+<span class="nc" id="L304">            LOG.debug(&quot;Attributes to update: {}&quot;, attrs);</span>
+
+            // 3. provision entry
+<span class="nc" id="L307">            LOG.debug(&quot;Update {} on {}&quot;, attrs, taskInfo.getResource().getKey());</span>
+
+<span class="nc" id="L309">            result = connector.update(</span>
+<span class="nc" id="L310">                    Optional.ofNullable(beforeObj).</span>
+<span class="nc" id="L311">                            map(ConnectorObject::getObjectClass).</span>
+<span class="nc" id="L312">                            orElseGet(taskInfo::getObjectClass),</span>
+<span class="nc" id="L313">                    Optional.ofNullable(beforeObj).</span>
+<span class="nc" id="L314">                            map(ConnectorObject::getUid).</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">                            orElseGet(() -&gt; new Uid(taskInfo.getOldConnObjectKey() == null</span>
+<span class="nc" id="L316">                            ? taskInfo.getConnObjectKey() : taskInfo.getOldConnObjectKey())),</span>
+                    attrs,
+                    null,
+                    propagationAttempted);
+        }
+
+<span class="nc" id="L322">        return result;</span>
+    }
+
+    protected Uid doUpdateDelta(
+            final PropagationTaskInfo taskInfo,
+            final Set&lt;AttributeDelta&gt; modifications,
+            final Connector connector,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L331">        Uid uid = new Uid(taskInfo.getConnObjectKey());</span>
+
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        if (modifications.isEmpty()) {</span>
+<span class="nc" id="L334">            LOG.debug(&quot;Nothing to modify for {} on {}&quot;, uid, taskInfo.getResource().getKey());</span>
+        } else {
+<span class="nc" id="L336">            LOG.debug(&quot;Update Delta {} for {} on {}&quot;, modifications, uid, taskInfo.getResource().getKey());</span>
+
+<span class="nc" id="L338">            connector.updateDelta(</span>
+<span class="nc" id="L339">                    taskInfo.getObjectClass(),</span>
+                    uid,
+                    modifications,
+                    null,
+                    propagationAttempted);
+        }
+
+<span class="nc" id="L346">        return uid;</span>
+    }
+
+    protected Uid createOrUpdate(
+            final PropagationTaskInfo taskInfo,
+            final boolean fetchRemoteObj,
+            final ConnectorObject beforeObj,
+            final Connector connector,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+<span class="nc" id="L356">        PropagationData propagationData = taskInfo.getPropagationData();</span>
+
+<span class="nc bnc" id="L358" title="All 2 branches missed.">        if (propagationData.getAttributeDeltas() == null) {</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">            if (beforeObj != null) {</span>
+<span class="nc" id="L360">                return doUpdate(taskInfo, connector, beforeObj, propagationAttempted);</span>
+            }
+
+<span class="nc bnc" id="L363" title="All 4 branches missed.">            if (fetchRemoteObj || taskInfo.getOperation() == ResourceOperation.CREATE) {</span>
+<span class="nc" id="L364">                return doCreate(taskInfo, connector, propagationAttempted);</span>
+            }
+
+<span class="nc" id="L367">            return doUpdate(taskInfo, connector, beforeObj, propagationAttempted);</span>
+        }
+
+<span class="nc" id="L370">        return doUpdateDelta(taskInfo, propagationData.getAttributeDeltas(), connector, propagationAttempted);</span>
+    }
+
+    protected Uid delete(
+            final PropagationTaskInfo taskInfo,
+            final boolean fetchRemoteObj,
+            final ConnectorObject beforeObj,
+            final Connector connector,
+            final Mutable&lt;Boolean&gt; propagationAttempted) {
+
+        Uid result;
+
+<span class="nc bnc" id="L382" title="All 4 branches missed.">        if (fetchRemoteObj &amp;&amp; beforeObj == null) {</span>
+<span class="nc" id="L383">            LOG.debug(&quot;{} not found on {}: ignoring delete&quot;,</span>
+<span class="nc" id="L384">                    taskInfo.getConnObjectKey(), taskInfo.getResource().getKey());</span>
+<span class="nc" id="L385">            result = null;</span>
+        } else {
+<span class="nc" id="L387">            ObjectClass objectClass = Optional.ofNullable(beforeObj).</span>
+<span class="nc" id="L388">                    map(ConnectorObject::getObjectClass).</span>
+<span class="nc" id="L389">                    orElseGet(taskInfo::getObjectClass);</span>
+<span class="nc" id="L390">            Uid uid = Optional.ofNullable(beforeObj).</span>
+<span class="nc" id="L391">                    map(ConnectorObject::getUid).</span>
+<span class="nc" id="L392">                    orElseGet(() -&gt; new Uid(taskInfo.getConnObjectKey()));</span>
+
+<span class="nc" id="L394">            LOG.debug(&quot;Delete {} on {}&quot;, uid, taskInfo.getResource().getKey());</span>
+
+<span class="nc" id="L396">            connector.delete(objectClass, uid, null, propagationAttempted);</span>
+<span class="nc" id="L397">            result = uid;</span>
+<span class="nc" id="L398">            taskInfo.getResource().getProvisionByAnyType(taskInfo.getAnyType()).</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">                    filter(provision -&gt; provision.getUidOnCreate() != null).</span>
+<span class="nc" id="L400">                    ifPresent(provision -&gt; {</span>
+<span class="nc" id="L401">                        LOG.debug(&quot;Removing uidOnCreate [{}] attribute from [{}] on delete&quot;,</span>
+<span class="nc" id="L402">                                provision.getUidOnCreate(), taskInfo.getEntityKey());</span>
+<span class="nc" id="L403">                        AnyUtils anyUtils = anyUtilsFactory.getInstance(taskInfo.getAnyTypeKind());</span>
+<span class="nc" id="L404">                        anyUtils.removeAttr(taskInfo.getEntityKey(),</span>
+<span class="nc" id="L405">                                plainSchemaDAO.findById(provision.getUidOnCreate())</span>
+<span class="nc" id="L406">                                        .orElseThrow(() -&gt; new NotFoundException(</span>
+<span class="nc" id="L407">                                        &quot;PlainSchema &quot; + (provision.getUidOnCreate()))));</span>
+<span class="nc" id="L408">                        publisher.publishEvent(new EntityLifecycleEvent&lt;&gt;(</span>
+                                this,
+                                SyncDeltaType.UPDATE,
+<span class="nc" id="L411">                                anyUtils.dao().findById(taskInfo.getEntityKey()).</span>
+<span class="nc" id="L412">                                        orElseThrow(() -&gt; new NotFoundException(</span>
+<span class="nc" id="L413">                                        anyUtils.anyTypeKind() + &quot;&quot; + taskInfo.getEntityKey())),</span>
+<span class="nc" id="L414">                                AuthContextUtils.getDomain()));</span>
+<span class="nc" id="L415">                    });</span>
+        }
+
+<span class="nc" id="L418">        return result;</span>
+    }
+
+    protected Optional&lt;RetryTemplate&gt; retryTemplate(final ExternalResource resource) {
+<span class="nc bnc" id="L422" title="All 2 branches missed.">        if (resource.getPropagationPolicy() == null) {</span>
+<span class="nc" id="L423">            return Optional.empty();</span>
+        }
+
+<span class="nc" id="L426">        RetryTemplate retryTemplate = retryTemplates.get(resource.getKey());</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">        if (retryTemplate != null) {</span>
+<span class="nc" id="L428">            return Optional.of(retryTemplate);</span>
+        }
+
+<span class="nc" id="L431">        retryTemplate = new RetryTemplate();</span>
+
+<span class="nc" id="L433">        String[] params = resource.getPropagationPolicy().getBackOffParams().split(&quot;;&quot;);</span>
+
+<span class="nc" id="L435">        BackOff backOff = null;</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">        switch (resource.getPropagationPolicy().getBackOffStrategy()) {</span>
+            case EXPONENTIAL:
+            case RANDOM:
+<span class="nc" id="L439">                backOff = new ExponentialBackOff();</span>
+<span class="nc" id="L440">                ((ExponentialBackOff) backOff).setMaxAttempts(resource.getPropagationPolicy().getMaxAttempts());</span>
+<span class="nc bnc" id="L441" title="All 2 branches missed.">                if (params.length &gt; 0) {</span>
+                    try {
+<span class="nc" id="L443">                        ((ExponentialBackOff) backOff).setInitialInterval(Long.parseLong(params[0]));</span>
+<span class="nc" id="L444">                    } catch (NumberFormatException e) {</span>
+<span class="nc" id="L445">                        LOG.error(&quot;Could not convert to long: {}&quot;, params[0], e);</span>
+<span class="nc" id="L446">                    }</span>
+                }
+<span class="nc bnc" id="L448" title="All 2 branches missed.">                if (params.length &gt; 1) {</span>
+                    try {
+<span class="nc" id="L450">                        ((ExponentialBackOff) backOff).setMaxInterval(Long.parseLong(params[1]));</span>
+<span class="nc" id="L451">                    } catch (NumberFormatException e) {</span>
+<span class="nc" id="L452">                        LOG.error(&quot;Could not convert to long: {}&quot;, params[1], e);</span>
+<span class="nc" id="L453">                    }</span>
+                }
+<span class="nc bnc" id="L455" title="All 2 branches missed.">                if (params.length &gt; 2) {</span>
+                    try {
+<span class="nc" id="L457">                        ((ExponentialBackOff) backOff).setMultiplier(Double.parseDouble(params[2]));</span>
+<span class="nc" id="L458">                    } catch (NumberFormatException e) {</span>
+<span class="nc" id="L459">                        LOG.error(&quot;Could not convert to double: {}&quot;, params[2], e);</span>
+<span class="nc" id="L460">                    }</span>
+                }
+<span class="nc bnc" id="L462" title="All 2 branches missed.">                if (resource.getPropagationPolicy().getBackOffStrategy() == BackOffStrategy.RANDOM) {</span>
+<span class="nc" id="L463">                    ((ExponentialBackOff) backOff).setJitter(SecureRandomUtils.generateRandomLong(1, 1000));</span>
+                }
+                break;
+
+            case FIXED:
+            default:
+<span class="nc bnc" id="L469" title="All 2 branches missed.">                if (params.length &gt; 0) {</span>
+                    try {
+<span class="nc" id="L471">                        backOff = new FixedBackOff(Long.parseLong(params[0]));</span>
+<span class="nc" id="L472">                        ((FixedBackOff) backOff).setMaxAttempts(resource.getPropagationPolicy().getMaxAttempts());</span>
+<span class="nc" id="L473">                    } catch (NumberFormatException e) {</span>
+<span class="nc" id="L474">                        LOG.error(&quot;Could not convert to long: {}&quot;, params[0], e);</span>
+<span class="nc" id="L475">                    }</span>
+
+                }
+        }
+
+<span class="nc" id="L480">        RetryPolicy.Builder builder = RetryPolicy.builder();</span>
+<span class="nc" id="L481">        Optional.ofNullable(backOff).ifPresent(builder::backOff);</span>
+<span class="nc" id="L482">        retryTemplate.setRetryPolicy(builder.build());</span>
+<span class="nc" id="L483">        retryTemplates.put(resource.getKey(), retryTemplate);</span>
+
+<span class="nc" id="L485">        return Optional.of(retryTemplate);</span>
+    }
+
+    @Override
+    public TaskExec&lt;PropagationTask&gt; execute(
+            final PropagationTaskInfo taskInfo,
+            final PropagationReporter reporter,
+            final String executor) {
+
+<span class="nc" id="L494">        return retryTemplate(taskInfo.getResource()).map(rt -&gt; {</span>
+<span class="nc" id="L495">            Mutable&lt;TaskExec&lt;PropagationTask&gt;&gt; exec = new MutableObject&lt;&gt;();</span>
+            try {
+<span class="nc" id="L497">                return rt.execute(new Retryable&lt;TaskExec&lt;PropagationTask&gt;&gt;() {</span>
+
+                    @Override
+                    public TaskExec&lt;PropagationTask&gt; execute() throws Throwable {
+<span class="nc" id="L501">                        LOG.debug(&quot;New propagation attempt&quot;);</span>
+
+<span class="nc" id="L503">                        exec.setValue(doExecute(taskInfo, reporter, executor));</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">                        if (!ExecStatus.SUCCESS.name().equals(exec.get().getStatus())) {</span>
+<span class="nc" id="L505">                            throw new IllegalStateException(&quot;Propagation attempt failed&quot;);</span>
+                        }
+<span class="nc" id="L507">                        return exec.get();</span>
+                    }
+                });
+<span class="nc" id="L510">            } catch (RetryException e) {</span>
+<span class="nc" id="L511">                LOG.error(&quot;Could not propagate successfully, aborting&quot;, e);</span>
+<span class="nc" id="L512">                return exec.get();</span>
+            }
+<span class="nc" id="L514">        }).orElseGet(() -&gt; doExecute(taskInfo, reporter, executor));</span>
+    }
+
+    protected boolean isFetchRemoteObj(final PropagationTaskInfo taskInfo) {
+<span class="nc" id="L518">        return Optional.ofNullable(taskInfo.getResource().getPropagationPolicy()).</span>
+<span class="nc" id="L519">                map(PropagationPolicy::isFetchAroundProvisioning).</span>
+<span class="nc" id="L520">                orElse(true);</span>
+    }
+
+    protected TaskExec&lt;PropagationTask&gt; doExecute(
+            final PropagationTaskInfo taskInfo,
+            final PropagationReporter reporter,
+            final String executor) {
+
+<span class="nc bnc" id="L528" title="All 2 branches missed.">        Connector connector = taskInfo.getConnector() == null</span>
+<span class="nc" id="L529">                ? connectorManager.getConnector(taskInfo.getResource())</span>
+<span class="nc" id="L530">                : taskInfo.getConnector();</span>
+
+<span class="nc" id="L532">        List&lt;PropagationActions&gt; actions = getPropagationActions(taskInfo.getResource());</span>
+
+<span class="nc" id="L534">        OffsetDateTime start = OffsetDateTime.now();</span>
+
+<span class="nc" id="L536">        TaskExec&lt;PropagationTask&gt; exec = taskUtilsFactory.getInstance(TaskType.PROPAGATION).newTaskExec();</span>
+<span class="nc" id="L537">        exec.setStatus(ExecStatus.CREATED.name());</span>
+<span class="nc" id="L538">        exec.setExecutor(executor);</span>
+
+<span class="nc" id="L540">        String taskExecutionMessage = null;</span>
+<span class="nc" id="L541">        String failureReason = null;</span>
+
+        // Flag to state whether any propagation has been attempted
+<span class="nc" id="L544">        Mutable&lt;Boolean&gt; propagationAttempted = new MutableObject&lt;&gt;(false);</span>
+
+<span class="nc" id="L546">        boolean fetchRemoteObj = isFetchRemoteObj(taskInfo);</span>
+
+<span class="nc" id="L548">        ConnectorObject beforeObj = null;</span>
+<span class="nc" id="L549">        ConnectorObject afterObj = null;</span>
+
+<span class="nc" id="L551">        Provision provision = null;</span>
+<span class="nc" id="L552">        OrgUnit orgUnit = null;</span>
+<span class="nc" id="L553">        Uid uid = null;</span>
+        OpEvent.Outcome result;
+        try {
+<span class="nc" id="L556">            provision = taskInfo.getResource().</span>
+<span class="nc" id="L557">                    getProvisionByObjectClass(taskInfo.getObjectClass().getObjectClassValue()).orElse(null);</span>
+<span class="nc" id="L558">            orgUnit = taskInfo.getResource().getOrgUnit();</span>
+
+<span class="nc bnc" id="L560" title="All 2 branches missed.">            if (taskInfo.getBeforeObj().isEmpty()) {</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">                if (fetchRemoteObj) {</span>
+                    // Try to read remote object BEFORE any actual operation
+<span class="nc bnc" id="L563" title="All 4 branches missed.">                    beforeObj = provision == null &amp;&amp; orgUnit == null</span>
+<span class="nc" id="L564">                            ? null</span>
+<span class="nc bnc" id="L565" title="All 2 branches missed.">                            : orgUnit == null</span>
+<span class="nc" id="L566">                                    ? getRemoteObject(taskInfo, connector, provision, actions, false)</span>
+<span class="nc" id="L567">                                    : getRemoteObject(taskInfo, connector, orgUnit, actions, false);</span>
+<span class="nc" id="L568">                    taskInfo.setBeforeObj(Optional.ofNullable(beforeObj));</span>
+                }
+            } else {
+<span class="nc" id="L571">                beforeObj = taskInfo.getBeforeObj().get();</span>
+            }
+
+<span class="nc" id="L574">            actions.forEach(action -&gt; action.before(taskInfo));</span>
+
+<span class="nc bnc" id="L576" title="All 3 branches missed.">            switch (taskInfo.getOperation()) {</span>
+                case CREATE:
+                case UPDATE:
+<span class="nc" id="L579">                    uid = createOrUpdate(taskInfo, fetchRemoteObj, beforeObj, connector, propagationAttempted);</span>
+<span class="nc" id="L580">                    break;</span>
+
+                case DELETE:
+<span class="nc" id="L583">                    uid = delete(taskInfo, fetchRemoteObj, beforeObj, connector, propagationAttempted);</span>
+<span class="nc" id="L584">                    break;</span>
+
+                default:
+            }
+
+<span class="nc bnc" id="L589" title="All 2 branches missed.">            exec.setStatus(propagationAttempted.get()</span>
+<span class="nc" id="L590">                    ? ExecStatus.SUCCESS.name()</span>
+<span class="nc" id="L591">                    : ExecStatus.NOT_ATTEMPTED.name());</span>
+
+<span class="nc" id="L593">            result = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L595">            LOG.debug(&quot;Successfully propagated to {}&quot;, taskInfo.getResource());</span>
+<span class="nc" id="L596">        } catch (Exception e) {</span>
+<span class="nc" id="L597">            result = OpEvent.Outcome.FAILURE;</span>
+
+<span class="nc" id="L599">            exec.setStatus(ExecStatus.FAILURE.name());</span>
+
+<span class="nc" id="L601">            propagationAttempted.setValue(true);</span>
+
+<span class="nc" id="L603">            LOG.error(&quot;Exception during provision on resource {}&quot;, taskInfo.getResource().getKey(), e);</span>
+
+<span class="nc bnc" id="L605" title="All 4 branches missed.">            if (e instanceof ConnectorException &amp;&amp; e.getCause() != null) {</span>
+<span class="nc" id="L606">                taskExecutionMessage = e.getCause().getMessage();</span>
+<span class="nc bnc" id="L607" title="All 2 branches missed.">                if (e.getCause().getMessage() == null) {</span>
+<span class="nc" id="L608">                    failureReason = e.getMessage();</span>
+                } else {
+<span class="nc" id="L610">                    failureReason = e.getMessage() + &quot;\n\n Cause: &quot; + e.getCause().getMessage().split(&quot;\n&quot;)[0];</span>
+                }
+            } else {
+<span class="nc" id="L613">                taskExecutionMessage = ExceptionUtils2.getFullStackTrace(e);</span>
+<span class="nc bnc" id="L614" title="All 2 branches missed.">                if (e.getCause() == null) {</span>
+<span class="nc" id="L615">                    failureReason = e.getMessage();</span>
+                } else {
+<span class="nc" id="L617">                    failureReason = e.getMessage() + &quot;\n\n Cause: &quot; + e.getCause().getMessage().split(&quot;\n&quot;)[0];</span>
+                }
+            }
+
+<span class="nc" id="L621">            actions.forEach(action -&gt; action.onError(taskInfo, exec, e));</span>
+        } finally {
+            // Try to read remote object AFTER any actual operation
+<span class="nc bnc" id="L624" title="All 2 branches missed.">            if (uid != null) {</span>
+<span class="nc" id="L625">                taskInfo.setConnObjectKey(uid.getUidValue());</span>
+            }
+<span class="nc bnc" id="L627" title="All 2 branches missed.">            if (fetchRemoteObj) {</span>
+                try {
+<span class="nc bnc" id="L629" title="All 4 branches missed.">                    afterObj = provision == null &amp;&amp; orgUnit == null</span>
+<span class="nc" id="L630">                            ? null</span>
+<span class="nc bnc" id="L631" title="All 2 branches missed.">                            : orgUnit == null</span>
+<span class="nc" id="L632">                                    ? getRemoteObject(taskInfo, connector, provision, actions, true)</span>
+<span class="nc" id="L633">                                    : getRemoteObject(taskInfo, connector, orgUnit, actions, true);</span>
+<span class="nc" id="L634">                } catch (Exception ignore) {</span>
+                    // ignore exception
+<span class="nc" id="L636">                    LOG.error(&quot;Error retrieving after object&quot;, ignore);</span>
+<span class="nc" id="L637">                }</span>
+            }
+
+<span class="nc bnc" id="L640" title="All 6 branches missed.">            if (!ExecStatus.FAILURE.name().equals(exec.getStatus())</span>
+                    &amp;&amp; afterObj == null
+                    &amp;&amp; uid != null
+<span class="nc bnc" id="L643" title="All 2 branches missed.">                    &amp;&amp; taskInfo.getOperation() != ResourceOperation.DELETE) {</span>
+
+<span class="nc" id="L645">                afterObj = new ConnectorObjectBuilder().</span>
+<span class="nc" id="L646">                        setObjectClass(taskInfo.getObjectClass()).</span>
+<span class="nc" id="L647">                        setUid(uid).</span>
+<span class="nc" id="L648">                        setName(Optional.ofNullable(</span>
+<span class="nc" id="L649">                                AttributeUtil.getNameFromAttributes(taskInfo.getPropagationData().getAttributes())).</span>
+<span class="nc" id="L650">                                orElseGet(() -&gt; new Name(taskInfo.getConnObjectKey()))).</span>
+<span class="nc" id="L651">                        build();</span>
+            }
+
+<span class="nc" id="L654">            exec.setStart(start);</span>
+<span class="nc" id="L655">            exec.setMessage(taskExecutionMessage);</span>
+<span class="nc" id="L656">            exec.setEnd(OffsetDateTime.now());</span>
+
+<span class="nc" id="L658">            LOG.debug(&quot;Execution finished: {}&quot;, exec);</span>
+
+<span class="nc" id="L660">            hasToBeregistered(taskInfo, exec).ifPresent(task -&gt; {</span>
+<span class="nc" id="L661">                LOG.debug(&quot;Execution to be stored: {}&quot;, exec);</span>
+
+<span class="nc" id="L663">                exec.setTask(task);</span>
+<span class="nc" id="L664">                task.add(exec);</span>
+
+<span class="nc" id="L666">                taskInfo.setKey(taskDAO.save(task).getKey());</span>
+<span class="nc" id="L667">            });</span>
+
+<span class="nc bnc" id="L669" title="All 2 branches missed.">            String fiql = provision == null</span>
+<span class="nc" id="L670">                    ? null</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">                    : afterObj != null</span>
+<span class="nc" id="L672">                            ? outboundMatcher.getFIQL(afterObj, taskInfo.getResource(), provision)</span>
+<span class="nc bnc" id="L673" title="All 2 branches missed.">                            : beforeObj != null</span>
+<span class="nc" id="L674">                                    ? outboundMatcher.getFIQL(beforeObj, taskInfo.getResource(), provision)</span>
+<span class="nc" id="L675">                                    : null;</span>
+<span class="nc" id="L676">            reporter.onSuccessOrNonPriorityResourceFailures(</span>
+                    taskInfo,
+<span class="nc" id="L678">                    ExecStatus.valueOf(exec.getStatus()),</span>
+                    failureReason,
+                    fiql,
+                    beforeObj,
+                    afterObj);
+        }
+
+<span class="nc bnc" id="L685" title="All 2 branches missed.">        for (PropagationActions action : actions) {</span>
+<span class="nc" id="L686">            action.after(taskInfo, exec, afterObj);</span>
+<span class="nc" id="L687">        }</span>
+        // SYNCOPE-1136
+<span class="nc" id="L689">        String anyTypeKind = Optional.ofNullable(taskInfo.getAnyTypeKind()).map(Enum::name).orElse(&quot;realm&quot;);</span>
+<span class="nc" id="L690">        String operation = taskInfo.getOperation().name().toLowerCase();</span>
+<span class="nc" id="L691">        boolean notificationsAvailable = notificationManager.notificationsAvailable(</span>
+<span class="nc" id="L692">                AuthContextUtils.getDomain(),</span>
+                OpEvent.CategoryType.PROPAGATION,
+                anyTypeKind,
+<span class="nc" id="L695">                taskInfo.getResource().getKey(),</span>
+                operation);
+<span class="nc" id="L697">        boolean auditRequested = auditManager.auditRequested(</span>
+<span class="nc" id="L698">                AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L699">                AuthContextUtils.getUsername(),</span>
+                OpEvent.CategoryType.PROPAGATION,
+                anyTypeKind,
+<span class="nc" id="L702">                taskInfo.getResource().getKey(),</span>
+                operation);
+
+<span class="nc bnc" id="L705" title="All 4 branches missed.">        if (notificationsAvailable || auditRequested) {</span>
+<span class="nc" id="L706">            ExecTO execTO = taskDataBinder.getExecTO(exec);</span>
+
+<span class="nc" id="L708">            AfterHandlingEvent event = new AfterHandlingEvent(</span>
+<span class="nc" id="L709">                    AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L710">                    AuthContextUtils.getWho(),</span>
+                    OpEvent.CategoryType.PROPAGATION,
+                    anyTypeKind,
+<span class="nc" id="L713">                    taskInfo.getResource().getKey(),</span>
+                    operation,
+                    result,
+                    beforeObj,
+                    new Object[] { execTO, afterObj },
+                    taskInfo);
+
+<span class="nc" id="L720">            notificationManager.createTasks(event);</span>
+
+<span class="nc" id="L722">            auditManager.audit(event);</span>
+        }
+
+<span class="nc" id="L725">        return exec;</span>
+    }
+
+    protected TaskExec&lt;PropagationTask&gt; rejected(
+            final PropagationTaskInfo taskInfo,
+            final String rejectReason,
+            final PropagationReporter reporter,
+            final String executor) {
+
+<span class="nc" id="L734">        TaskExec&lt;PropagationTask&gt; execution = taskUtilsFactory.getInstance(TaskType.PROPAGATION).newTaskExec();</span>
+<span class="nc" id="L735">        execution.setStatus(ExecStatus.NOT_ATTEMPTED.name());</span>
+<span class="nc" id="L736">        execution.setExecutor(executor);</span>
+<span class="nc" id="L737">        execution.setStart(OffsetDateTime.now());</span>
+<span class="nc" id="L738">        execution.setMessage(rejectReason);</span>
+<span class="nc" id="L739">        execution.setEnd(execution.getStart());</span>
+
+<span class="nc" id="L741">        hasToBeregistered(taskInfo, execution).ifPresent(task -&gt; {</span>
+<span class="nc" id="L742">            LOG.debug(&quot;Execution to be stored: {}&quot;, execution);</span>
+
+<span class="nc" id="L744">            execution.setTask(task);</span>
+<span class="nc" id="L745">            task.add(execution);</span>
+
+<span class="nc" id="L747">            taskDAO.save(task);</span>
+<span class="nc" id="L748">        });</span>
+
+<span class="nc" id="L750">        reporter.onSuccessOrNonPriorityResourceFailures(</span>
+                taskInfo,
+<span class="nc" id="L752">                ExecStatus.valueOf(execution.getStatus()),</span>
+                rejectReason,
+                null,
+                null,
+                null);
+
+<span class="nc" id="L758">        return execution;</span>
+    }
+
+    /**
+     * Check whether an execution has to be stored, for a given task.
+     *
+     * @param taskInfo propagation task
+     * @param execution to be decide whether to store or not
+     * @return true if execution has to be store, false otherwise
+     */
+    protected Optional&lt;PropagationTask&gt; hasToBeregistered(
+            final PropagationTaskInfo taskInfo, final TaskExec&lt;PropagationTask&gt; execution) {
+
+<span class="nc bnc" id="L771" title="All 2 branches missed.">        boolean failed = ExecStatus.valueOf(execution.getStatus()) != ExecStatus.SUCCESS;</span>
+
+<span class="nc" id="L773">        ExternalResource resource = taskInfo.getResource();</span>
+
+        boolean result;
+<span class="nc bnc" id="L776" title="All 4 branches missed.">        result = switch (taskInfo.getOperation()) {</span>
+            case CREATE -&gt;
+<span class="nc bnc" id="L778" title="All 4 branches missed.">                resource.getCreateTraceLevel() == TraceLevel.ALL</span>
+<span class="nc bnc" id="L779" title="All 2 branches missed.">                || (failed &amp;&amp; resource.getCreateTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal());</span>
+
+            case UPDATE -&gt;
+<span class="nc bnc" id="L782" title="All 4 branches missed.">                resource.getUpdateTraceLevel() == TraceLevel.ALL</span>
+<span class="nc bnc" id="L783" title="All 2 branches missed.">                || (failed &amp;&amp; resource.getUpdateTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal());</span>
+
+            case DELETE -&gt;
+<span class="nc bnc" id="L786" title="All 4 branches missed.">                resource.getDeleteTraceLevel() == TraceLevel.ALL</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">                || (failed &amp;&amp; resource.getDeleteTraceLevel().ordinal() &gt;= TraceLevel.FAILURES.ordinal());</span>
+
+            default -&gt;
+<span class="nc" id="L790">                false;</span>
+        };
+
+<span class="nc bnc" id="L793" title="All 2 branches missed.">        if (!result) {</span>
+<span class="nc" id="L794">            return Optional.empty();</span>
+        }
+
+<span class="nc" id="L797">        PropagationTask task = Optional.ofNullable(taskInfo.getKey()).</span>
+<span class="nc" id="L798">                flatMap(key -&gt; taskDAO.findById(TaskType.PROPAGATION, key)).</span>
+<span class="nc" id="L799">                map(PropagationTask.class::cast).</span>
+<span class="nc" id="L800">                orElseGet(() -&gt; {</span>
+<span class="nc" id="L801">                    PropagationTask t = taskUtilsFactory.getInstance(TaskType.PROPAGATION).newTask();</span>
+<span class="nc" id="L802">                    t.setResource(resourceDAO.findById(resource.getKey()).</span>
+<span class="nc" id="L803">                            orElseThrow(() -&gt; new NotFoundException(&quot;Resource &quot; + resource.getKey())));</span>
+<span class="nc" id="L804">                    t.setObjectClassName(taskInfo.getObjectClass().getObjectClassValue());</span>
+<span class="nc" id="L805">                    t.setAnyTypeKind(taskInfo.getAnyTypeKind());</span>
+<span class="nc" id="L806">                    t.setAnyType(taskInfo.getAnyType());</span>
+<span class="nc" id="L807">                    t.setEntityKey(taskInfo.getEntityKey());</span>
+<span class="nc" id="L808">                    t.setOperation(taskInfo.getOperation());</span>
+<span class="nc" id="L809">                    t.setConnObjectKey(taskInfo.getConnObjectKey());</span>
+<span class="nc" id="L810">                    t.setOldConnObjectKey(taskInfo.getOldConnObjectKey());</span>
+<span class="nc" id="L811">                    return t;</span>
+                });
+<span class="nc" id="L813">        task.setPropagationData(taskInfo.getPropagationData());</span>
+
+<span class="nc" id="L815">        return Optional.of(task);</span>
+    }
+
+    /**
+     * Get remote object for given task.
+     *
+     * @param connector connector facade proxy
+     * @param taskInfo current propagation task
+     * @param provision provision
+     * @param actions propagation actions
+     * @param latest 'FALSE' to retrieve object using old connObjectKey if not null.
+     * @return remote connector object.
+     */
+    protected ConnectorObject getRemoteObject(
+            final PropagationTaskInfo taskInfo,
+            final Connector connector,
+            final Provision provision,
+            final List&lt;PropagationActions&gt; actions,
+            final boolean latest) {
+
+<span class="nc bnc" id="L835" title="All 4 branches missed.">        String connObjectKeyValue = latest || taskInfo.getOldConnObjectKey() == null</span>
+<span class="nc" id="L836">                ? taskInfo.getConnObjectKey()</span>
+<span class="nc" id="L837">                : taskInfo.getOldConnObjectKey();</span>
+
+<span class="nc" id="L839">        List&lt;ConnectorObject&gt; matches =</span>
+<span class="nc" id="L840">                outboundMatcher.match(taskInfo, connector, provision, actions, connObjectKeyValue);</span>
+<span class="nc" id="L841">        LOG.debug(&quot;Found for propagation task {}: {}&quot;, taskInfo, matches);</span>
+
+<span class="nc bnc" id="L843" title="All 2 branches missed.">        return matches.isEmpty() ? null : matches.getFirst();</span>
+    }
+
+    /**
+     * Get remote object for given task.
+     *
+     * @param connector connector facade proxy
+     * @param taskInfo current propagation task
+     * @param orgUnit orgUnit
+     * @param actions propagation actions
+     * @param latest 'FALSE' to retrieve object using old connObjectKey if not null.
+     * @return remote connector object.
+     */
+    protected ConnectorObject getRemoteObject(
+            final PropagationTaskInfo taskInfo,
+            final Connector connector,
+            final OrgUnit orgUnit,
+            final List&lt;PropagationActions&gt; actions,
+            final boolean latest) {
+
+<span class="nc bnc" id="L863" title="All 4 branches missed.">        String connObjectKey = latest || taskInfo.getOldConnObjectKey() == null</span>
+<span class="nc" id="L864">                ? taskInfo.getConnObjectKey()</span>
+<span class="nc" id="L865">                : taskInfo.getOldConnObjectKey();</span>
+
+<span class="nc" id="L867">        Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L868">        actions.forEach(action -&gt; moreAttrsToGet.addAll(action.moreAttrsToGet(Optional.of(taskInfo), orgUnit)));</span>
+
+<span class="nc" id="L870">        ConnectorObject obj = null;</span>
+<span class="nc" id="L871">        Optional&lt;Item&gt; connObjectKeyItem = orgUnit.getConnObjectKeyItem();</span>
+<span class="nc bnc" id="L872" title="All 2 branches missed.">        if (connObjectKeyItem.isPresent()) {</span>
+            try {
+<span class="nc" id="L874">                obj = connector.getObject(</span>
+<span class="nc" id="L875">                        taskInfo.getObjectClass(),</span>
+<span class="nc" id="L876">                        AttributeBuilder.build(connObjectKeyItem.get().getExtAttrName(), connObjectKey),</span>
+<span class="nc" id="L877">                        orgUnit.isIgnoreCaseMatch(),</span>
+<span class="nc" id="L878">                        MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L879">                                MappingUtils.getPropagationItems(orgUnit.getItems().stream()),</span>
+<span class="nc" id="L880">                                moreAttrsToGet.toArray(String[]::new)));</span>
+<span class="nc" id="L881">            } catch (TimeoutException toe) {</span>
+<span class="nc" id="L882">                LOG.debug(&quot;Request timeout&quot;, toe);</span>
+<span class="nc" id="L883">                throw toe;</span>
+<span class="nc" id="L884">            } catch (RuntimeException ignore) {</span>
+<span class="nc" id="L885">                LOG.debug(&quot;While resolving {}&quot;, connObjectKey, ignore);</span>
+<span class="nc" id="L886">            }</span>
+        }
+
+<span class="nc" id="L889">        return obj;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

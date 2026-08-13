@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AccessTokenDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">AccessTokenDataBinderImpl.java</span></div><h1>AccessTokenDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import java.text.ParseException;
+import java.time.OffsetDateTime;
+import java.util.Date;
+import java.util.Map;
+import java.util.Optional;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.common.keymaster.client.api.StandardConfParams;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.AccessTokenTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.entity.AccessToken;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.provisioning.api.data.AccessTokenDataBinder;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.DefaultCredentialChecker;
+import org.apache.syncope.core.spring.security.SecureRandomUtils;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.apache.syncope.core.spring.security.jws.AccessTokenJWSSigner;
+
+public class AccessTokenDataBinderImpl implements AccessTokenDataBinder {
+
+    protected final SecurityProperties securityProperties;
+
+    protected final AccessTokenJWSSigner jwsSigner;
+
+    protected final AccessTokenDAO accessTokenDAO;
+
+    protected final ConfParamOps confParamOps;
+
+    protected final EntityFactory entityFactory;
+
+    protected final DefaultCredentialChecker credentialChecker;
+
+    public AccessTokenDataBinderImpl(
+            final SecurityProperties securityProperties,
+            final AccessTokenJWSSigner jwsSigner,
+            final AccessTokenDAO accessTokenDAO,
+            final ConfParamOps confParamOps,
+            final EntityFactory entityFactory,
+<span class="nc" id="L65">            final DefaultCredentialChecker credentialChecker) {</span>
+
+<span class="nc" id="L67">        this.securityProperties = securityProperties;</span>
+<span class="nc" id="L68">        this.jwsSigner = jwsSigner;</span>
+<span class="nc" id="L69">        this.accessTokenDAO = accessTokenDAO;</span>
+<span class="nc" id="L70">        this.confParamOps = confParamOps;</span>
+<span class="nc" id="L71">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L72">        this.credentialChecker = credentialChecker;</span>
+<span class="nc" id="L73">    }</span>
+
+    protected AccessTokenInfo generateJWT(
+            final String tokenId,
+            final String subject,
+            final long duration,
+            final Map&lt;String, Object&gt; claims) {
+
+<span class="nc" id="L81">        credentialChecker.checkIsDefaultJWSKeyInUse();</span>
+
+<span class="nc" id="L83">        OffsetDateTime currentTime = OffsetDateTime.now();</span>
+<span class="nc" id="L84">        Date issueTime = new Date(currentTime.toInstant().toEpochMilli());</span>
+
+<span class="nc" id="L86">        OffsetDateTime expiration = currentTime.plusMinutes(duration);</span>
+
+<span class="nc" id="L88">        JWTClaimsSet.Builder claimsSet = new JWTClaimsSet.Builder().</span>
+<span class="nc" id="L89">                jwtID(tokenId).</span>
+<span class="nc" id="L90">                subject(subject).</span>
+<span class="nc" id="L91">                issuer(securityProperties.getJwtIssuer()).</span>
+<span class="nc" id="L92">                issueTime(issueTime).</span>
+<span class="nc" id="L93">                expirationTime(new Date(expiration.toInstant().toEpochMilli())).</span>
+<span class="nc" id="L94">                notBeforeTime(issueTime);</span>
+<span class="nc" id="L95">        claims.forEach(claimsSet::claim);</span>
+
+<span class="nc" id="L97">        SignedJWT jwt = new SignedJWT(new JWSHeader(jwsSigner.getJwsAlgorithm()), claimsSet.build());</span>
+        try {
+<span class="nc" id="L99">            jwt.sign(jwsSigner);</span>
+<span class="nc" id="L100">        } catch (JOSEException e) {</span>
+<span class="nc" id="L101">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.ExecutionError);</span>
+<span class="nc" id="L102">            sce.getElements().add(&quot;While signing AccessToken: &quot; + e.getMessage());</span>
+<span class="nc" id="L103">            throw sce;</span>
+<span class="nc" id="L104">        }</span>
+<span class="nc" id="L105">        return new AccessTokenInfo(jwt.serialize(), expiration);</span>
+    }
+
+    protected AccessToken replace(
+            final String subject,
+            final Map&lt;String, Object&gt; claims,
+            final String authorities,
+            final AccessToken accessToken) {
+
+<span class="nc" id="L114">        AccessTokenInfo generated = generateJWT(</span>
+<span class="nc" id="L115">                accessToken.getKey(),</span>
+                subject,
+<span class="nc" id="L117">                confParamOps.get(</span>
+<span class="nc" id="L118">                        AuthContextUtils.getDomain(), StandardConfParams.JWT_LIFETIME_MINUTES, 120L, long.class),</span>
+                claims);
+
+<span class="nc" id="L121">        accessToken.setBody(generated.jwt());</span>
+<span class="nc" id="L122">        accessToken.setExpirationTime(generated.expiration());</span>
+<span class="nc" id="L123">        accessToken.setOwner(subject);</span>
+
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (!securityProperties.getAdminUser().equals(accessToken.getOwner())) {</span>
+<span class="nc" id="L126">            accessToken.setAuthorities(authorities);</span>
+        }
+
+<span class="nc" id="L129">        return accessTokenDAO.save(accessToken);</span>
+    }
+
+    @Override
+    public AccessTokenInfo create(
+            final Optional&lt;String&gt; key,
+            final String subject,
+            final Map&lt;String, Object&gt; claims,
+            final String authorities,
+            final boolean replace) {
+
+<span class="nc" id="L140">        AccessToken accessToken = accessTokenDAO.findByOwner(subject).</span>
+<span class="nc" id="L141">                map(at -&gt; {</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">                    if (replace</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">                            || at.getExpirationTime() == null</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">                            || at.getExpirationTime().isBefore(OffsetDateTime.now())) {</span>
+
+                        // AccessToken found, but either replace was requested or it is expired: update existing
+<span class="nc" id="L147">                        return replace(subject, claims, authorities, at);</span>
+                    }
+<span class="nc" id="L149">                    return at;</span>
+                }).
+<span class="nc" id="L151">                orElseGet(() -&gt; {</span>
+                    // no AccessToken found: create new
+<span class="nc" id="L153">                    AccessToken at = entityFactory.newEntity(AccessToken.class);</span>
+<span class="nc" id="L154">                    at.setKey(key.orElseGet(() -&gt; SecureRandomUtils.generateRandomUUID().toString()));</span>
+
+<span class="nc" id="L156">                    return replace(subject, claims, authorities, at);</span>
+                });
+
+<span class="nc" id="L159">        return new AccessTokenInfo(accessToken.getBody(), accessToken.getExpirationTime());</span>
+    }
+
+    @Override
+    public AccessTokenInfo update(final AccessToken accessToken, final String authorities) {
+<span class="nc" id="L164">        credentialChecker.checkIsDefaultJWSKeyInUse();</span>
+
+<span class="nc" id="L166">        long duration = confParamOps.get(</span>
+<span class="nc" id="L167">                AuthContextUtils.getDomain(), StandardConfParams.JWT_LIFETIME_MINUTES, 120L, long.class);</span>
+
+<span class="nc" id="L169">        OffsetDateTime currentTime = OffsetDateTime.now();</span>
+
+<span class="nc" id="L171">        OffsetDateTime expiration = currentTime.plusMinutes(duration);</span>
+
+        SignedJWT jwt;
+        try {
+<span class="nc" id="L175">            JWTClaimsSet.Builder claimsSet = new JWTClaimsSet.Builder(</span>
+<span class="nc" id="L176">                    SignedJWT.parse(accessToken.getBody()).getJWTClaimsSet()).</span>
+<span class="nc" id="L177">                    expirationTime(new Date(expiration.toInstant().toEpochMilli()));</span>
+
+<span class="nc" id="L179">            jwt = new SignedJWT(new JWSHeader(jwsSigner.getJwsAlgorithm()), claimsSet.build());</span>
+<span class="nc" id="L180">            jwt.sign(jwsSigner);</span>
+<span class="nc" id="L181">        } catch (ParseException | JOSEException e) {</span>
+<span class="nc" id="L182">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.ExecutionError);</span>
+<span class="nc" id="L183">            sce.getElements().add(&quot;While signing AccessToken: &quot; + e.getMessage());</span>
+<span class="nc" id="L184">            throw sce;</span>
+<span class="nc" id="L185">        }</span>
+<span class="nc" id="L186">        String body = jwt.serialize();</span>
+
+<span class="nc" id="L188">        accessToken.setBody(body);</span>
+<span class="nc" id="L189">        accessToken.setExpirationTime(expiration);</span>
+
+<span class="nc bnc" id="L191" title="All 2 branches missed.">        if (!securityProperties.getAdminUser().equals(accessToken.getOwner())) {</span>
+<span class="nc" id="L192">            accessToken.setAuthorities(authorities);</span>
+        }
+
+<span class="nc" id="L195">        accessTokenDAO.save(accessToken);</span>
+
+<span class="nc" id="L197">        return new AccessTokenInfo(body, expiration);</span>
+    }
+
+    @Override
+    public AccessTokenTO getAccessTokenTO(final AccessToken accessToken) {
+<span class="nc" id="L202">        AccessTokenTO accessTokenTO = new AccessTokenTO();</span>
+<span class="nc" id="L203">        accessTokenTO.setKey(accessToken.getKey());</span>
+<span class="nc" id="L204">        accessTokenTO.setBody(accessToken.getBody());</span>
+<span class="nc" id="L205">        accessTokenTO.setExpirationTime(accessToken.getExpirationTime());</span>
+<span class="nc" id="L206">        accessTokenTO.setOwner(accessToken.getOwner());</span>
+
+<span class="nc" id="L208">        return accessTokenTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

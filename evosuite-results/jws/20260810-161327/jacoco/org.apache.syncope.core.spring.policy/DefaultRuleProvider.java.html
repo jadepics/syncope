@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultRuleProvider.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.policy</a> &gt; <span class="el_source">DefaultRuleProvider.java</span></div><h1>DefaultRuleProvider.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.policy;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.policy.AccountPolicy;
+import org.apache.syncope.core.persistence.api.entity.policy.PasswordPolicy;
+import org.apache.syncope.core.provisioning.api.rules.AccountRule;
+import org.apache.syncope.core.provisioning.api.rules.PasswordRule;
+import org.apache.syncope.core.provisioning.api.rules.RuleProvider;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Transactional;
+
+public class DefaultRuleProvider implements RuleProvider {
+
+<span class="nc" id="L44">    protected static final Logger LOG = LoggerFactory.getLogger(RuleProvider.class);</span>
+
+    protected final RealmSearchDAO realmSearchDAO;
+
+<span class="nc" id="L48">    protected final Map&lt;String, AccountRule&gt; perContextAccountRules = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L50">    protected final Map&lt;String, PasswordRule&gt; perContextPasswordRules = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="nc" id="L52">    public DefaultRuleProvider(final RealmSearchDAO realmSearchDAO) {</span>
+<span class="nc" id="L53">        this.realmSearchDAO = realmSearchDAO;</span>
+<span class="nc" id="L54">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public List&lt;AccountPolicy&gt; getAccountPolicies(final Realm realm, final Collection&lt;ExternalResource&gt; resources) {
+<span class="nc" id="L59">        List&lt;AccountPolicy&gt; policies = new ArrayList&lt;&gt;();</span>
+
+        // add resource policies
+<span class="nc" id="L62">        resources.forEach(resource -&gt; Optional.ofNullable(resource.getAccountPolicy()).</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">                filter(p -&gt; !policies.contains(p)).</span>
+<span class="nc" id="L64">                ifPresent(policies::add));</span>
+
+        // add realm policies
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (realm != null) {</span>
+<span class="nc" id="L68">            realmSearchDAO.findAncestors(realm).</span>
+<span class="nc" id="L69">                    forEach(a -&gt; realmSearchDAO.findByFullPath(a.getFullPath()).</span>
+<span class="nc" id="L70">                    flatMap(r -&gt; Optional.ofNullable(r.getAccountPolicy())).</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">                    filter(p -&gt; !policies.contains(p)).</span>
+<span class="nc" id="L72">                    ifPresent(policies::add));</span>
+        }
+
+<span class="nc" id="L75">        return policies;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public List&lt;AccountRule&gt; getAccountRules(final AccountPolicy policy) {
+<span class="nc" id="L81">        List&lt;AccountRule&gt; result = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        for (Implementation impl : policy.getRules()) {</span>
+            try {
+<span class="nc" id="L85">                ImplementationManager.buildAccountRule(</span>
+<span class="nc" id="L86">                        AuthContextUtils.getDomain(),</span>
+                        impl,
+<span class="nc" id="L88">                        () -&gt; perContextAccountRules.get(impl.getKey()),</span>
+<span class="nc" id="L89">                        instance -&gt; perContextAccountRules.put(impl.getKey(), instance)).</span>
+<span class="nc" id="L90">                        ifPresent(result::add);</span>
+<span class="nc" id="L91">            } catch (Exception e) {</span>
+<span class="nc" id="L92">                LOG.warn(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L93">            }</span>
+<span class="nc" id="L94">        }</span>
+
+<span class="nc" id="L96">        return result;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public List&lt;PasswordPolicy&gt; getPasswordPolicies(final Realm realm, final Collection&lt;ExternalResource&gt; resources) {
+<span class="nc" id="L102">        List&lt;PasswordPolicy&gt; policies = new ArrayList&lt;&gt;();</span>
+
+        // add resource policies
+<span class="nc" id="L105">        resources.forEach(resource -&gt; Optional.ofNullable(resource.getPasswordPolicy()).</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">                filter(p -&gt; !policies.contains(p)).</span>
+<span class="nc" id="L107">                ifPresent(policies::add));</span>
+
+        // add realm policies
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (realm != null) {</span>
+<span class="nc" id="L111">            realmSearchDAO.findAncestors(realm).</span>
+<span class="nc" id="L112">                    forEach(a -&gt; realmSearchDAO.findByFullPath(a.getFullPath()).</span>
+<span class="nc" id="L113">                    flatMap(r -&gt; Optional.ofNullable(r.getPasswordPolicy())).</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">                    filter(p -&gt; !policies.contains(p)).</span>
+<span class="nc" id="L115">                    ifPresent(policies::add));</span>
+        }
+
+<span class="nc" id="L118">        return policies;</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public List&lt;PasswordRule&gt; getPasswordRules(final PasswordPolicy policy) {
+<span class="nc" id="L124">        List&lt;PasswordRule&gt; result = new ArrayList&lt;&gt;();</span>
+
+<span class="nc bnc" id="L126" title="All 2 branches missed.">        for (Implementation impl : policy.getRules()) {</span>
+            try {
+<span class="nc" id="L128">                ImplementationManager.buildPasswordRule(</span>
+<span class="nc" id="L129">                        AuthContextUtils.getDomain(),</span>
+                        impl,
+<span class="nc" id="L131">                        () -&gt; perContextPasswordRules.get(impl.getKey()),</span>
+<span class="nc" id="L132">                        instance -&gt; perContextPasswordRules.put(impl.getKey(), instance)).</span>
+<span class="nc" id="L133">                        ifPresent(result::add);</span>
+<span class="nc" id="L134">            } catch (Exception e) {</span>
+<span class="nc" id="L135">                LOG.warn(&quot;While building {}&quot;, impl, e);</span>
+<span class="nc" id="L136">            }</span>
+<span class="nc" id="L137">        }</span>
+
+<span class="nc" id="L139">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

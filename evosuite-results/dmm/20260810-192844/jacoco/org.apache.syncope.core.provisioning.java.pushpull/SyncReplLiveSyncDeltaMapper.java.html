@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SyncReplLiveSyncDeltaMapper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">SyncReplLiveSyncDeltaMapper.java</span></div><h1>SyncReplLiveSyncDeltaMapper.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.core.provisioning.api.pushpull.LiveSyncDeltaMapper;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.identityconnectors.framework.common.objects.ConnectorObjectBuilder;
+import org.identityconnectors.framework.common.objects.LiveSyncDelta;
+import org.identityconnectors.framework.common.objects.Name;
+import org.identityconnectors.framework.common.objects.SyncDelta;
+import org.identityconnectors.framework.common.objects.SyncDeltaBuilder;
+import org.identityconnectors.framework.common.objects.SyncDeltaType;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.identityconnectors.framework.common.objects.Uid;
+
+<span class="nc" id="L37">public class SyncReplLiveSyncDeltaMapper implements LiveSyncDeltaMapper {</span>
+
+<span class="nc" id="L39">    protected static final Set&lt;String&gt; FILTERING_ATTRS = Set.of(</span>
+            Uid.NAME, Name.NAME, SyncReplInboundActions.SYNCREPL_COOKIE_NAME);
+
+    protected SyncDelta doMap(final LiveSyncDelta liveSyncDelta) {
+<span class="nc" id="L43">        String cookie = Optional.ofNullable(liveSyncDelta.getObject().</span>
+<span class="nc" id="L44">                getAttributeByName(SyncReplInboundActions.SYNCREPL_COOKIE_NAME)).</span>
+<span class="nc" id="L45">                map(AttributeUtil::getStringValue).filter(Objects::nonNull).</span>
+<span class="nc" id="L46">                orElseThrow(() -&gt; new IllegalArgumentException(</span>
+                &quot;Could not find the &quot; + SyncReplInboundActions.SYNCREPL_COOKIE_NAME + &quot; attribute&quot;));
+
+<span class="nc" id="L49">        SyncDeltaType syncDeltaType = liveSyncDelta.getUid().getUidValue().</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">                equals(liveSyncDelta.getObject().getName().getNameValue())</span>
+<span class="nc" id="L51">                ? SyncDeltaType.DELETE</span>
+<span class="nc" id="L52">                : SyncDeltaType.CREATE_OR_UPDATE;</span>
+
+<span class="nc" id="L54">        ConnectorObjectBuilder connObjectBuilder = new ConnectorObjectBuilder().</span>
+<span class="nc" id="L55">                setObjectClass(liveSyncDelta.getObjectClass()).</span>
+<span class="nc" id="L56">                setUid(liveSyncDelta.getUid()).</span>
+<span class="nc" id="L57">                setName(liveSyncDelta.getObject().getName());</span>
+
+<span class="nc" id="L59">        liveSyncDelta.getObject().getAttributes().stream().</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">                filter(attr -&gt; !FILTERING_ATTRS.contains(attr.getName())).</span>
+<span class="nc" id="L61">                forEach(connObjectBuilder::addAttribute);</span>
+
+<span class="nc" id="L63">        return new SyncDeltaBuilder().</span>
+<span class="nc" id="L64">                setToken(new SyncToken(cookie)).</span>
+<span class="nc" id="L65">                setDeltaType(syncDeltaType).</span>
+<span class="nc" id="L66">                setObject(connObjectBuilder.build()).</span>
+<span class="nc" id="L67">                build();</span>
+    }
+
+    @Override
+    public SyncDelta map(final LiveSyncDelta liveSyncDelta, final OrgUnit orgUnit) {
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        if (!orgUnit.getObjectClass().equals(liveSyncDelta.getObjectClass().getObjectClassValue())) {</span>
+<span class="nc" id="L73">            throw new IllegalArgumentException(&quot;Expected &quot; + orgUnit.getObjectClass()</span>
+<span class="nc" id="L74">                    + &quot;, got &quot; + liveSyncDelta.getObjectClass().getObjectClassValue());</span>
+        }
+
+<span class="nc" id="L77">        return doMap(liveSyncDelta);</span>
+    }
+
+    @Override
+    public SyncDelta map(final LiveSyncDelta liveSyncDelta, final Provision provision) {
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (!provision.getObjectClass().equals(liveSyncDelta.getObjectClass().getObjectClassValue())) {</span>
+<span class="nc" id="L83">            throw new IllegalArgumentException(&quot;Expected &quot; + provision.getObjectClass()</span>
+<span class="nc" id="L84">                    + &quot;, got &quot; + liveSyncDelta.getObjectClass().getObjectClassValue());</span>
+        }
+
+<span class="nc" id="L87">        return doMap(liveSyncDelta);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

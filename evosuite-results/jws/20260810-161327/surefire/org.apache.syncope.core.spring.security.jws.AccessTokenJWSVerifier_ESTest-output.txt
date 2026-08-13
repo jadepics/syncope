@@ -1,0 +1,2 @@
+[main] ERROR org.evosuite.runtime.jvm.ShutdownHookHandler - Failed to initialize shutdown hook handling
+[main] WARN org.evosuite.runtime.classhandling.ClassResetter - class java.lang.NoClassDefFoundError thrown while loading method  __STATIC_RESET() for class com.nimbusds.jose.jwk.PEMEncodedKeyParser

@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AttributableDataBinder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">AttributableDataBinder.java</span></div><h1>AttributableDataBinder.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.to.AttributableTO;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.core.persistence.api.attrvalue.DropdownValueProvider;
+import org.apache.syncope.core.persistence.api.attrvalue.InvalidPlainAttrValueException;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.entity.Attributable;
+import org.apache.syncope.core.persistence.api.entity.PlainAttr;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+abstract class AttributableDataBinder {
+
+<span class="nc" id="L51">    protected static final Logger LOG = LoggerFactory.getLogger(AttributableDataBinder.class);</span>
+
+    protected final PlainSchemaDAO plainSchemaDAO;
+
+    protected final PlainAttrValidationManager validator;
+
+    protected final DerAttrHandler derAttrHandler;
+
+    protected final MappingManager mappingManager;
+
+    protected final IntAttrNameParser intAttrNameParser;
+
+    protected final JexlTools jexlTools;
+
+<span class="nc" id="L65">    private final Map&lt;String, DropdownValueProvider&gt; dropdownValueProviders = new ConcurrentHashMap&lt;&gt;();</span>
+
+    protected AttributableDataBinder(
+            final PlainSchemaDAO plainSchemaDAO,
+            final PlainAttrValidationManager validator,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+<span class="nc" id="L73">            final JexlTools jexlTools) {</span>
+
+<span class="nc" id="L75">        this.plainSchemaDAO = plainSchemaDAO;</span>
+<span class="nc" id="L76">        this.validator = validator;</span>
+<span class="nc" id="L77">        this.derAttrHandler = derAttrHandler;</span>
+<span class="nc" id="L78">        this.mappingManager = mappingManager;</span>
+<span class="nc" id="L79">        this.intAttrNameParser = intAttrNameParser;</span>
+<span class="nc" id="L80">        this.jexlTools = jexlTools;</span>
+<span class="nc" id="L81">    }</span>
+
+    protected Optional&lt;PlainSchema&gt; getPlainSchema(final String schemaName) {
+<span class="nc" id="L84">        PlainSchema schema = null;</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (StringUtils.isNotBlank(schemaName)) {</span>
+<span class="nc" id="L86">            schema = plainSchemaDAO.findById(schemaName).orElse(null);</span>
+
+            // safely ignore invalid schemas from Attr
+<span class="nc bnc" id="L89" title="All 2 branches missed.">            if (schema == null) {</span>
+<span class="nc" id="L90">                LOG.debug(&quot;Ignoring invalid schema {}&quot;, schemaName);</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">            } else if (schema.isReadonly()) {</span>
+<span class="nc" id="L92">                schema = null;</span>
+<span class="nc" id="L93">                LOG.debug(&quot;Ignoring readonly schema {}&quot;, schemaName);</span>
+            }
+        }
+
+<span class="nc" id="L97">        return Optional.ofNullable(schema);</span>
+    }
+
+    protected void checkMandatory(
+            final PlainSchema schema,
+            final PlainAttr attr,
+            final Attributable attributable,
+            final SyncopeClientException reqValMissing) {
+
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        if (attr == null</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">                &amp;&amp; !schema.isReadonly()</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">                &amp;&amp; jexlTools.evaluateMandatoryCondition(schema.getMandatoryCondition(), attributable, derAttrHandler)) {</span>
+
+<span class="nc" id="L110">            LOG.error(&quot;Mandatory schema {} not provided with values&quot;, schema.getKey());</span>
+
+<span class="nc" id="L112">            reqValMissing.getElements().add(schema.getKey());</span>
+        }
+<span class="nc" id="L114">    }</span>
+
+    protected void fillAttr(
+            final AttributableTO attributableTO,
+            final List&lt;String&gt; values,
+            final PlainSchema schema,
+            final PlainAttr attr,
+            final SyncopeClientException invalidValues) {
+
+        // if schema is multivalue, all values are considered for addition;
+        // otherwise only the fist one - if provided - is considered
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        List&lt;String&gt; valuesProvided = schema.isMultivalue()</span>
+<span class="nc" id="L126">                ? values</span>
+<span class="nc bnc" id="L127" title="All 4 branches missed.">                : (values.isEmpty() || values.getFirst() == null</span>
+<span class="nc" id="L128">                ? List.of()</span>
+<span class="nc" id="L129">                : List.of(values.getFirst()));</span>
+
+<span class="nc" id="L131">        valuesProvided.forEach(value -&gt; {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">            if (StringUtils.isBlank(value)) {</span>
+<span class="nc" id="L133">                LOG.debug(&quot;Null value for {}, ignoring&quot;, schema.getKey());</span>
+            } else {
+                try {
+<span class="nc bnc" id="L136" title="All 3 branches missed.">                    switch (schema.getType()) {</span>
+                        case Enum -&gt; {
+<span class="nc bnc" id="L138" title="All 2 branches missed.">                            if (!schema.getEnumValues().containsKey(value)) {</span>
+<span class="nc" id="L139">                                throw new InvalidPlainAttrValueException(</span>
+<span class="nc" id="L140">                                        '\'' + value + &quot;' is not one of: &quot; + schema.getEnumValues().keySet());</span>
+                            }
+                        }
+
+                        case Dropdown -&gt; {
+<span class="nc" id="L145">                            List&lt;String&gt; dropdownValues = List.of();</span>
+                            try {
+<span class="nc" id="L147">                                DropdownValueProvider provider = ImplementationManager.build(</span>
+<span class="nc" id="L148">                                        AuthContextUtils.getDomain(),</span>
+<span class="nc" id="L149">                                        schema.getDropdownValueProvider(),</span>
+<span class="nc" id="L150">                                        () -&gt; dropdownValueProviders.get(</span>
+<span class="nc" id="L151">                                                schema.getDropdownValueProvider().getKey()),</span>
+<span class="nc" id="L152">                                        instance -&gt; dropdownValueProviders.put(</span>
+<span class="nc" id="L153">                                                schema.getDropdownValueProvider().getKey(), instance));</span>
+<span class="nc" id="L154">                                dropdownValues = provider.getChoices(attributableTO);</span>
+<span class="nc" id="L155">                            } catch (Exception e) {</span>
+<span class="nc" id="L156">                                LOG.error(&quot;While getting dropdown values for {}&quot;, schema.getKey(), e);</span>
+<span class="nc" id="L157">                            }</span>
+
+<span class="nc bnc" id="L159" title="All 2 branches missed.">                            if (!dropdownValues.contains(value)) {</span>
+<span class="nc" id="L160">                                throw new InvalidPlainAttrValueException(</span>
+                                        '\'' + value + &quot;' is not one of: &quot; + dropdownValues);
+                            }
+<span class="nc" id="L163">                        }</span>
+
+                        default -&gt; {
+                        }
+                    }
+
+<span class="nc" id="L169">                    attr.add(validator, value);</span>
+<span class="nc" id="L170">                } catch (InvalidPlainAttrValueException e) {</span>
+<span class="nc" id="L171">                    LOG.warn(&quot;Invalid value for attribute {}: {}&quot;,</span>
+<span class="nc" id="L172">                            schema.getKey(), StringUtils.abbreviate(value, 20), e);</span>
+
+<span class="nc" id="L174">                    invalidValues.getElements().add(schema.getKey() + &quot;: &quot; + value + &quot; - &quot; + e.getMessage());</span>
+<span class="nc" id="L175">                }</span>
+            }
+<span class="nc" id="L177">        });</span>
+<span class="nc" id="L178">    }</span>
+
+    protected PropagationByResource&lt;String&gt; propByRes(
+            final Map&lt;String, ConnObject&gt; before,
+            final Map&lt;String, ConnObject&gt; after) {
+
+<span class="nc" id="L184">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+
+<span class="nc" id="L186">        after.forEach((resource, connObject) -&gt; {</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">            if (before.containsKey(resource)) {</span>
+<span class="nc" id="L188">                ConnObject beforeObject = before.get(resource);</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                if (!beforeObject.equals(connObject)) {</span>
+<span class="nc" id="L190">                    propByRes.add(ResourceOperation.UPDATE, resource);</span>
+
+<span class="nc" id="L192">                    beforeObject.getAttr(Uid.NAME).map(attr -&gt; attr.getValues().getFirst()).</span>
+<span class="nc" id="L193">                            ifPresent(value -&gt; propByRes.addOldConnObjectKey(resource, value));</span>
+                }
+<span class="nc" id="L195">            } else {</span>
+<span class="nc" id="L196">                propByRes.add(ResourceOperation.CREATE, resource);</span>
+            }
+<span class="nc" id="L198">        });</span>
+<span class="nc" id="L199">        propByRes.addAll(</span>
+                ResourceOperation.DELETE,
+<span class="nc bnc" id="L201" title="All 2 branches missed.">                before.keySet().stream().filter(resource -&gt; !after.containsKey(resource)).collect(Collectors.toSet()));</span>
+
+<span class="nc" id="L203">        return propByRes;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

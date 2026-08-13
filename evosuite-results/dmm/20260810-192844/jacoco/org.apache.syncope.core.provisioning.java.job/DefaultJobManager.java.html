@@ -1,0 +1,446 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultJobManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.job</a> &gt; <span class="el_source">DefaultJobManager.java</span></div><h1>DefaultJobManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.job;
+
+import java.time.OffsetDateTime;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.common.keymaster.client.api.StandardConfParams;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.types.IdRepoImplementationType;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.DomainHolder;
+import org.apache.syncope.core.persistence.api.SyncopeCoreLoader;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.dao.JobStatusDAO;
+import org.apache.syncope.core.persistence.api.dao.ReportDAO;
+import org.apache.syncope.core.persistence.api.dao.TaskDAO;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.Report;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.persistence.api.entity.task.PushTask;
+import org.apache.syncope.core.persistence.api.entity.task.SchedTask;
+import org.apache.syncope.core.persistence.api.entity.task.Task;
+import org.apache.syncope.core.persistence.api.entity.task.TaskUtilsFactory;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobManager;
+import org.apache.syncope.core.provisioning.api.job.JobNamer;
+import org.apache.syncope.core.provisioning.api.job.SchedTaskJobDelegate;
+import org.apache.syncope.core.provisioning.java.job.notification.NotificationJob;
+import org.apache.syncope.core.provisioning.java.job.report.ReportJob;
+import org.apache.syncope.core.provisioning.java.pushpull.PullJobDelegate;
+import org.apache.syncope.core.provisioning.java.pushpull.PushJobDelegate;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.scheduling.support.CronTrigger;
+
+public class DefaultJobManager implements JobManager, SyncopeCoreLoader {
+
+<span class="nc" id="L62">    protected static final Logger LOG = LoggerFactory.getLogger(JobManager.class);</span>
+
+    protected final DomainHolder&lt;?&gt; domainHolder;
+
+    protected final SyncopeTaskScheduler scheduler;
+
+    protected final JobStatusDAO jobStatusDAO;
+
+    protected final TaskDAO taskDAO;
+
+    protected final ReportDAO reportDAO;
+
+    protected final ImplementationDAO implementationDAO;
+
+    protected final TaskUtilsFactory taskUtilsFactory;
+
+    protected final ConfParamOps confParamOps;
+
+    protected final SecurityProperties securityProperties;
+
+    protected final ConfigurableApplicationContext ctx;
+
+    public DefaultJobManager(
+            final DomainHolder&lt;?&gt; domainHolder,
+            final SyncopeTaskScheduler scheduler,
+            final JobStatusDAO jobStatusDAO,
+            final TaskDAO taskDAO,
+            final ReportDAO reportDAO,
+            final ImplementationDAO implementationDAO,
+            final TaskUtilsFactory taskUtilsFactory,
+            final ConfParamOps confParamOps,
+            final SecurityProperties securityProperties,
+<span class="nc" id="L94">            final ConfigurableApplicationContext ctx) {</span>
+
+<span class="nc" id="L96">        this.domainHolder = domainHolder;</span>
+<span class="nc" id="L97">        this.scheduler = scheduler;</span>
+<span class="nc" id="L98">        this.jobStatusDAO = jobStatusDAO;</span>
+<span class="nc" id="L99">        this.taskDAO = taskDAO;</span>
+<span class="nc" id="L100">        this.reportDAO = reportDAO;</span>
+<span class="nc" id="L101">        this.implementationDAO = implementationDAO;</span>
+<span class="nc" id="L102">        this.taskUtilsFactory = taskUtilsFactory;</span>
+<span class="nc" id="L103">        this.confParamOps = confParamOps;</span>
+<span class="nc" id="L104">        this.securityProperties = securityProperties;</span>
+<span class="nc" id="L105">        this.ctx = ctx;</span>
+<span class="nc" id="L106">    }</span>
+
+    @Override
+    public boolean isRunning(final String jobName) {
+<span class="nc" id="L110">        synchronized (jobName) {</span>
+<span class="nc" id="L111">            boolean locked = jobStatusDAO.lock(jobName);</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">            if (locked) {</span>
+<span class="nc" id="L113">                jobStatusDAO.unlock(jobName);</span>
+            }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">            return !locked;</span>
+        }
+    }
+
+    protected void registerJob(
+            final JobExecutionContext context,
+            final Class&lt;? extends Job&gt; jobClass,
+            final String cronExpression,
+            final OffsetDateTime startAt) {
+
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        if (isRunning(context.getJobName())) {</span>
+<span class="nc" id="L126">            LOG.debug(&quot;Job {} already running, cancel&quot;, context.getJobName());</span>
+<span class="nc" id="L127">            return;</span>
+        }
+
+        // 1. prepare job
+<span class="nc" id="L131">        Job job = ctx.getBeanFactory().createBean(jobClass);</span>
+<span class="nc" id="L132">        job.setContext(context);</span>
+
+        // 2. schedule
+<span class="nc bnc" id="L135" title="All 4 branches missed.">        if (cronExpression == null &amp;&amp; startAt == null) {</span>
+<span class="nc" id="L136">            scheduler.register(job);</span>
+        } else {
+<span class="nc bnc" id="L138" title="All 2 branches missed.">            if (cronExpression == null) {</span>
+<span class="nc" id="L139">                scheduler.schedule(job, startAt.toInstant());</span>
+            } else {
+<span class="nc" id="L141">                scheduler.schedule(job, new CronTrigger(cronExpression));</span>
+            }
+        }
+<span class="nc" id="L144">    }</span>
+
+    protected void register(
+            final String domain,
+            final SchedTask task,
+            final String cronExpression,
+            final OffsetDateTime startAt,
+            final String executor,
+            final boolean dryRun,
+            final Map&lt;String, Object&gt; jobData) {
+
+<span class="nc" id="L155">        TaskType type = taskUtilsFactory.getInstance(task).getType();</span>
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        if (!task.isActive()) {</span>
+<span class="nc" id="L158">            LOG.debug(&quot;{} Task {} {} not active, skipping job registration&quot;, type, task.getKey(), task.getName());</span>
+<span class="nc" id="L159">            return;</span>
+        }
+
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        Implementation jobDelegate = task.getJobDelegate() == null</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">                ? task instanceof PullTask</span>
+<span class="nc" id="L164">                        ? implementationDAO.findByType(IdRepoImplementationType.TASKJOB_DELEGATE).stream().</span>
+<span class="nc" id="L165">                                filter(impl -&gt; PullJobDelegate.class.getName().equals(impl.getBody())).</span>
+<span class="nc" id="L166">                                findFirst().orElse(null)</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">                        : task instanceof PushTask</span>
+<span class="nc" id="L168">                                ? implementationDAO.findByType(IdRepoImplementationType.TASKJOB_DELEGATE).stream().</span>
+<span class="nc" id="L169">                                        filter(impl -&gt; PushJobDelegate.class.getName().equals(impl.getBody())).</span>
+<span class="nc" id="L170">                                        findFirst().orElse(null)</span>
+<span class="nc" id="L171">                                : null</span>
+<span class="nc" id="L172">                : task.getJobDelegate();</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (jobDelegate == null) {</span>
+<span class="nc" id="L174">            throw new IllegalArgumentException(&quot;Task &quot; + task</span>
+<span class="nc" id="L175">                    + &quot; does not provide any &quot; + SchedTaskJobDelegate.class.getSimpleName());</span>
+        }
+
+<span class="nc" id="L178">        JobExecutionContext context = new JobExecutionContext(</span>
+                domain,
+<span class="nc" id="L180">                JobNamer.getJobName(task),</span>
+                executor,
+                dryRun);
+<span class="nc" id="L183">        context.getData().put(JobManager.TASK_TYPE, type);</span>
+<span class="nc" id="L184">        context.getData().put(JobManager.TASK_KEY, task.getKey());</span>
+<span class="nc" id="L185">        context.getData().put(JobManager.DELEGATE_IMPLEMENTATION, jobDelegate.getKey());</span>
+<span class="nc" id="L186">        context.getData().putAll(jobData);</span>
+
+<span class="nc" id="L188">        registerJob(</span>
+                context,
+                TaskJob.class,
+                cronExpression,
+                startAt);
+<span class="nc" id="L193">    }</span>
+
+    @Override
+    public void execute(
+            final SchedTask task,
+            final OffsetDateTime startAt,
+            final String executor,
+            final boolean dryRun,
+            final Map&lt;String, Object&gt; jobData) {
+
+<span class="nc" id="L203">        register(</span>
+<span class="nc" id="L204">                AuthContextUtils.getDomain(),</span>
+                task,
+                null,
+                startAt,
+                executor,
+                dryRun,
+                jobData);
+<span class="nc" id="L211">    }</span>
+
+    @Override
+    public void register(
+            final SchedTask task,
+            final String executor) {
+
+<span class="nc" id="L218">        register(</span>
+<span class="nc" id="L219">                AuthContextUtils.getDomain(),</span>
+                task,
+<span class="nc" id="L221">                task.getCronExpression(),</span>
+                null,
+                executor,
+                false,
+<span class="nc" id="L225">                Map.of());</span>
+<span class="nc" id="L226">    }</span>
+
+    protected void register(
+            final String domain,
+            final Report report,
+            final String cronExpression,
+            final OffsetDateTime startAt,
+            final String executor,
+            final boolean dryRun) {
+
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        if (!report.isActive()) {</span>
+<span class="nc" id="L237">            LOG.debug(&quot;Report {} {} not active, skipping job registration&quot;, report.getKey(), report.getName());</span>
+<span class="nc" id="L238">            return;</span>
+        }
+
+<span class="nc" id="L241">        JobExecutionContext context = new JobExecutionContext(</span>
+                domain,
+<span class="nc" id="L243">                JobNamer.getJobName(report),</span>
+                executor,
+                dryRun);
+<span class="nc" id="L246">        context.getData().put(JobManager.REPORT_KEY, report.getKey());</span>
+<span class="nc" id="L247">        context.getData().put(JobManager.DELEGATE_IMPLEMENTATION, report.getJobDelegate().getKey());</span>
+
+<span class="nc" id="L249">        registerJob(</span>
+                context,
+                ReportJob.class,
+                cronExpression,
+                startAt);
+<span class="nc" id="L254">    }</span>
+
+    @Override
+    public void execute(
+            final Report report,
+            final OffsetDateTime startAt,
+            final String executor,
+            final boolean dryRun) {
+
+<span class="nc" id="L263">        register(</span>
+<span class="nc" id="L264">                AuthContextUtils.getDomain(),</span>
+                report,
+                null,
+                startAt,
+                executor,
+                dryRun);
+<span class="nc" id="L270">    }</span>
+
+    @Override
+    public void register(
+            final Report report,
+            final String executor) {
+
+<span class="nc" id="L277">        register(AuthContextUtils.getDomain(), report, report.getCronExpression(), null, executor, false);</span>
+<span class="nc" id="L278">    }</span>
+
+    protected void unregisterJob(final String jobName) {
+<span class="nc" id="L281">        scheduler.stop(AuthContextUtils.getDomain(), jobName);</span>
+<span class="nc" id="L282">        scheduler.delete(AuthContextUtils.getDomain(), jobName);</span>
+<span class="nc" id="L283">    }</span>
+
+    @Override
+    public void unregister(final Task&lt;?&gt; task) {
+<span class="nc" id="L287">        unregisterJob(JobNamer.getJobName(task));</span>
+<span class="nc" id="L288">    }</span>
+
+    @Override
+    public void unregister(final Report report) {
+<span class="nc" id="L292">        unregisterJob(JobNamer.getJobName(report));</span>
+<span class="nc" id="L293">    }</span>
+
+    @Override
+    public int getOrder() {
+<span class="nc" id="L297">        return 500;</span>
+    }
+
+    @Override
+    public void load(final String domain) {
+<span class="nc" id="L302">        AuthContextUtils.runAsAdmin(domain, () -&gt; {</span>
+            // 1. jobs for SchedTasks
+<span class="nc" id="L304">            Set&lt;SchedTask&gt; tasks = new HashSet&lt;&gt;(taskDAO.findAll(TaskType.SCHEDULED));</span>
+<span class="nc" id="L305">            tasks.addAll(taskDAO.findAll(TaskType.PULL));</span>
+<span class="nc" id="L306">            tasks.addAll(taskDAO.findAll(TaskType.PUSH));</span>
+<span class="nc" id="L307">            tasks.addAll(taskDAO.findAll(TaskType.MACRO));</span>
+<span class="nc" id="L308">            tasks.addAll(taskDAO.findAll(TaskType.LIVE_SYNC));</span>
+
+<span class="nc" id="L310">            boolean loadException = false;</span>
+<span class="nc bnc" id="L311" title="All 4 branches missed.">            for (Iterator&lt;SchedTask&gt; it = tasks.iterator(); it.hasNext() &amp;&amp; !loadException;) {</span>
+<span class="nc" id="L312">                SchedTask task = it.next();</span>
+
+<span class="nc" id="L314">                LOG.debug(&quot;Loading job for {} Task {} {}&quot;,</span>
+<span class="nc" id="L315">                        taskUtilsFactory.getInstance(task).getType(), task.getKey(), task.getName());</span>
+
+                try {
+<span class="nc" id="L318">                    register(</span>
+                            domain,
+                            task,
+<span class="nc" id="L321">                            task.getCronExpression(),</span>
+                            null,
+<span class="nc" id="L323">                            securityProperties.getAdminUser(),</span>
+                            false,
+<span class="nc" id="L325">                            Map.of());</span>
+<span class="nc" id="L326">                } catch (Exception e) {</span>
+<span class="nc" id="L327">                    LOG.error(&quot;While loading job instance for task {}&quot;, task.getKey(), e);</span>
+<span class="nc" id="L328">                    loadException = true;</span>
+<span class="nc" id="L329">                }</span>
+<span class="nc" id="L330">            }</span>
+
+            // 2. jobs for Reports
+<span class="nc" id="L333">            loadException = false;</span>
+<span class="nc bnc" id="L334" title="All 4 branches missed.">            for (Iterator&lt;? extends Report&gt; it = reportDAO.findAll().iterator(); it.hasNext() &amp;&amp; !loadException;) {</span>
+<span class="nc" id="L335">                Report report = it.next();</span>
+
+<span class="nc" id="L337">                LOG.debug(&quot;Loading job for Report {} {}&quot;, report.getKey(), report.getName());</span>
+
+                try {
+<span class="nc" id="L340">                    register(</span>
+                            domain,
+                            report,
+<span class="nc" id="L343">                            report.getCronExpression(),</span>
+                            null,
+<span class="nc" id="L345">                            securityProperties.getAdminUser(),</span>
+                            false);
+<span class="nc" id="L347">                } catch (Exception e) {</span>
+<span class="nc" id="L348">                    LOG.error(&quot;While loading job instance for report {}&quot;, report.getName(), e);</span>
+<span class="nc" id="L349">                    loadException = true;</span>
+<span class="nc" id="L350">                }</span>
+<span class="nc" id="L351">            }</span>
+<span class="nc" id="L352">        });</span>
+
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        if (SyncopeConstants.MASTER_DOMAIN.equals(domain)) {</span>
+<span class="nc" id="L355">            String notificationJobCronExp = AuthContextUtils.callAsAdmin(SyncopeConstants.MASTER_DOMAIN, () -&gt; {</span>
+<span class="nc" id="L356">                String result = StringUtils.EMPTY;</span>
+
+<span class="nc" id="L358">                String conf = confParamOps.get(</span>
+                        SyncopeConstants.MASTER_DOMAIN,
+                        StandardConfParams.NOTIFICATION_JOB_CRON_EXPRESSION, null, String.class);
+<span class="nc bnc" id="L361" title="All 2 branches missed.">                if (conf == null) {</span>
+<span class="nc" id="L362">                    result = NotificationJob.DEFAULT_CRON_EXP;</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">                } else if (!StringUtils.EMPTY.equals(conf)) {</span>
+<span class="nc" id="L364">                    result = conf;</span>
+                }
+<span class="nc" id="L366">                return result;</span>
+            });
+
+            // 3. NotificationJob
+<span class="nc bnc" id="L370" title="All 2 branches missed.">            if (StringUtils.isBlank(notificationJobCronExp)) {</span>
+<span class="nc" id="L371">                LOG.debug(&quot;Empty value provided for {}'s cron, not scheduling&quot;, NotificationJob.class.getSimpleName());</span>
+            } else {
+<span class="nc" id="L373">                LOG.debug(&quot;{}'s cron expression: {} - scheduling&quot;,</span>
+<span class="nc" id="L374">                        NotificationJob.class.getSimpleName(), notificationJobCronExp);</span>
+
+<span class="nc" id="L376">                JobExecutionContext context = new JobExecutionContext(</span>
+                        domain,
+                        NOTIFICATION_JOB,
+<span class="nc" id="L379">                        securityProperties.getAdminUser(),</span>
+                        false);
+                try {
+<span class="nc" id="L382">                    registerJob(</span>
+                            context,
+                            NotificationJob.class,
+                            notificationJobCronExp,
+                            null);
+<span class="nc" id="L387">                } catch (Exception e) {</span>
+<span class="nc" id="L388">                    LOG.error(&quot;While loading {} instance&quot;, NotificationJob.class.getSimpleName(), e);</span>
+<span class="nc" id="L389">                }</span>
+            }
+
+            // 4. SystemLoadReporterJob (fixed schedule, every minute)
+<span class="nc" id="L393">            LOG.debug(&quot;Registering {}&quot;, SystemLoadReporterJob.class);</span>
+
+<span class="nc" id="L395">            JobExecutionContext context = new JobExecutionContext(</span>
+                    domain,
+<span class="nc" id="L397">                    StringUtils.uncapitalize(SystemLoadReporterJob.class.getSimpleName()),</span>
+<span class="nc" id="L398">                    securityProperties.getAdminUser(),</span>
+                    false);
+            try {
+<span class="nc" id="L401">                registerJob(</span>
+                        context,
+                        SystemLoadReporterJob.class,
+                        &quot;0 * * * * ?&quot;,
+                        null);
+<span class="nc" id="L406">            } catch (Exception e) {</span>
+<span class="nc" id="L407">                LOG.error(&quot;While loading {} instance&quot;, SystemLoadReporterJob.class.getSimpleName(), e);</span>
+<span class="nc" id="L408">            }</span>
+        }
+<span class="nc" id="L410">    }</span>
+
+    @Override
+    public void unload(final String domain) {
+<span class="nc" id="L414">        AuthContextUtils.runAsAdmin(domain, () -&gt; {</span>
+            // 1. jobs for SchedTasks
+<span class="nc" id="L416">            Set&lt;SchedTask&gt; tasks = new HashSet&lt;&gt;(taskDAO.findAll(TaskType.SCHEDULED));</span>
+<span class="nc" id="L417">            tasks.addAll(taskDAO.findAll(TaskType.PULL));</span>
+<span class="nc" id="L418">            tasks.addAll(taskDAO.findAll(TaskType.PUSH));</span>
+<span class="nc" id="L419">            tasks.addAll(taskDAO.findAll(TaskType.MACRO));</span>
+<span class="nc" id="L420">            tasks.addAll(taskDAO.findAll(TaskType.LIVE_SYNC));</span>
+
+<span class="nc" id="L422">            tasks.forEach(task -&gt; {</span>
+<span class="nc" id="L423">                LOG.debug(&quot;Unloading job for {} Task {} {}&quot;,</span>
+<span class="nc" id="L424">                        taskUtilsFactory.getInstance(task).getType(), task.getKey(), task.getName());</span>
+
+                try {
+<span class="nc" id="L427">                    unregister(task);</span>
+<span class="nc" id="L428">                } catch (Exception e) {</span>
+<span class="nc" id="L429">                    LOG.error(&quot;While unloading job for task {}&quot;, task.getKey(), e);</span>
+<span class="nc" id="L430">                }</span>
+<span class="nc" id="L431">            });</span>
+
+            // 2. jobs for Reports
+<span class="nc" id="L434">            reportDAO.findAll().forEach(report -&gt; {</span>
+<span class="nc" id="L435">                LOG.debug(&quot;Unloading job for Report {} {}&quot;, report.getKey(), report.getName());</span>
+
+                try {
+<span class="nc" id="L438">                    unregister(report);</span>
+<span class="nc" id="L439">                } catch (Exception e) {</span>
+<span class="nc" id="L440">                    LOG.error(&quot;While unloading job for report {}&quot;, report.getName(), e);</span>
+<span class="nc" id="L441">                }</span>
+<span class="nc" id="L442">            });</span>
+<span class="nc" id="L443">        });</span>
+<span class="nc" id="L444">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

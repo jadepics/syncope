@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LiveSyncJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">LiveSyncJobDelegate.java</span></div><h1>LiveSyncJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.to.OrgUnit;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ConflictResolutionAction;
+import org.apache.syncope.common.lib.types.IdMImplementationType;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.PullMode;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.persistence.api.entity.PlainSchema;
+import org.apache.syncope.core.persistence.api.entity.policy.InboundPolicy;
+import org.apache.syncope.core.persistence.api.entity.task.AnyTemplatePullTask;
+import org.apache.syncope.core.persistence.api.entity.task.LiveSyncTask;
+import org.apache.syncope.core.persistence.api.entity.task.PullTask;
+import org.apache.syncope.core.persistence.api.entity.task.SchedTask;
+import org.apache.syncope.core.persistence.api.entity.task.TaskExec;
+import org.apache.syncope.core.persistence.api.utils.ExceptionUtils2;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionContext;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.job.StoppableJobDelegate;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.pushpull.LiveSyncDeltaMapper;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.RealmPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullExecutor;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePullResultHandler;
+import org.apache.syncope.core.provisioning.java.job.TaskJob;
+import org.apache.syncope.core.provisioning.java.utils.ConnObjectUtils;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.OperationOptions;
+import org.identityconnectors.framework.common.objects.OperationOptionsBuilder;
+import org.identityconnectors.framework.common.objects.SyncDelta;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L69">public class LiveSyncJobDelegate</span>
+        extends AbstractPullExecutor&lt;LiveSyncTask&gt;
+        implements SyncopePullExecutor, StoppableJobDelegate {
+
+<span class="nc" id="L73">    protected record LiveSyncInfo(</span>
+            Provision provision,
+            OrgUnit orgUnit,
+            ObjectClass objectClass,
+            AnyTypeKind anyTypeKind,
+            PlainSchema uidOnCreate,
+            OperationOptions options) {
+
+    }
+
+    @Autowired
+    protected LiveSyncTaskSaver liveSyncTaskSaver;
+
+<span class="nc" id="L86">    protected int delaySecondsAcrossInvocations = 5;</span>
+
+    protected LiveSyncDeltaMapper mapper;
+
+    protected List&lt;LiveSyncInfo&gt; infos;
+
+<span class="nc" id="L92">    protected volatile boolean stopRequested = false;</span>
+
+    @Override
+    protected void init(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context) throws JobExecutionException {
+
+<span class="nc" id="L100">        super.init(taskType, taskKey, context);</span>
+
+<span class="nc" id="L102">        delaySecondsAcrossInvocations = task.getDelaySecondsAcrossInvocations();</span>
+
+<span class="nc" id="L104">        Implementation impl = Optional.ofNullable(task.getLiveSyncDeltaMapper()).</span>
+<span class="nc" id="L105">                orElseThrow(() -&gt; new JobExecutionException(</span>
+<span class="nc" id="L106">                &quot;No &quot; + LiveSyncDeltaMapper.class.getSimpleName() + &quot; provided, aborting&quot;));</span>
+        try {
+<span class="nc" id="L108">            mapper = ImplementationManager.build(context.getDomain(), impl);</span>
+<span class="nc" id="L109">        } catch (Exception e) {</span>
+<span class="nc" id="L110">            throw new JobExecutionException(</span>
+<span class="nc" id="L111">                    &quot;Could not build &quot; + IdMImplementationType.LIVE_SYNC_DELTA_MAPPER + &quot; &quot; + impl.getKey(), e);</span>
+<span class="nc" id="L112">        }</span>
+
+<span class="nc" id="L114">        PullTask pullTask = entityFactory.newEntity(PullTask.class);</span>
+<span class="nc" id="L115">        pullTask.setName(task.getName());</span>
+<span class="nc" id="L116">        pullTask.setResource(task.getResource());</span>
+<span class="nc" id="L117">        pullTask.setMatchingRule(task.getMatchingRule());</span>
+<span class="nc" id="L118">        pullTask.setUnmatchingRule(task.getUnmatchingRule());</span>
+<span class="nc" id="L119">        pullTask.setPullMode(PullMode.INCREMENTAL);</span>
+<span class="nc" id="L120">        pullTask.setPerformCreate(task.isPerformCreate());</span>
+<span class="nc" id="L121">        pullTask.setPerformUpdate(task.isPerformUpdate());</span>
+<span class="nc" id="L122">        pullTask.setPerformDelete(task.isPerformDelete());</span>
+<span class="nc" id="L123">        pullTask.setSyncStatus(task.isSyncStatus());</span>
+<span class="nc" id="L124">        pullTask.setDestinationRealm(task.getDestinationRealm());</span>
+<span class="nc" id="L125">        pullTask.setRemediation(task.isRemediation());</span>
+<span class="nc" id="L126">        pullTask.setConcurrentSettings(task.getConcurrentSettings());</span>
+<span class="nc" id="L127">        task.getTemplates().forEach(atlst -&gt; {</span>
+<span class="nc" id="L128">            AnyTemplatePullTask atpt = entityFactory.newEntity(AnyTemplatePullTask.class);</span>
+<span class="nc" id="L129">            atpt.setAnyType(atlst.getAnyType());</span>
+<span class="nc" id="L130">            atpt.setPullTask(pullTask);</span>
+
+<span class="nc" id="L132">            pullTask.add(atpt);</span>
+<span class="nc" id="L133">            atpt.set(atlst.get());</span>
+<span class="nc" id="L134">        });</span>
+
+<span class="nc" id="L136">        profile = new ProvisioningProfile&lt;&gt;(</span>
+                connector,
+                taskType,
+                pullTask,
+<span class="nc" id="L140">                Optional.ofNullable(task.getResource().getInboundPolicy()).</span>
+<span class="nc" id="L141">                        map(InboundPolicy::getConflictResolutionAction).</span>
+<span class="nc" id="L142">                        orElse(ConflictResolutionAction.IGNORE),</span>
+<span class="nc" id="L143">                getInboundActions(context.getDomain(), task.getActions()),</span>
+                executor,
+<span class="nc" id="L145">                context.isDryRun()) {</span>
+
+            @Override
+            public String getContext() {
+<span class="nc" id="L149">                return taskType + &quot; Task &quot; + taskKey + &quot; '&quot; + task.getName() + &quot;'&quot;;</span>
+            }
+        };
+
+<span class="nc" id="L153">        dispatcher = buildDispatcher();</span>
+
+<span class="nc" id="L155">        infos = new ArrayList&lt;&gt;();</span>
+
+        // First realms...
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (task.getResource().getOrgUnit() != null) {</span>
+<span class="nc" id="L159">            setStatus(&quot;Pulling &quot; + task.getResource().getOrgUnit().getObjectClass());</span>
+
+<span class="nc" id="L161">            OrgUnit orgUnit = task.getResource().getOrgUnit();</span>
+
+<span class="nc" id="L163">            Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L164">            profile.getActions().forEach(a -&gt; moreAttrsToGet.addAll(a.moreAttrsToGet(profile, orgUnit)));</span>
+<span class="nc" id="L165">            OperationOptions options = MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L166">                    MappingUtils.getInboundItems(orgUnit.getItems().stream()), moreAttrsToGet.toArray(String[]::new));</span>
+
+<span class="nc" id="L168">            dispatcher.addHandlerSupplier(orgUnit.getObjectClass(), () -&gt; {</span>
+<span class="nc" id="L169">                RealmPullResultHandler handler = buildRealmHandler();</span>
+<span class="nc" id="L170">                handler.setProfile(profile);</span>
+<span class="nc" id="L171">                return handler;</span>
+            });
+
+<span class="nc" id="L174">            infos.add(new LiveSyncInfo(</span>
+                    null,
+                    orgUnit,
+<span class="nc" id="L177">                    new ObjectClass(orgUnit.getObjectClass()),</span>
+                    null,
+                    null,
+                    options));
+
+<span class="nc" id="L182">            Optional.ofNullable(orgUnit.getSyncToken()).</span>
+<span class="nc" id="L183">                    ifPresent(syncToken -&gt; setLatestSyncToken(</span>
+<span class="nc" id="L184">                    orgUnit.getObjectClass(), ConnObjectUtils.toSyncToken(syncToken)));</span>
+        }
+
+        // ...then provisions for any types
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        for (Provision provision : task.getResource().getProvisions().stream().</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">                filter(provision -&gt; provision.getMapping() != null).sorted(provisionSorter).</span>
+<span class="nc" id="L190">                toList()) {</span>
+
+<span class="nc" id="L192">            AnyType anyType = anyTypeDAO.findById(provision.getAnyType()).</span>
+<span class="nc" id="L193">                    orElseThrow(() -&gt; new NotFoundException(&quot;AnyType&quot; + provision.getAnyType()));</span>
+
+<span class="nc" id="L195">            PlainSchema uidOnCreate = null;</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            if (provision.getUidOnCreate() != null) {</span>
+<span class="nc" id="L197">                uidOnCreate = plainSchemaDAO.findById(provision.getUidOnCreate()).</span>
+<span class="nc" id="L198">                        orElseThrow(() -&gt; new NotFoundException(&quot;PlainSchema &quot; + provision.getUidOnCreate()));</span>
+            }
+
+<span class="nc" id="L201">            dispatcher.addHandlerSupplier(provision.getObjectClass(), () -&gt; {</span>
+                SyncopePullResultHandler handler;
+<span class="nc bnc" id="L203" title="All 3 branches missed.">                switch (anyType.getKind()) {</span>
+                    case USER:
+<span class="nc" id="L205">                        handler = buildUserHandler();</span>
+<span class="nc" id="L206">                        break;</span>
+
+                    case GROUP:
+<span class="nc" id="L209">                        handler = buildGroupHandler();</span>
+<span class="nc" id="L210">                        break;</span>
+
+                    case ANY_OBJECT:
+                    default:
+<span class="nc" id="L214">                        handler = buildAnyObjectHandler();</span>
+                }
+<span class="nc" id="L216">                handler.setProfile(profile);</span>
+<span class="nc" id="L217">                return handler;</span>
+            });
+
+<span class="nc" id="L220">            Set&lt;String&gt; moreAttrsToGet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L221">            profile.getActions().forEach(a -&gt; moreAttrsToGet.addAll(a.moreAttrsToGet(profile, provision)));</span>
+<span class="nc" id="L222">            OperationOptions options = MappingUtils.buildOperationOptions(</span>
+<span class="nc" id="L223">                    MappingUtils.getInboundItems(provision.getMapping().getItems().stream()),</span>
+<span class="nc" id="L224">                    moreAttrsToGet.toArray(String[]::new));</span>
+
+<span class="nc" id="L226">            infos.add(new LiveSyncInfo(</span>
+                    provision,
+                    null,
+<span class="nc" id="L229">                    new ObjectClass(provision.getObjectClass()),</span>
+<span class="nc" id="L230">                    anyType.getKind(),</span>
+                    uidOnCreate,
+                    options));
+
+<span class="nc" id="L234">            Optional.ofNullable(provision.getSyncToken()).</span>
+<span class="nc" id="L235">                    ifPresent(syncToken -&gt; setLatestSyncToken(</span>
+<span class="nc" id="L236">                    provision.getObjectClass(), ConnObjectUtils.toSyncToken(syncToken)));</span>
+<span class="nc" id="L237">        }</span>
+
+<span class="nc" id="L239">        setStatus(&quot;Initialization completed&quot;);</span>
+<span class="nc" id="L240">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L244">        stopRequested = true;</span>
+<span class="nc" id="L245">    }</span>
+
+    @Transactional
+    @Override
+    public void execute(
+            final TaskType taskType,
+            final String taskKey,
+            final JobExecutionContext context) throws JobExecutionException {
+
+<span class="nc" id="L254">        init(taskType, taskKey, context);</span>
+
+<span class="nc" id="L256">        setStatus(&quot;Initialization completed&quot;);</span>
+
+<span class="nc" id="L258">        doExecute(context);</span>
+
+<span class="nc" id="L260">        end();</span>
+<span class="nc" id="L261">    }</span>
+
+    protected boolean syncTokenChanged(final String fromProvision, final String objectClass) {
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        return latestSyncTokens.containsKey(objectClass)</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">                &amp;&amp; !Objects.equals(fromProvision, ConnObjectUtils.toString(latestSyncTokens.get(objectClass)));</span>
+    }
+
+    protected void doLivesync() throws JobExecutionException {
+<span class="nc" id="L269">        profile.getResults().clear();</span>
+
+<span class="nc" id="L271">        TaskExec&lt;SchedTask&gt; execution = initExecution();</span>
+<span class="nc" id="L272">        execution.setTask(null);</span>
+
+        String message;
+        String status;
+        OpEvent.Outcome result;
+        try {
+<span class="nc bnc" id="L278" title="All 2 branches missed.">            if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L280">                    action.beforeAll(profile);</span>
+<span class="nc" id="L281">                }</span>
+            }
+
+<span class="nc" id="L284">            infos.forEach(info -&gt; {</span>
+<span class="nc" id="L285">                setStatus(&quot;Live syncing &quot; + info.objectClass().getObjectClassValue());</span>
+
+<span class="nc" id="L287">                OperationOptions options = Optional.ofNullable(</span>
+<span class="nc" id="L288">                        latestSyncTokens.get(info.objectClass().getObjectClassValue())).</span>
+<span class="nc" id="L289">                        map(syncToken -&gt; new OperationOptionsBuilder(info.options()).</span>
+<span class="nc" id="L290">                        setPagedResultsCookie(syncToken.getValue().toString()).build()).</span>
+<span class="nc" id="L291">                        orElseGet(() -&gt; info.options());</span>
+
+<span class="nc" id="L293">                profile.getConnector().livesync(</span>
+<span class="nc" id="L294">                        info.objectClass(),</span>
+                        liveSyncDelta -&gt; {
+                            try {
+<span class="nc" id="L297">                                LOG.debug(&quot;LiveSyncDelta: {}&quot;, liveSyncDelta);</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">                                SyncDelta syncDelta = info.provision() == null</span>
+<span class="nc" id="L299">                                ? mapper.map(liveSyncDelta, info.orgUnit())</span>
+<span class="nc" id="L300">                                : mapper.map(liveSyncDelta, info.provision());</span>
+<span class="nc" id="L301">                                LOG.debug(&quot;Mapped SyncDelta: {}&quot;, syncDelta);</span>
+
+<span class="nc" id="L303">                                return dispatcher.handle(syncDelta);</span>
+<span class="nc" id="L304">                            } catch (Exception e) {</span>
+<span class="nc" id="L305">                                LOG.error(&quot;While live syncing from {} with {}&quot;,</span>
+<span class="nc" id="L306">                                        task.getResource().getKey(), liveSyncDelta, e);</span>
+<span class="nc" id="L307">                                return false;</span>
+                            }
+                        },
+                        options);
+
+<span class="nc bnc" id="L312" title="All 4 branches missed.">                if (info.provision() != null &amp;&amp; info.uidOnCreate() != null) {</span>
+<span class="nc" id="L313">                    AnyUtils anyUtils = anyUtilsFactory.getInstance(info.anyTypeKind());</span>
+<span class="nc" id="L314">                    profile.getResults().stream().</span>
+<span class="nc bnc" id="L315" title="All 4 branches missed.">                            filter(r -&gt; r.getUidValue() != null &amp;&amp; r.getKey() != null</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                            &amp;&amp; r.getOperation() == ResourceOperation.CREATE</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">                            &amp;&amp; r.getAnyType().equals(info.provision().getAnyType())).</span>
+<span class="nc" id="L318">                            forEach(r -&gt; liveSyncTaskSaver.addAttr(</span>
+                            anyUtils,
+                            validator,
+<span class="nc" id="L321">                            r.getKey(),</span>
+<span class="nc" id="L322">                            info.uidOnCreate(),</span>
+<span class="nc" id="L323">                            r.getUidValue()));</span>
+                }
+<span class="nc" id="L325">            });</span>
+
+<span class="nc bnc" id="L327" title="All 2 branches missed.">            if (!profile.isDryRun()) {</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L329">                    action.afterAll(profile);</span>
+<span class="nc" id="L330">                }</span>
+            }
+
+<span class="nc" id="L333">            message = createReport(profile.getResults(), task.getResource(), profile.isDryRun());</span>
+<span class="nc" id="L334">            status = TaskJob.Status.SUCCESS.name();</span>
+<span class="nc" id="L335">            result = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L336">        } catch (Throwable t) {</span>
+<span class="nc" id="L337">            LOG.error(&quot;While executing task {}&quot;, task.getKey(), t);</span>
+
+<span class="nc" id="L339">            message = ExceptionUtils2.getFullStackTrace(t);</span>
+<span class="nc" id="L340">            status = TaskJob.Status.FAILURE.name();</span>
+<span class="nc" id="L341">            result = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L342">        }</span>
+
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (!profile.getResults().isEmpty()) {</span>
+<span class="nc" id="L345">            liveSyncTaskSaver.save(task.getKey(), execution, message, status, result, this::hasToBeRegistered);</span>
+        }
+
+<span class="nc bnc" id="L348" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc" id="L349">            boolean anySyncTokenChanged = false;</span>
+<span class="nc bnc" id="L350" title="All 4 branches missed.">            for (int i = 0; i &lt; infos.size() &amp;&amp; !anySyncTokenChanged; i++) {</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">                if (infos.get(i).provision() != null) {</span>
+<span class="nc" id="L352">                    anySyncTokenChanged = syncTokenChanged(</span>
+<span class="nc" id="L353">                            infos.get(i).provision().getSyncToken(),</span>
+<span class="nc" id="L354">                            infos.get(i).objectClass().getObjectClassValue());</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">                } else if (infos.get(i).orgUnit() != null) {</span>
+<span class="nc" id="L356">                    anySyncTokenChanged = syncTokenChanged(</span>
+<span class="nc" id="L357">                            infos.get(i).orgUnit().getSyncToken(),</span>
+<span class="nc" id="L358">                            infos.get(i).objectClass().getObjectClassValue());</span>
+                }
+            }
+<span class="nc bnc" id="L361" title="All 2 branches missed.">            if (anySyncTokenChanged) {</span>
+<span class="nc" id="L362">                liveSyncTaskSaver.save(task.getResource().getKey(), latestSyncTokens);</span>
+            }
+        }
+<span class="nc" id="L365">    }</span>
+
+    @Override
+    protected String doExecute(final JobExecutionContext context) throws JobExecutionException {
+<span class="nc bnc" id="L369" title="All 2 branches missed.">        if (infos.isEmpty()) {</span>
+<span class="nc" id="L370">            LOG.info(&quot;Nothing to live sync on, aborting...&quot;);</span>
+<span class="nc" id="L371">            return StringUtils.EMPTY;</span>
+        }
+
+<span class="nc" id="L374">        LOG.debug(&quot;Executing live sync on {}&quot;, task.getResource());</span>
+
+<span class="nc" id="L376">        Object lock = new Object();</span>
+<span class="nc" id="L377">        synchronized (lock) {</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">            while (!stopRequested) {</span>
+                try {
+<span class="nc" id="L380">                    doLivesync();</span>
+                } finally {
+                    try {
+<span class="nc" id="L383">                        lock.wait(delaySecondsAcrossInvocations * 1000);</span>
+<span class="nc" id="L384">                    } catch (InterruptedException e) {</span>
+                        // ignore
+<span class="nc" id="L386">                    }</span>
+<span class="nc" id="L387">                }</span>
+            }
+<span class="nc" id="L389">        }</span>
+
+<span class="nc" id="L391">        dispatcher.stop();</span>
+<span class="nc" id="L392">        dispatcher.shutdown();</span>
+
+<span class="nc" id="L394">        return StringUtils.EMPTY;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

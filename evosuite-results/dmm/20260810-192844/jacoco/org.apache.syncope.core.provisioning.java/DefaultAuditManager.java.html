@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultAuditManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultAuditManager.java</span></div><h1>DefaultAuditManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import org.apache.commons.lang3.SerializationUtils;
+import org.apache.syncope.common.lib.request.UserCR;
+import org.apache.syncope.common.lib.request.UserUR;
+import org.apache.syncope.common.lib.to.UserTO;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.core.persistence.api.dao.AuditConfDAO;
+import org.apache.syncope.core.persistence.api.dao.AuditEventDAO;
+import org.apache.syncope.core.persistence.api.entity.AuditConf;
+import org.apache.syncope.core.persistence.api.entity.AuditEvent;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.utils.ExceptionUtils2;
+import org.apache.syncope.core.provisioning.api.AuditEventProcessor;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.event.AfterHandlingEvent;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.transaction.annotation.Transactional;
+
+public class DefaultAuditManager implements AuditManager {
+
+<span class="nc" id="L49">    protected static final Logger LOG = LoggerFactory.getLogger(AuditManager.class);</span>
+
+    protected static final String MASKED_VALUE = &quot;&lt;MASKED&gt;&quot;;
+
+    protected static Object maskSensitive(final Object object) {
+<span class="nc bnc" id="L54" title="All 5 branches missed.">        return switch (object) {</span>
+<span class="nc" id="L55">            case UserTO userTO -&gt; {</span>
+<span class="nc" id="L56">                UserTO clone = SerializationUtils.clone(userTO);</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">                if (clone.getPassword() != null) {</span>
+<span class="nc" id="L58">                    clone.setPassword(MASKED_VALUE);</span>
+                }
+<span class="nc" id="L60">                yield clone;</span>
+            }
+
+<span class="nc" id="L63">            case UserCR userCR -&gt; {</span>
+<span class="nc" id="L64">                UserCR clone = SerializationUtils.clone(userCR);</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">                if (clone.getPassword() != null) {</span>
+<span class="nc" id="L66">                    clone.setPassword(MASKED_VALUE);</span>
+                }
+<span class="nc bnc" id="L68" title="All 2 branches missed.">                if (clone.getSecurityAnswer() != null) {</span>
+<span class="nc" id="L69">                    clone.setSecurityAnswer(MASKED_VALUE);</span>
+                }
+<span class="nc" id="L71">                yield clone;</span>
+            }
+
+<span class="nc" id="L74">            case UserUR userUR -&gt; {</span>
+<span class="nc" id="L75">                UserUR clone = SerializationUtils.clone(userUR);</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">                if (clone.getPassword() != null) {</span>
+<span class="nc" id="L77">                    clone.getPassword().setValue(MASKED_VALUE);</span>
+                }
+<span class="nc bnc" id="L79" title="All 2 branches missed.">                if (clone.getSecurityAnswer() != null) {</span>
+<span class="nc" id="L80">                    clone.getSecurityAnswer().setValue(MASKED_VALUE);</span>
+                }
+<span class="nc" id="L82">                yield clone;</span>
+            }
+
+            case null -&gt;
+<span class="nc" id="L86">                null;</span>
+            default -&gt;
+<span class="nc" id="L88">                object;</span>
+        };
+    }
+
+    protected final AuditConfDAO auditConfDAO;
+
+    protected final AuditEventDAO auditEventDAO;
+
+    protected final EntityFactory entityFactory;
+
+    protected final List&lt;AuditEventProcessor&gt; auditEventProcessors;
+
+    protected final AsyncTaskExecutor taskExecutor;
+
+    public DefaultAuditManager(
+            final AuditConfDAO auditConfDAO,
+            final AuditEventDAO auditEventDAO,
+            final EntityFactory entityFactory,
+            final List&lt;AuditEventProcessor&gt; auditEventProcessors,
+<span class="nc" id="L107">            final AsyncTaskExecutor taskExecutor) {</span>
+
+<span class="nc" id="L109">        this.auditConfDAO = auditConfDAO;</span>
+<span class="nc" id="L110">        this.auditEventDAO = auditEventDAO;</span>
+<span class="nc" id="L111">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L112">        this.auditEventProcessors = auditEventProcessors;</span>
+<span class="nc" id="L113">        this.taskExecutor = taskExecutor;</span>
+<span class="nc" id="L114">    }</span>
+
+    @Override
+    public boolean auditRequested(
+            final String domain,
+            final String who,
+            final OpEvent.CategoryType type,
+            final String category,
+            final String subcategory,
+            final String op) {
+
+<span class="nc" id="L125">        return AuthContextUtils.callAsAdmin(domain, () -&gt; {</span>
+<span class="nc" id="L126">            OpEvent opEvent = new OpEvent(type, category, subcategory, op, OpEvent.Outcome.SUCCESS);</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">            if (auditConfDAO.findById(opEvent.toString()).map(AuditConf::isActive).orElse(false)) {</span>
+<span class="nc" id="L128">                return true;</span>
+            }
+
+<span class="nc" id="L131">            opEvent = new OpEvent(type, category, subcategory, op, OpEvent.Outcome.FAILURE);</span>
+<span class="nc" id="L132">            return auditConfDAO.findById(opEvent.toString()).map(AuditConf::isActive).orElse(false);</span>
+        });
+    }
+
+    @Override
+    public void audit(final AfterHandlingEvent event) {
+<span class="nc" id="L138">        audit(</span>
+<span class="nc" id="L139">                event.getDomain(),</span>
+<span class="nc" id="L140">                event.getWho(),</span>
+<span class="nc" id="L141">                event.getType(),</span>
+<span class="nc" id="L142">                event.getCategory(),</span>
+<span class="nc" id="L143">                event.getSubcategory(),</span>
+<span class="nc" id="L144">                event.getOp(),</span>
+<span class="nc" id="L145">                event.getOutcome(),</span>
+<span class="nc" id="L146">                event.getBefore(),</span>
+<span class="nc" id="L147">                event.getOutput(),</span>
+<span class="nc" id="L148">                event.getInput());</span>
+<span class="nc" id="L149">    }</span>
+
+    @Override
+    public void audit(
+            final String domain,
+            final String who,
+            final OpEvent.CategoryType type,
+            final String category,
+            final String subcategory,
+            final String op,
+            final OpEvent.Outcome outcome,
+            final Object before,
+            final Object output,
+            final Object... input) {
+
+<span class="nc" id="L164">        taskExecutor.submit(() -&gt; AuthContextUtils.runAsAdmin(domain, new Runnable() {</span>
+
+            @Transactional
+            @Override
+            public void run() {
+<span class="nc" id="L169">                OpEvent opEvent = new OpEvent(type, category, subcategory, op, outcome);</span>
+
+<span class="nc" id="L171">                Optional&lt;? extends AuditConf&gt; auditConf = auditConfDAO.findById(opEvent.toString());</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">                if (auditConf.isEmpty()) {</span>
+<span class="nc" id="L173">                    LOG.debug(&quot;No audit conf found for {}, skipping&quot;, opEvent);</span>
+<span class="nc" id="L174">                    return;</span>
+                }
+<span class="nc bnc" id="L176" title="All 2 branches missed.">                if (!auditConf.get().isActive()) {</span>
+<span class="nc" id="L177">                    LOG.debug(&quot;Audit conf found for {} is not active, skipping&quot;, opEvent);</span>
+<span class="nc" id="L178">                    return;</span>
+                }
+
+                try {
+<span class="nc" id="L182">                    AuditEvent auditEvent = entityFactory.newEntity(AuditEvent.class);</span>
+<span class="nc" id="L183">                    auditEvent.setOpEvent(opEvent.toString());</span>
+<span class="nc" id="L184">                    auditEvent.setWho(who);</span>
+<span class="nc" id="L185">                    auditEvent.setWhen(OffsetDateTime.now());</span>
+<span class="nc" id="L186">                    Optional.ofNullable(before).</span>
+<span class="nc" id="L187">                            ifPresent(b -&gt; auditEvent.setBefore(POJOHelper.serialize((maskSensitive(b)))));</span>
+
+<span class="nc" id="L189">                    Optional.ofNullable(input).ifPresent(in -&gt; auditEvent.setInputs(Arrays.stream(in).</span>
+<span class="nc" id="L190">                            filter(Objects::nonNull).map(DefaultAuditManager::maskSensitive).map(POJOHelper::serialize).</span>
+<span class="nc" id="L191">                            toList()));</span>
+
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                    if (output instanceof Throwable throwable) {</span>
+<span class="nc" id="L194">                        auditEvent.setOutput(throwable.getMessage());</span>
+<span class="nc" id="L195">                        auditEvent.setThrowable(ExceptionUtils2.getFullStackTrace(throwable));</span>
+                    } else {
+<span class="nc" id="L197">                        Optional.ofNullable(output).</span>
+<span class="nc" id="L198">                                ifPresent(out -&gt; auditEvent.setOutput(POJOHelper.serialize((maskSensitive(out)))));</span>
+                    }
+
+<span class="nc" id="L201">                    auditEventDAO.save(auditEvent);</span>
+
+<span class="nc" id="L203">                    auditEventProcessors.stream().</span>
+<span class="nc" id="L204">                            filter(p -&gt; p.getEvents(domain).contains(opEvent)).</span>
+<span class="nc" id="L205">                            forEach(p -&gt; p.process(domain, auditEvent));</span>
+<span class="nc" id="L206">                } catch (Exception e) {</span>
+<span class="nc" id="L207">                    LOG.error(&quot;While processing audit event for conf {}&quot;, opEvent, e);</span>
+<span class="nc" id="L208">                }</span>
+<span class="nc" id="L209">            }</span>
+        }));
+<span class="nc" id="L211">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

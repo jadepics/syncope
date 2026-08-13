@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AnyObjectDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">AnyObjectDataBinderImpl.java</span></div><h1>AnyObjectDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.Map;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.AnyOperations;
+import org.apache.syncope.common.lib.EntityTOUtils;
+import org.apache.syncope.common.lib.SyncopeClientCompositeException;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.request.AnyObjectCR;
+import org.apache.syncope.common.lib.request.AnyObjectUR;
+import org.apache.syncope.common.lib.to.AnyObjectTO;
+import org.apache.syncope.common.lib.to.ConnObject;
+import org.apache.syncope.common.lib.to.RelationshipTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.core.persistence.api.attrvalue.PlainAttrValidationManager;
+import org.apache.syncope.core.persistence.api.dao.AnyChecker;
+import org.apache.syncope.core.persistence.api.dao.AnyObjectDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.PlainSchemaDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RelationshipTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.AnyUtilsFactory;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Groupable;
+import org.apache.syncope.core.persistence.api.entity.Realm;
+import org.apache.syncope.core.persistence.api.entity.anyobject.AnyObject;
+import org.apache.syncope.core.provisioning.api.DerAttrHandler;
+import org.apache.syncope.core.provisioning.api.IntAttrNameParser;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.data.AnyObjectDataBinder;
+import org.apache.syncope.core.provisioning.api.jexl.JexlTools;
+import org.apache.syncope.core.provisioning.java.pushpull.OutboundMatcher;
+import org.springframework.transaction.annotation.Transactional;
+
+@Transactional(rollbackFor = { Throwable.class })
+public class AnyObjectDataBinderImpl extends AnyDataBinder implements AnyObjectDataBinder {
+
+    public AnyObjectDataBinderImpl(
+            final AnyTypeDAO anyTypeDAO,
+            final RealmSearchDAO realmSearchDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AnyObjectDAO anyObjectDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final PlainSchemaDAO plainSchemaDAO,
+            final ExternalResourceDAO resourceDAO,
+            final RelationshipTypeDAO relationshipTypeDAO,
+            final AnyChecker anyChecker,
+            final EntityFactory entityFactory,
+            final AnyUtilsFactory anyUtilsFactory,
+            final DerAttrHandler derAttrHandler,
+            final MappingManager mappingManager,
+            final IntAttrNameParser intAttrNameParser,
+            final OutboundMatcher outboundMatcher,
+            final PlainAttrValidationManager validator,
+            final JexlTools jexlTools) {
+
+<span class="nc" id="L85">        super(anyTypeDAO,</span>
+                realmSearchDAO,
+                anyTypeClassDAO,
+                anyObjectDAO,
+                userDAO,
+                groupDAO,
+                plainSchemaDAO,
+                resourceDAO,
+                relationshipTypeDAO,
+                anyChecker,
+                entityFactory,
+                anyUtilsFactory,
+                derAttrHandler,
+                mappingManager,
+                intAttrNameParser,
+                outboundMatcher,
+                validator,
+                jexlTools);
+<span class="nc" id="L103">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public AnyObjectTO getAnyObjectTO(final String key) {
+<span class="nc" id="L108">        return getAnyObjectTO(anyObjectDAO.authFind(key), true);</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public AnyObjectTO getAnyObjectTO(final AnyObject anyObject, final boolean details) {
+<span class="nc" id="L114">        AnyObjectTO anyObjectTO = new AnyObjectTO();</span>
+<span class="nc" id="L115">        anyObjectTO.setType(anyObject.getType().getKey());</span>
+
+<span class="nc" id="L117">        anyObjectTO.setKey(anyObject.getKey());</span>
+<span class="nc" id="L118">        anyObjectTO.setName(anyObject.getName());</span>
+<span class="nc" id="L119">        anyObjectTO.setStatus(anyObject.getStatus());</span>
+
+<span class="nc" id="L121">        anyObjectTO.setCreator(anyObject.getCreator());</span>
+<span class="nc" id="L122">        anyObjectTO.setCreationDate(anyObject.getCreationDate());</span>
+<span class="nc" id="L123">        anyObjectTO.setCreationContext(anyObject.getCreationContext());</span>
+<span class="nc" id="L124">        anyObjectTO.setLastModifier(anyObject.getLastModifier());</span>
+<span class="nc" id="L125">        anyObjectTO.setLastChangeDate(anyObject.getLastChangeDate());</span>
+<span class="nc" id="L126">        anyObjectTO.setLastChangeContext(anyObject.getLastChangeContext());</span>
+
+<span class="nc" id="L128">        fillTO(anyObject, anyObjectTO, derAttrHandler.getValues(anyObject), anyObjectDAO.findAllResources(anyObject));</span>
+
+<span class="nc bnc" id="L130" title="All 2 branches missed.">        if (details) {</span>
+            // relationships
+<span class="nc" id="L132">            anyObjectTO.getRelationships().addAll(</span>
+<span class="nc" id="L133">                    anyObjectDAO.findAllRelationships(anyObject).stream().</span>
+<span class="nc" id="L134">                            map(relationship -&gt; getRelationshipTO(anyObject.getPlainAttrs(relationship),</span>
+<span class="nc" id="L135">                            derAttrHandler.getValues(anyObject, relationship),</span>
+<span class="nc" id="L136">                            relationship.getType().getKey(),</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                            relationship.getLeftEnd().getKey().equals(anyObject.getKey())</span>
+<span class="nc" id="L138">                            ? RelationshipTO.End.LEFT</span>
+<span class="nc" id="L139">                            : RelationshipTO.End.RIGHT,</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">                            relationship.getLeftEnd().getKey().equals(anyObject.getKey())</span>
+<span class="nc" id="L141">                            ? relationship.getRightEnd()</span>
+<span class="nc" id="L142">                            : relationship.getLeftEnd())).</span>
+<span class="nc" id="L143">                            toList());</span>
+
+            // memberships
+<span class="nc" id="L146">            anyObjectTO.getMemberships().addAll(</span>
+<span class="nc" id="L147">                    anyObject.getMemberships().stream().map(membership -&gt; getMembershipTO(</span>
+<span class="nc" id="L148">                    anyObject.getPlainAttrs(membership),</span>
+<span class="nc" id="L149">                    derAttrHandler.getValues((Groupable&lt;?, ?, ?&gt;) anyObject, membership),</span>
+<span class="nc" id="L150">                    membership)).toList());</span>
+        }
+
+<span class="nc" id="L153">        return anyObjectTO;</span>
+    }
+
+    @Override
+    public void create(final AnyObject anyObject, final AnyObjectCR anyObjectCR) {
+<span class="nc" id="L158">        AnyType type = anyTypeDAO.findById(anyObjectCR.getType()).</span>
+<span class="nc" id="L159">                orElseThrow(() -&gt; {</span>
+<span class="nc" id="L160">                    SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidAnyType);</span>
+<span class="nc" id="L161">                    sce.getElements().add(anyObjectCR.getType());</span>
+<span class="nc" id="L162">                    return sce;</span>
+                });
+<span class="nc" id="L164">        anyObject.setType(type);</span>
+
+<span class="nc" id="L166">        AnyObjectTO anyTO = new AnyObjectTO();</span>
+<span class="nc" id="L167">        EntityTOUtils.toAnyTO(anyObjectCR, anyTO);</span>
+
+<span class="nc" id="L169">        AnyUtils anyUtils = anyUtilsFactory.getInstance(AnyTypeKind.ANY_OBJECT);</span>
+
+<span class="nc" id="L171">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+        // name
+<span class="nc" id="L174">        SyncopeClientException invalidGroups = SyncopeClientException.build(ClientExceptionType.InvalidGroup);</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">        if (anyObjectCR.getName() == null) {</span>
+<span class="nc" id="L176">            LOG.error(&quot;No name specified for this anyObject&quot;);</span>
+
+<span class="nc" id="L178">            invalidGroups.getElements().add(&quot;No name specified for this anyObject&quot;);</span>
+        } else {
+<span class="nc" id="L180">            anyObject.setName(anyObjectCR.getName());</span>
+        }
+
+        // realm
+<span class="nc" id="L184">        Realm realm = realmSearchDAO.findByFullPath(anyObjectCR.getRealm()).orElse(null);</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (realm == null) {</span>
+<span class="nc" id="L186">            SyncopeClientException noRealm = SyncopeClientException.build(ClientExceptionType.InvalidRealm);</span>
+<span class="nc" id="L187">            noRealm.getElements().add(&quot;Invalid or null realm specified: &quot; + anyObjectCR.getRealm());</span>
+<span class="nc" id="L188">            scce.addException(noRealm);</span>
+        }
+<span class="nc" id="L190">        anyObject.setRealm(realm);</span>
+
+        // attributes, resources and relationships
+<span class="nc" id="L193">        fill(anyTO, anyObject, anyObjectCR, anyUtilsFactory.getInstance(AnyTypeKind.ANY_OBJECT), scce);</span>
+
+        // memberships
+<span class="nc" id="L196">        memberships(anyObjectCR.getMemberships(), anyTO, anyObject, anyUtils, scce);</span>
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L199" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L200">            throw scce;</span>
+        }
+<span class="nc" id="L202">    }</span>
+
+    @Override
+    public PropagationByResource&lt;String&gt; update(final AnyObject toBeUpdated, final AnyObjectUR anyObjectUR) {
+<span class="nc" id="L206">        processAuxClasses(toBeUpdated, anyObjectUR);</span>
+
+        // Re-merge any pending change from workflow tasks
+<span class="nc" id="L209">        AnyObject anyObject = anyObjectDAO.save(toBeUpdated);</span>
+
+<span class="nc" id="L211">        AnyObjectTO anyTO = AnyOperations.patch(getAnyObjectTO(anyObject, true), anyObjectUR);</span>
+
+<span class="nc" id="L213">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+
+        // Save projection on Resources (before update)
+<span class="nc" id="L216">        Map&lt;String, ConnObject&gt; beforeOnResources =</span>
+<span class="nc" id="L217">                onResources(anyObject, anyObjectDAO.findAllResourceKeys(anyObject.getKey()), null, Set.of());</span>
+
+<span class="nc" id="L219">        SyncopeClientCompositeException scce = SyncopeClientException.buildComposite();</span>
+
+<span class="nc" id="L221">        AnyUtils anyUtils = anyUtilsFactory.getInstance(AnyTypeKind.ANY_OBJECT);</span>
+
+        // realm
+<span class="nc" id="L224">        setRealm(anyObject, anyObjectUR);</span>
+
+        // name
+<span class="nc bnc" id="L227" title="All 4 branches missed.">        if (anyObjectUR.getName() != null &amp;&amp; StringUtils.isNotBlank(anyObjectUR.getName().getValue())) {</span>
+<span class="nc" id="L228">            anyObject.setName(anyObjectUR.getName().getValue());</span>
+        }
+
+        // attributes, resources and relationships
+<span class="nc" id="L232">        fill(anyTO, anyObject, anyObjectUR, propByRes, anyUtils, scce);</span>
+
+        // memberships
+<span class="nc" id="L235">        memberships(</span>
+<span class="nc" id="L236">                anyObjectUR.getMemberships(),</span>
+                anyTO,
+                anyObject,
+                group -&gt; {
+<span class="nc" id="L240">                },</span>
+                propByRes,
+                anyUtils,
+                scce);
+
+        // Throw composite exception if there is at least one element set in the composing exceptions
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (scce.hasExceptions()) {</span>
+<span class="nc" id="L247">            throw scce;</span>
+        }
+
+        // Re-merge any pending change from above
+<span class="nc" id="L251">        AnyObject saved = anyObjectDAO.save(anyObject);</span>
+
+        // Build final information for next stage (propagation)
+<span class="nc" id="L254">        propByRes.merge(propByRes(</span>
+                beforeOnResources,
+<span class="nc" id="L256">                onResources(saved, anyObjectDAO.findAllResourceKeys(anyObject.getKey()), null, Set.of())));</span>
+<span class="nc" id="L257">        return propByRes;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

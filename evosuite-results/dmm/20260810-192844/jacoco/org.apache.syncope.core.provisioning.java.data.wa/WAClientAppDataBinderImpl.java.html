@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WAClientAppDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data.wa</a> &gt; <span class="el_source">WAClientAppDataBinderImpl.java</span></div><h1>WAClientAppDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data.wa;
+
+import org.apache.syncope.common.lib.policy.AuthPolicyConf;
+import org.apache.syncope.common.lib.policy.DefaultAuthPolicyConf;
+import org.apache.syncope.common.lib.wa.WAClientApp;
+import org.apache.syncope.core.persistence.api.dao.AuthModuleDAO;
+import org.apache.syncope.core.persistence.api.entity.am.ClientApp;
+import org.apache.syncope.core.provisioning.api.data.AuthModuleDataBinder;
+import org.apache.syncope.core.provisioning.api.data.ClientAppDataBinder;
+import org.apache.syncope.core.provisioning.api.data.PolicyDataBinder;
+import org.apache.syncope.core.provisioning.api.data.wa.WAClientAppDataBinder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class WAClientAppDataBinderImpl implements WAClientAppDataBinder {
+
+<span class="nc" id="L35">    protected static final Logger LOG = LoggerFactory.getLogger(WAClientAppDataBinder.class);</span>
+
+    protected final ClientAppDataBinder clientAppDataBinder;
+
+    protected final PolicyDataBinder policyDataBinder;
+
+    protected final AuthModuleDataBinder authModuleDataBinder;
+
+    protected final AuthModuleDAO authModuleDAO;
+
+    public WAClientAppDataBinderImpl(
+            final ClientAppDataBinder clientAppDataBinder,
+            final PolicyDataBinder policyDataBinder,
+            final AuthModuleDataBinder authModuleDataBinder,
+<span class="nc" id="L49">            final AuthModuleDAO authModuleDAO) {</span>
+
+<span class="nc" id="L51">        this.clientAppDataBinder = clientAppDataBinder;</span>
+<span class="nc" id="L52">        this.policyDataBinder = policyDataBinder;</span>
+<span class="nc" id="L53">        this.authModuleDataBinder = authModuleDataBinder;</span>
+<span class="nc" id="L54">        this.authModuleDAO = authModuleDAO;</span>
+<span class="nc" id="L55">    }</span>
+
+    @Override
+    public WAClientApp getWAClientApp(final ClientApp clientApp) {
+<span class="nc" id="L59">        WAClientApp waClientApp = new WAClientApp();</span>
+<span class="nc" id="L60">        waClientApp.setClientAppTO(clientAppDataBinder.getClientAppTO(clientApp));</span>
+
+        try {
+<span class="nc" id="L63">            AuthPolicyConf authPolicyConf = null;</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">            if (clientApp.getAuthPolicy() != null) {</span>
+<span class="nc" id="L65">                authPolicyConf = clientApp.getAuthPolicy().getConf();</span>
+<span class="nc" id="L66">                waClientApp.setAuthPolicy(policyDataBinder.getPolicyTO(clientApp.getAuthPolicy()));</span>
+<span class="nc bnc" id="L67" title="All 4 branches missed.">            } else if (clientApp.getRealm() != null &amp;&amp; clientApp.getRealm().getAuthPolicy() != null) {</span>
+<span class="nc" id="L68">                authPolicyConf = clientApp.getRealm().getAuthPolicy().getConf();</span>
+<span class="nc" id="L69">                waClientApp.setAuthPolicy(policyDataBinder.getPolicyTO(clientApp.getRealm().getAuthPolicy()));</span>
+            }
+<span class="nc bnc" id="L71" title="All 2 branches missed.">            if (authPolicyConf instanceof DefaultAuthPolicyConf defaultAuthPolicyConf) {</span>
+<span class="nc" id="L72">                defaultAuthPolicyConf.getAuthModules().forEach(key -&gt; authModuleDAO.findById(key).ifPresentOrElse(</span>
+<span class="nc" id="L73">                        module -&gt; waClientApp.getAuthModules().add(authModuleDataBinder.getAuthModuleTO(module)),</span>
+<span class="nc" id="L74">                        () -&gt; LOG.warn(&quot;AuthModule {} not found&quot;, key)));</span>
+            }
+
+<span class="nc bnc" id="L77" title="All 2 branches missed.">            if (clientApp.getAccessPolicy() != null) {</span>
+<span class="nc" id="L78">                waClientApp.setAccessPolicy(policyDataBinder.getPolicyTO(clientApp.getAccessPolicy()));</span>
+<span class="nc bnc" id="L79" title="All 4 branches missed.">            } else if (clientApp.getRealm() != null &amp;&amp; clientApp.getRealm().getAccessPolicy() != null) {</span>
+<span class="nc" id="L80">                waClientApp.setAccessPolicy(policyDataBinder.getPolicyTO(clientApp.getRealm().getAccessPolicy()));</span>
+            }
+
+<span class="nc bnc" id="L83" title="All 2 branches missed.">            if (clientApp.getAttrReleasePolicy() != null) {</span>
+<span class="nc" id="L84">                waClientApp.setAttrReleasePolicy(</span>
+<span class="nc" id="L85">                        policyDataBinder.getPolicyTO(clientApp.getAttrReleasePolicy()));</span>
+<span class="nc bnc" id="L86" title="All 4 branches missed.">            } else if (clientApp.getRealm() != null &amp;&amp; clientApp.getRealm().getAttrReleasePolicy() != null) {</span>
+<span class="nc" id="L87">                waClientApp.setAttrReleasePolicy(</span>
+<span class="nc" id="L88">                        policyDataBinder.getPolicyTO(clientApp.getRealm().getAttrReleasePolicy()));</span>
+            }
+
+<span class="nc bnc" id="L91" title="All 2 branches missed.">            if (clientApp.getTicketExpirationPolicy() != null) {</span>
+<span class="nc" id="L92">                waClientApp.setTicketExpirationPolicy(</span>
+<span class="nc" id="L93">                        policyDataBinder.getPolicyTO(clientApp.getTicketExpirationPolicy()));</span>
+<span class="nc bnc" id="L94" title="All 4 branches missed.">            } else if (clientApp.getRealm() != null &amp;&amp; clientApp.getRealm().getTicketExpirationPolicy() != null) {</span>
+<span class="nc" id="L95">                waClientApp.setTicketExpirationPolicy(</span>
+<span class="nc" id="L96">                        policyDataBinder.getPolicyTO(clientApp.getRealm().getTicketExpirationPolicy()));</span>
+            }
+<span class="nc" id="L98">        } catch (Exception e) {</span>
+<span class="nc" id="L99">            LOG.error(&quot;While building the configuration from an application's policy &quot;, e);</span>
+<span class="nc" id="L100">        }</span>
+
+<span class="nc" id="L102">        return waClientApp;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

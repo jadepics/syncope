@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WebSecurityContext.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">WebSecurityContext.java</span></div><h1>WebSecurityContext.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import dev.samstevens.totp.code.CodeVerifier;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import javax.cache.Cache;
+import javax.cache.CacheManager;
+import javax.cache.configuration.MutableConfiguration;
+import javax.cache.expiry.Duration;
+import javax.cache.expiry.TouchedExpiryPolicy;
+import org.apache.syncope.common.keymaster.client.api.ConfParamOps;
+import org.apache.syncope.common.keymaster.client.api.DomainOps;
+import org.apache.syncope.common.lib.types.IdRepoEntitlement;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.dao.AnySearchDAO;
+import org.apache.syncope.core.persistence.api.dao.DelegationDAO;
+import org.apache.syncope.core.persistence.api.dao.ExternalResourceDAO;
+import org.apache.syncope.core.persistence.api.dao.GroupDAO;
+import org.apache.syncope.core.persistence.api.dao.RealmSearchDAO;
+import org.apache.syncope.core.persistence.api.dao.RoleDAO;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.provisioning.api.AuditManager;
+import org.apache.syncope.core.provisioning.api.ConnectorManager;
+import org.apache.syncope.core.provisioning.api.MappingManager;
+import org.apache.syncope.core.provisioning.api.UserProvisioningManager;
+import org.apache.syncope.core.spring.security.throttle.AuthenticationThrottler;
+import org.apache.syncope.core.spring.security.throttle.PasswordResetRequestThrottler;
+import org.apache.syncope.core.spring.security.throttle.ThrottlerAttempts;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
+import org.springframework.security.web.firewall.DefaultHttpFirewall;
+import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+
+@EnableWebSecurity
+@EnableMethodSecurity(prePostEnabled = true)
+@Configuration(proxyBeanMethods = false)
+<span class="nc" id="L70">public class WebSecurityContext {</span>
+
+    @Bean
+    public HttpFirewall allowUrlEncodedSlashHttpFirewall() {
+<span class="nc" id="L74">        DefaultHttpFirewall firewall = new DefaultHttpFirewall();</span>
+<span class="nc" id="L75">        firewall.setAllowUrlEncodedSlash(true);</span>
+<span class="nc" id="L76">        return firewall;</span>
+    }
+
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer(final HttpFirewall allowUrlEncodedSlashHttpFirewall) {
+<span class="nc" id="L81">        return web -&gt; web.httpFirewall(allowUrlEncodedSlashHttpFirewall);</span>
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(
+            final HttpSecurity http,
+            final UsernamePasswordAuthenticationProvider usernamePasswordAuthenticationProvider,
+            final AccessDeniedHandler accessDeniedHandler,
+            final AuthDataAccessor dataAccessor,
+            final DefaultCredentialChecker defaultCredentialChecker,
+            final SecurityProperties securityProperties) throws Exception {
+
+<span class="nc" id="L93">        AuthenticationManager authenticationManager = http.getSharedObject(AuthenticationManagerBuilder.class).</span>
+<span class="nc" id="L94">                parentAuthenticationManager(null).</span>
+<span class="nc" id="L95">                authenticationProvider(usernamePasswordAuthenticationProvider).</span>
+<span class="nc" id="L96">                build();</span>
+<span class="nc" id="L97">        http.authenticationManager(authenticationManager);</span>
+
+<span class="nc" id="L99">        SyncopeAuthenticationDetailsSource authenticationDetailsSource =</span>
+                new SyncopeAuthenticationDetailsSource();
+
+<span class="nc" id="L102">        SyncopeBasicAuthenticationEntryPoint basicAuthenticationEntryPoint =</span>
+                new SyncopeBasicAuthenticationEntryPoint(securityProperties);
+<span class="nc" id="L104">        basicAuthenticationEntryPoint.setRealmName(&quot;Apache Syncope authentication&quot;);</span>
+<span class="nc" id="L105">        http.httpBasic(customizer -&gt; customizer.</span>
+<span class="nc" id="L106">                authenticationEntryPoint(basicAuthenticationEntryPoint).</span>
+<span class="nc" id="L107">                authenticationDetailsSource(authenticationDetailsSource));</span>
+
+<span class="nc" id="L109">        JWTAuthenticationFilter jwtAuthenticationFilter = new JWTAuthenticationFilter(</span>
+                authenticationManager,
+                basicAuthenticationEntryPoint,
+                authenticationDetailsSource,
+                dataAccessor,
+                defaultCredentialChecker);
+<span class="nc" id="L115">        http.addFilterBefore(jwtAuthenticationFilter, BasicAuthenticationFilter.class);</span>
+
+<span class="nc" id="L117">        SinglePurposeEntitlementFilter speFilter = new SinglePurposeEntitlementFilter();</span>
+<span class="nc" id="L118">        http.addFilterBefore(speFilter, AuthorizationFilter.class);</span>
+
+<span class="nc" id="L120">        http.authorizeHttpRequests(customizer -&gt; customizer.</span>
+<span class="nc" id="L121">                requestMatchers(PathPatternRequestMatcher.withDefaults().matcher(&quot;/actuator/**&quot;)).</span>
+<span class="nc" id="L122">                hasAuthority(IdRepoEntitlement.ANONYMOUS).</span>
+<span class="nc" id="L123">                requestMatchers(PathPatternRequestMatcher.withDefaults().matcher(&quot;/**&quot;)).permitAll());</span>
+<span class="nc" id="L124">        http.securityContext(AbstractHttpConfigurer::disable);</span>
+<span class="nc" id="L125">        http.sessionManagement(AbstractHttpConfigurer::disable);</span>
+<span class="nc" id="L126">        http.headers(AbstractHttpConfigurer::disable);</span>
+<span class="nc" id="L127">        http.csrf(AbstractHttpConfigurer::disable);</span>
+<span class="nc" id="L128">        http.exceptionHandling(customizer -&gt; customizer.accessDeniedHandler(accessDeniedHandler));</span>
+
+<span class="nc" id="L130">        return http.build();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public UsernamePasswordAuthenticationProvider usernamePasswordAuthenticationProvider(
+            final DomainOps domainOps,
+            final AuthDataAccessor dataAccessor,
+            final UserProvisioningManager provisioningManager,
+            final SecurityProperties securityProperties,
+            final EncryptorManager encryptorManager,
+            @Qualifier(AuthenticationThrottler.CACHE)
+            final Cache&lt;String, ThrottlerAttempts&gt; authenticationThrottlerCache) {
+
+<span class="nc" id="L144">        return new UsernamePasswordAuthenticationProvider(</span>
+                domainOps,
+                dataAccessor,
+                provisioningManager,
+                securityProperties,
+                encryptorManager,
+                authenticationThrottlerCache);
+    }
+
+    @ConditionalOnMissingBean(name = AuthenticationThrottler.CACHE)
+    @Bean(name = AuthenticationThrottler.CACHE)
+    public Cache&lt;String, ThrottlerAttempts&gt; authenticationThrottlerCache(
+            final CacheManager cacheManager,
+            final SecurityProperties securityProperties) {
+
+<span class="nc" id="L159">        return cacheManager.createCache(AuthenticationThrottler.CACHE,</span>
+                new MutableConfiguration&lt;String, ThrottlerAttempts&gt;().
+<span class="nc" id="L161">                        setTypes(String.class, ThrottlerAttempts.class).</span>
+<span class="nc" id="L162">                        setExpiryPolicyFactory(TouchedExpiryPolicy.factoryOf(new Duration(</span>
+                                TimeUnit.SECONDS,
+<span class="nc" id="L164">                                Math.max(1, Math.max(</span>
+<span class="nc" id="L165">                                        securityProperties.getAuthenticationThrottle().getWindowSeconds(),</span>
+<span class="nc" id="L166">                                        securityProperties.getAuthenticationThrottle().getLockSeconds()))))));</span>
+    }
+
+    @ConditionalOnMissingBean(name = PasswordResetRequestThrottler.CACHE)
+    @Bean(name = PasswordResetRequestThrottler.CACHE)
+    public Cache&lt;String, ThrottlerAttempts&gt; passwordResetRequestThrottlerCache(
+            final CacheManager cacheManager,
+            final SecurityProperties securityProperties) {
+
+<span class="nc" id="L175">        return cacheManager.createCache(PasswordResetRequestThrottler.CACHE,</span>
+                new MutableConfiguration&lt;String, ThrottlerAttempts&gt;().
+<span class="nc" id="L177">                        setTypes(String.class, ThrottlerAttempts.class).</span>
+<span class="nc" id="L178">                        setExpiryPolicyFactory(TouchedExpiryPolicy.factoryOf(new Duration(</span>
+                                TimeUnit.SECONDS,
+<span class="nc" id="L180">                                Math.max(1, Math.max(</span>
+<span class="nc" id="L181">                                        securityProperties.getPasswordResetThrottle().getWindowSeconds(),</span>
+<span class="nc" id="L182">                                        securityProperties.getPasswordResetThrottle().getLockSeconds()))))));</span>
+    }
+
+    @Bean
+    public AccessDeniedHandler accessDeniedHandler() {
+<span class="nc" id="L187">        return new SyncopeAccessDeniedHandler();</span>
+    }
+
+    @ConditionalOnMissingBean
+    @Bean
+    public AuthDataAccessor authDataAccessor(
+            final SecurityProperties securityProperties,
+            final EncryptorManager encryptorManager,
+            final CodeVerifier totpCodeVerifier,
+            final RealmSearchDAO realmSearchDAO,
+            final UserDAO userDAO,
+            final GroupDAO groupDAO,
+            final AnySearchDAO anySearchDAO,
+            final AccessTokenDAO accessTokenDAO,
+            final ConfParamOps confParamOps,
+            final RoleDAO roleDAO,
+            final DelegationDAO delegationDAO,
+            final ExternalResourceDAO resourceDAO,
+            final ConnectorManager connectorManager,
+            final AuditManager auditManager,
+            final MappingManager mappingManager,
+            final DefaultCredentialChecker credentialChecker,
+            final List&lt;JWTSSOProvider&gt; jwtSSOProviders) {
+
+<span class="nc" id="L211">        return new AuthDataAccessor(</span>
+                securityProperties,
+                encryptorManager,
+                totpCodeVerifier,
+                realmSearchDAO,
+                userDAO,
+                groupDAO,
+                anySearchDAO,
+                accessTokenDAO,
+                confParamOps,
+                roleDAO,
+                delegationDAO,
+                resourceDAO,
+                connectorManager,
+                auditManager,
+                mappingManager,
+                credentialChecker,
+                jwtSSOProviders);
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

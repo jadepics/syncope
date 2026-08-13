@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SinglePushJobDelegate.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">SinglePushJobDelegate.java</span></div><h1>SinglePushJobDelegate.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.List;
+import java.util.Optional;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.to.PushTaskTO;
+import org.apache.syncope.common.lib.types.ConflictResolutionAction;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.TaskType;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.dao.ImplementationDAO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.task.PushTask;
+import org.apache.syncope.core.persistence.api.entity.user.LinkedAccount;
+import org.apache.syncope.core.provisioning.api.Connector;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.pushpull.ProvisioningProfile;
+import org.apache.syncope.core.provisioning.api.pushpull.PushActions;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopePushResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.SyncopeSinglePushExecutor;
+import org.apache.syncope.core.provisioning.api.pushpull.UserPushResultHandler;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L46">public class SinglePushJobDelegate extends PushJobDelegate implements SyncopeSinglePushExecutor {</span>
+
+    @Autowired
+    protected ImplementationDAO implementationDAO;
+
+    protected void before(
+            final ExternalResource resource,
+            final Connector connector,
+            final PushTaskTO pushTaskTO,
+            final String executor) {
+
+<span class="nc" id="L57">        LOG.debug(&quot;Executing push on {}&quot;, resource);</span>
+
+<span class="nc" id="L59">        taskType = TaskType.PUSH;</span>
+
+<span class="nc" id="L61">        task = entityFactory.newEntity(PushTask.class);</span>
+<span class="nc" id="L62">        task.setResource(resource);</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        task.setMatchingRule(pushTaskTO.getMatchingRule() == null</span>
+<span class="nc" id="L64">                ? MatchingRule.LINK : pushTaskTO.getMatchingRule());</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        task.setUnmatchingRule(pushTaskTO.getUnmatchingRule() == null</span>
+<span class="nc" id="L66">                ? UnmatchingRule.ASSIGN : pushTaskTO.getUnmatchingRule());</span>
+<span class="nc" id="L67">        task.setPerformCreate(pushTaskTO.isPerformCreate());</span>
+<span class="nc" id="L68">        task.setPerformUpdate(pushTaskTO.isPerformUpdate());</span>
+<span class="nc" id="L69">        task.setPerformDelete(pushTaskTO.isPerformDelete());</span>
+<span class="nc" id="L70">        task.setSyncStatus(pushTaskTO.isSyncStatus());</span>
+
+<span class="nc" id="L72">        profile = new ProvisioningProfile&lt;&gt;(</span>
+                connector,
+                taskType,
+                task,
+                ConflictResolutionAction.FIRSTMATCH,
+<span class="nc" id="L77">                getPushActions(AuthContextUtils.getDomain(), pushTaskTO.getActions().stream().</span>
+<span class="nc" id="L78">                        map(implementationDAO::findById).flatMap(Optional::stream).</span>
+<span class="nc" id="L79">                        toList()),</span>
+                executor,
+                false);
+
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L84">            action.beforeAll(profile);</span>
+<span class="nc" id="L85">        }</span>
+<span class="nc" id="L86">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public List&lt;ProvisioningReport&gt; push(
+            final ExternalResource resource,
+            final Provision provision,
+            final Connector connector,
+            final Any any,
+            final PushTaskTO pushTaskTO,
+            final String executor) throws JobExecutionException {
+
+        try {
+<span class="nc" id="L99">            before(resource, connector, pushTaskTO, executor);</span>
+<span class="nc" id="L100">            dispatcher = buildDispatcher();</span>
+
+<span class="nc" id="L102">            dispatcher.addHandlerSupplier(provision.getAnyType(), () -&gt; {</span>
+                SyncopePushResultHandler handler;
+<span class="nc bnc" id="L104" title="All 3 branches missed.">                switch (any.getType().getKind()) {</span>
+                    case USER:
+<span class="nc" id="L106">                        handler = buildUserHandler();</span>
+<span class="nc" id="L107">                        break;</span>
+
+                    case GROUP:
+<span class="nc" id="L110">                        handler = buildGroupHandler();</span>
+<span class="nc" id="L111">                        break;</span>
+
+                    case ANY_OBJECT:
+                    default:
+<span class="nc" id="L115">                        handler = buildAnyObjectHandler();</span>
+                }
+<span class="nc" id="L117">                handler.setProfile(profile);</span>
+<span class="nc" id="L118">                return handler;</span>
+            });
+
+<span class="nc" id="L121">            doHandle(List.of(any), dispatcher, resource);</span>
+
+<span class="nc bnc" id="L123" title="All 2 branches missed.">            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L124">                action.afterAll(profile);</span>
+<span class="nc" id="L125">            }</span>
+
+<span class="nc" id="L127">            return profile.getResults();</span>
+<span class="nc" id="L128">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            throw e instanceof final JobExecutionException jobExecutionException</span>
+<span class="nc" id="L130">                    ? jobExecutionException</span>
+<span class="nc" id="L131">                    : new JobExecutionException(&quot;While pushing to connector&quot;, e);</span>
+        }
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public ProvisioningReport push(
+            final ExternalResource resource,
+            final Provision provision,
+            final Connector connector,
+            final LinkedAccount account,
+            final PushTaskTO pushTaskTO,
+            final String executor) throws JobExecutionException {
+
+        try {
+<span class="nc" id="L146">            before(resource, connector, pushTaskTO, executor);</span>
+
+<span class="nc" id="L148">            UserPushResultHandler handler = buildUserHandler();</span>
+<span class="nc" id="L149">            handler.setProfile(profile);</span>
+
+<span class="nc" id="L151">            handler.handle(account, provision);</span>
+
+<span class="nc bnc" id="L153" title="All 2 branches missed.">            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L154">                action.afterAll(profile);</span>
+<span class="nc" id="L155">            }</span>
+
+<span class="nc" id="L157">            return profile.getResults().getFirst();</span>
+<span class="nc" id="L158">        } catch (Exception e) {</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">            throw e instanceof final JobExecutionException jobExecutionException</span>
+<span class="nc" id="L160">                    ? jobExecutionException</span>
+<span class="nc" id="L161">                    : new JobExecutionException(&quot;While pushing to connector&quot;, e);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

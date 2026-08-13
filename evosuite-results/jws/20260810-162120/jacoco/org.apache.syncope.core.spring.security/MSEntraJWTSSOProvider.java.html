@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MSEntraJWTSSOProvider.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.security</a> &gt; <span class="el_source">MSEntraJWTSSOProvider.java</span></div><h1>MSEntraJWTSSOProvider.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.security;
+
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.jca.JCAContext;
+import com.nimbusds.jose.util.Base64URL;
+import com.nimbusds.jwt.JWTClaimsSet;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.spring.security.jws.MSEntraAccessTokenJWSVerifier;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * JWT authorisation for access tokens issued by Microsoft Entra (formerly Azure)
+ * for Microsoft Entra-only applications (v1.0 tokens)
+ * cf. https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens
+ */
+public class MSEntraJWTSSOProvider implements JWTSSOProvider {
+
+    protected final UserDAO userDAO;
+
+    protected final AuthDataAccessor authDataAccessor;
+
+    protected final String tenantId;
+
+    protected final String appId;
+
+    protected final String authUsername;
+
+    protected final Duration clockSkew;
+
+    protected final MSEntraAccessTokenJWSVerifier verifier;
+
+    public MSEntraJWTSSOProvider(
+            final UserDAO userDAO,
+            final AuthDataAccessor authDataAccessor,
+            final String tenantId,
+            final String appId,
+            final String authUsername,
+            final Duration clockSkew,
+<span class="nc" id="L66">            final MSEntraAccessTokenJWSVerifier verifier) {</span>
+
+<span class="nc" id="L68">        this.userDAO = userDAO;</span>
+<span class="nc" id="L69">        this.authDataAccessor = authDataAccessor;</span>
+<span class="nc" id="L70">        this.tenantId = tenantId;</span>
+<span class="nc" id="L71">        this.appId = appId;</span>
+<span class="nc" id="L72">        this.authUsername = authUsername;</span>
+<span class="nc" id="L73">        this.clockSkew = clockSkew;</span>
+<span class="nc" id="L74">        this.verifier = verifier;</span>
+<span class="nc" id="L75">    }</span>
+
+    @Override
+    public String getIssuer() {
+<span class="nc" id="L79">        return &quot;https://sts.windows.net/%s/&quot;.formatted(tenantId);</span>
+    }
+
+    @Override
+    public Set&lt;JWSAlgorithm&gt; supportedJWSAlgorithms() {
+<span class="nc" id="L84">        return verifier.supportedJWSAlgorithms();</span>
+    }
+
+    @Override
+    public JCAContext getJCAContext() {
+<span class="nc" id="L89">        return verifier.getJCAContext();</span>
+    }
+
+    /*
+     * When parsing the token, you must [...] ensure the token meets these requirements:
+     *
+     * - The token was sent in the HTTP Authorization header with &quot;Bearer&quot; scheme.
+     * - The token is valid JSON that conforms to the JWT standard.
+     * - The token contains an &quot;issuer&quot; claim with one of the highlighted values for non-governmental cases.
+     * - The token contains an &quot;audience&quot; claim with a value equal to the Microsoft App ID.
+     * - The token is within its validity period. Industry-standard clock-skew is 5 minutes.
+     * - The token has a valid cryptographic signature with a key listed in the OpenID keys document that was retrieved
+     * from the `jwks_uri` property in the OpenID metadata document via GET request.
+     *
+     * cf. https://learn.microsoft.com/en-us/entra/identity-platform/security-tokens#validate-security-tokens
+     */
+    @Override
+    public boolean verify(final JWSHeader header, final byte[] signingInput, final Base64URL signature)
+            throws JOSEException {
+
+<span class="nc" id="L109">        return verifier.verify(header, signingInput, signature);</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Optional&lt;ResolvedClaims&gt; resolve(final JWTClaimsSet jwtClaims) {
+<span class="nc" id="L115">        User authUser = userDAO.findByUsername(authUsername).orElse(null);</span>
+<span class="nc" id="L116">        Set&lt;SyncopeGrantedAuthority&gt; authorities = Set.of();</span>
+
+<span class="nc" id="L118">        Instant now = OffsetDateTime.now(ZoneOffset.UTC).toInstant();</span>
+<span class="nc" id="L119">        Instant issued = jwtClaims.getIssueTime().toInstant();</span>
+<span class="nc" id="L120">        Instant notBefore = jwtClaims.getNotBeforeTime().toInstant();</span>
+<span class="nc" id="L121">        Instant expired = jwtClaims.getExpirationTime().toInstant();</span>
+
+<span class="nc bnc" id="L123" title="All 2 branches missed.">        if (authUser != null</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                &amp;&amp; jwtClaims.getAudience().contains(appId)</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">                &amp;&amp; now.isAfter(issued.minus(clockSkew))</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">                &amp;&amp; now.isAfter(notBefore.minus(clockSkew))</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">                &amp;&amp; now.isBefore(expired.plus(clockSkew))) {</span>
+
+<span class="nc" id="L129">            authorities = authDataAccessor.getAuthorities(authUser.getUsername(), null);</span>
+        }
+
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        return authUser == null ? Optional.empty() : Optional.of(new ResolvedClaims(authUser, authorities));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

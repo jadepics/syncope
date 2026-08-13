@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>VirtualThreadPoolTaskExecutor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Spring</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.spring.task</a> &gt; <span class="el_source">VirtualThreadPoolTaskExecutor.java</span></div><h1>VirtualThreadPoolTaskExecutor.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.spring.task;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.task.TaskDecorator;
+import org.springframework.scheduling.SchedulingTaskExecutor;
+import org.springframework.scheduling.concurrent.ExecutorConfigurationSupport;
+
+<span class="nc" id="L36">public class VirtualThreadPoolTaskExecutor</span>
+        extends ExecutorConfigurationSupport
+        implements AsyncTaskExecutor, SchedulingTaskExecutor {
+
+    private static final long serialVersionUID = 4747270938984213408L;
+
+<span class="nc" id="L42">    private int poolSize = -1;</span>
+
+    private long taskTerminationTimeout;
+
+    private TaskDecorator taskDecorator;
+
+    private SimpleAsyncTaskExecutor executor;
+
+    /**
+     * Set the the maximum number of managed threads.
+     *
+     * @param poolSize the value to set (default is {@code Integer.MAX_VALUE})
+     */
+    public void setPoolSize(final int poolSize) {
+<span class="nc" id="L56">        this.poolSize = poolSize;</span>
+<span class="nc" id="L57">    }</span>
+
+    /**
+     * Specify a timeout (in milliseconds) for task termination when closing
+     * this executor. The default is 0, not waiting for task termination at all.
+     * &lt;p&gt;
+     * Note that a concrete &gt;0 timeout specified here will lead to the
+     * wrapping of every submitted task into a task-tracking runnable which
+     * involves considerable overhead in case of a high number of tasks.
+     * However, for a modest level of submissions with longer-running
+     * tasks, this is feasible in order to arrive at a graceful shutdown.
+     * &lt;p&gt;
+     * Note that {@code SimpleAsyncTaskExecutor} does not participate in
+     * a coordinated lifecycle stop but rather just awaits task termination
+     * on {@link #shutdown()}.
+     *
+     * @param taskTerminationTimeout the timeout in milliseconds
+     * @see SimpleAsyncTaskExecutor#close
+     */
+    public void setTaskTerminationTimeout(final long taskTerminationTimeout) {
+<span class="nc" id="L77">        this.taskTerminationTimeout = taskTerminationTimeout;</span>
+<span class="nc" id="L78">    }</span>
+
+    /**
+     * Specify a custom {@link TaskDecorator} to be applied to any {@link Runnable}
+     * about to be executed.
+     * &lt;p&gt;
+     * Note that such a decorator is not necessarily being applied to the
+     * user-supplied {@code Runnable}/{@code Callable} but rather to the actual
+     * execution callback (which may be a wrapper around the user-supplied task).
+     * &lt;/p&gt;
+     * &lt;p&gt;
+     * The primary use case is to set some execution context around the task's
+     * invocation, or to provide some monitoring/statistics for task execution.
+     * &lt;/p&gt;
+     * &lt;p&gt;
+     * &lt;b&gt;NOTE:&lt;/b&gt; Exception handling in {@code TaskDecorator} implementations
+     * is limited to plain {@code Runnable} execution via {@code execute} calls.
+     * In case of {@code #submit} calls, the exposed {@code Runnable} will be a
+     * {@code FutureTask} which does not propagate any exceptions; you might
+     * have to cast it and call {@code Future#get} to evaluate exceptions.
+     * See the {@code ThreadPoolExecutor#afterExecute} javadoc for an example
+     * of how to access exceptions in such a {@code Future} case.
+     * &lt;/p&gt;
+     *
+     * @param taskDecorator value to set
+     */
+    public void setTaskDecorator(final TaskDecorator taskDecorator) {
+<span class="nc" id="L105">        this.taskDecorator = taskDecorator;</span>
+<span class="nc" id="L106">    }</span>
+
+    @Override
+    protected ExecutorService initializeExecutor(
+            final ThreadFactory threadFactory,
+            final RejectedExecutionHandler rejectedExecutionHandler) {
+
+<span class="nc" id="L113">        executor = new SimpleAsyncTaskExecutor(getThreadNamePrefix());</span>
+<span class="nc" id="L114">        executor.setVirtualThreads(true);</span>
+<span class="nc" id="L115">        executor.setDaemon(true);</span>
+<span class="nc" id="L116">        executor.setConcurrencyLimit(poolSize);</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        if (taskTerminationTimeout &gt;= 0) {</span>
+<span class="nc" id="L118">            executor.setTaskTerminationTimeout(taskTerminationTimeout);</span>
+        }
+<span class="nc" id="L120">        Optional.ofNullable(taskDecorator).ifPresent(executor::setTaskDecorator);</span>
+
+<span class="nc" id="L122">        return new AbstractExecutorService() {</span>
+
+            @Override
+            public void execute(final Runnable task) {
+<span class="nc" id="L126">                executor.execute(task);</span>
+<span class="nc" id="L127">            }</span>
+
+            @Override
+            public void shutdown() {
+<span class="nc" id="L131">                executor.close();</span>
+<span class="nc" id="L132">            }</span>
+
+            @Override
+            public List&lt;Runnable&gt; shutdownNow() {
+<span class="nc" id="L136">                executor.close();</span>
+<span class="nc" id="L137">                return List.of();</span>
+            }
+
+            @Override
+            public boolean isShutdown() {
+<span class="nc bnc" id="L142" title="All 2 branches missed.">                return !executor.isActive();</span>
+            }
+
+            @Override
+            public boolean isTerminated() {
+<span class="nc bnc" id="L147" title="All 2 branches missed.">                return !executor.isActive();</span>
+            }
+
+            @Override
+            public boolean awaitTermination(final long timeout, final TimeUnit unit) throws InterruptedException {
+<span class="nc bnc" id="L152" title="All 2 branches missed.">                return !executor.isActive();</span>
+            }
+        };
+    }
+
+    @Override
+    public void execute(final Runnable task) {
+<span class="nc" id="L159">        executor.execute(task);</span>
+<span class="nc" id="L160">    }</span>
+
+    @Override
+    public Future&lt;?&gt; submit(final Runnable task) {
+<span class="nc" id="L164">        return executor.submit(task);</span>
+    }
+
+    @Override
+    public &lt;T&gt; Future&lt;T&gt; submit(final Callable&lt;T&gt; task) {
+<span class="nc" id="L169">        return executor.submit(task);</span>
+    }
+
+    @Override
+    public void shutdown() {
+<span class="nc" id="L174">        executor.close();</span>
+<span class="nc" id="L175">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

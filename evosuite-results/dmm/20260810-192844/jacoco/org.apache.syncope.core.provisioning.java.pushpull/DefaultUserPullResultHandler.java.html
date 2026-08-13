@@ -1,0 +1,713 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultUserPullResultHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">DefaultUserPullResultHandler.java</span></div><h1>DefaultUserPullResultHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.Attr;
+import org.apache.syncope.common.lib.request.AnyCR;
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.request.LinkedAccountUR;
+import org.apache.syncope.common.lib.request.UserCR;
+import org.apache.syncope.common.lib.request.UserUR;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.LinkedAccountTO;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.to.UserTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.MatchType;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.OpEvent;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.user.LinkedAccount;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.ProvisioningManager;
+import org.apache.syncope.core.provisioning.api.UserProvisioningManager;
+import org.apache.syncope.core.provisioning.api.WorkflowResult;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationException;
+import org.apache.syncope.core.provisioning.api.pushpull.AnyPullResultHandler;
+import org.apache.syncope.core.provisioning.api.pushpull.InboundActions;
+import org.apache.syncope.core.provisioning.api.rules.InboundMatch;
+import org.identityconnectors.framework.common.objects.AttributeUtil;
+import org.identityconnectors.framework.common.objects.SyncDelta;
+import org.springframework.beans.factory.annotation.Autowired;
+
+<span class="nc" id="L63">public class DefaultUserPullResultHandler extends AbstractPullResultHandler implements AnyPullResultHandler {</span>
+
+    @Autowired
+    protected UserProvisioningManager userProvisioningManager;
+
+    @Autowired
+    protected UserDAO userDAO;
+
+    @Override
+    protected AnyUtils anyUtils() {
+<span class="nc" id="L73">        return anyUtilsFactory.getInstance(AnyTypeKind.USER);</span>
+    }
+
+    @Override
+    protected String getName(final AnyTO anyTO) {
+<span class="nc" id="L78">        return UserTO.class.cast(anyTO).getUsername();</span>
+    }
+
+    @Override
+    protected String getName(final AnyCR anyCR) {
+<span class="nc" id="L83">        return UserCR.class.cast(anyCR).getUsername();</span>
+    }
+
+    @Override
+    protected ProvisioningManager&lt;?, ?&gt; provisioningManager() {
+<span class="nc" id="L88">        return userProvisioningManager;</span>
+    }
+
+    @Override
+    protected AnyTO getAnyTO(final Any any) {
+<span class="nc" id="L93">        return userDataBinder.getUserTO((User) any, true);</span>
+    }
+
+    @Override
+    protected WorkflowResult&lt;? extends AnyUR&gt; update(final AnyUR req) {
+<span class="nc" id="L98">        WorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; update =</span>
+<span class="nc" id="L99">                uwfAdapter.update((UserUR) req, null, profile.getExecutor(), profile.getContext());</span>
+<span class="nc" id="L100">        return new WorkflowResult&lt;&gt;(update.getResult().getLeft(), update.getPropByRes(), update.getPerformedTasks());</span>
+    }
+
+    protected Boolean enabled(final SyncDelta delta) {
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        return profile.getTask().isSyncStatus() ? AttributeUtil.isEnabled(delta.getObject()) : null;</span>
+    }
+
+    @Override
+    protected AnyTO doCreate(final AnyCR anyCR, final SyncDelta delta) {
+<span class="nc" id="L109">        ProvisioningManager.ProvisioningResult&lt;String&gt; created = userProvisioningManager.create(</span>
+<span class="nc" id="L110">                UserCR.class.cast(anyCR),</span>
+                true,
+<span class="nc" id="L112">                enabled(delta),</span>
+<span class="nc" id="L113">                Set.of(profile.getTask().getResource().getKey()),</span>
+                true,
+<span class="nc" id="L115">                profile.getExecutor(),</span>
+<span class="nc" id="L116">                profile.getContext());</span>
+
+<span class="nc" id="L118">        return userDataBinder.getUserTO(created.key());</span>
+    }
+
+    @Override
+    protected AnyUR doUpdate(
+            final AnyTO before,
+            final AnyUR req,
+            final SyncDelta delta,
+            final ProvisioningReport result) {
+
+<span class="nc" id="L128">        ProvisioningManager.ProvisioningResult&lt;UserUR&gt; updated = userProvisioningManager.update(</span>
+<span class="nc" id="L129">                UserUR.class.cast(req),</span>
+                result,
+<span class="nc" id="L131">                enabled(delta),</span>
+<span class="nc" id="L132">                Set.of(profile.getTask().getResource().getKey()),</span>
+                true,
+<span class="nc" id="L134">                profile.getExecutor(),</span>
+<span class="nc" id="L135">                profile.getContext());</span>
+
+<span class="nc" id="L137">        createRemediationIfNeeded(req, delta, result);</span>
+
+<span class="nc" id="L139">        return updated.key();</span>
+    }
+
+    @Override
+    protected OpEvent.Outcome handleLinkedAccount(
+            final SyncDelta delta,
+            final InboundMatch match,
+            final Provision provision) throws JobExecutionException {
+
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (match.getAny() == null) {</span>
+<span class="nc" id="L149">            LOG.error(&quot;Could not find linking user, cannot process match {}&quot;, match);</span>
+<span class="nc" id="L150">            return OpEvent.Outcome.FAILURE;</span>
+        }
+
+<span class="nc" id="L153">        OpEvent.Outcome resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc" id="L154">        User user = (User) match.getAny();</span>
+
+<span class="nc" id="L156">        Optional&lt;? extends LinkedAccount&gt; found =</span>
+<span class="nc" id="L157">                user.getLinkedAccount(profile.getTask().getResource().getKey(), delta.getUid().getUidValue());</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (found.isPresent()) {</span>
+<span class="nc" id="L159">            LinkedAccount account = found.get();</span>
+
+<span class="nc bnc" id="L161" title="All 3 branches missed.">            switch (delta.getDeltaType()) {</span>
+                case CREATE:
+                case UPDATE:
+                case CREATE_OR_UPDATE:
+<span class="nc bnc" id="L165" title="All 5 branches missed.">                    switch (profile.getTask().getMatchingRule()) {</span>
+                        case UPDATE:
+<span class="nc" id="L167">                            resultStatus = update(delta, account, provision);</span>
+<span class="nc" id="L168">                            break;</span>
+
+                        case DEPROVISION:
+                        case UNASSIGN:
+<span class="nc" id="L172">                            resultStatus = deprovision(profile.getTask().getMatchingRule(), delta, account);</span>
+<span class="nc" id="L173">                            break;</span>
+
+                        case LINK:
+                        case UNLINK:
+<span class="nc" id="L177">                            LOG.warn(&quot;{} not applicable to linked accounts, ignoring&quot;,</span>
+<span class="nc" id="L178">                                    profile.getTask().getMatchingRule());</span>
+<span class="nc" id="L179">                            break;</span>
+
+                        case IGNORE:
+<span class="nc" id="L182">                            resultStatus = ignore(delta, account, true);</span>
+<span class="nc" id="L183">                            break;</span>
+
+                        default:
+                        // do nothing
+                        }
+<span class="nc" id="L188">                    break;</span>
+
+                case DELETE:
+<span class="nc" id="L191">                    resultStatus = delete(delta, account);</span>
+<span class="nc" id="L192">                    break;</span>
+
+                default:
+            }
+<span class="nc" id="L196">        } else {</span>
+<span class="nc bnc" id="L197" title="All 3 branches missed.">            switch (delta.getDeltaType()) {</span>
+                case CREATE:
+                case UPDATE:
+                case CREATE_OR_UPDATE:
+<span class="nc" id="L201">                    LinkedAccountTO accountTO = new LinkedAccountTO();</span>
+<span class="nc" id="L202">                    accountTO.setConnObjectKeyValue(delta.getUid().getUidValue());</span>
+<span class="nc" id="L203">                    accountTO.setResource(profile.getTask().getResource().getKey());</span>
+
+<span class="nc bnc" id="L205" title="All 3 branches missed.">                    switch (profile.getTask().getUnmatchingRule()) {</span>
+                        case ASSIGN:
+                        case PROVISION:
+<span class="nc" id="L208">                            resultStatus = provision(</span>
+<span class="nc" id="L209">                                    profile.getTask().getUnmatchingRule(), delta, user, accountTO, provision);</span>
+<span class="nc" id="L210">                            break;</span>
+
+                        case IGNORE:
+<span class="nc" id="L213">                            resultStatus = ignore(delta, null, false);</span>
+<span class="nc" id="L214">                            break;</span>
+
+                        default:
+                        // do nothing
+                        }
+<span class="nc" id="L219">                    break;</span>
+
+                case DELETE:
+<span class="nc" id="L222">                    end(Optional.empty(),</span>
+<span class="nc" id="L223">                            AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L224">                            ResourceOperation.DELETE.name().toLowerCase(),</span>
+                            OpEvent.Outcome.SUCCESS,
+                            null,
+                            null,
+                            delta);
+<span class="nc" id="L229">                    LOG.debug(&quot;No match found for deletion&quot;);</span>
+<span class="nc" id="L230">                    break;</span>
+
+                default:
+            }
+        }
+
+<span class="nc" id="L236">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome deprovision(
+            final MatchingRule matchingRule,
+            final SyncDelta delta,
+            final LinkedAccount account) throws JobExecutionException {
+
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L245">            LOG.debug(&quot;PullTask not configured for update&quot;);</span>
+<span class="nc" id="L246">            end(Optional.empty(),</span>
+<span class="nc" id="L247">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L248">                    MatchingRule.toOp(MatchingRule.UPDATE),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L253">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L256">        LOG.debug(&quot;About to deprovision {}&quot;, account);</span>
+
+<span class="nc" id="L258">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L259">        result.setOperation(ResourceOperation.DELETE);</span>
+<span class="nc" id="L260">        result.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L261">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc" id="L262">        result.setKey(account.getKey());</span>
+<span class="nc" id="L263">        result.setUidValue(account.getConnObjectKeyValue());</span>
+
+<span class="nc" id="L265">        LinkedAccountTO before = userDataBinder.getLinkedAccountTO(account);</span>
+
+<span class="nc" id="L267">        OpEvent.Outcome resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc" id="L269">            Object output = before;</span>
+
+            try {
+<span class="nc bnc" id="L272" title="All 2 branches missed.">                if (matchingRule == MatchingRule.UNASSIGN) {</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">                    for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L274">                        action.beforeUnassign(profile, delta, before);</span>
+<span class="nc" id="L275">                    }</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">                } else if (matchingRule == MatchingRule.DEPROVISION) {</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">                    for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L278">                        action.beforeDeprovision(profile, delta, before);</span>
+<span class="nc" id="L279">                    }</span>
+                }
+
+<span class="nc" id="L282">                PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L283">                propByLinkedAccount.add(</span>
+                        ResourceOperation.DELETE,
+<span class="nc" id="L285">                        Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue()));</span>
+<span class="nc" id="L286">                taskExecutor.execute(propagationManager.getDeleteTasks(</span>
+                        AnyTypeKind.USER,
+<span class="nc" id="L288">                        account.getOwner().getKey(),</span>
+                        null,
+                        propByLinkedAccount,
+                        null),
+                        false,
+<span class="nc" id="L293">                        profile.getExecutor());</span>
+
+<span class="nc bnc" id="L295" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L296">                    action.after(profile, delta, before, result);</span>
+<span class="nc" id="L297">                }</span>
+
+<span class="nc" id="L299">                resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L301">                LOG.debug(&quot;Linked account {} successfully updated&quot;, account.getConnObjectKeyValue());</span>
+<span class="nc" id="L302">            } catch (PropagationException e) {</span>
+                // A propagation failure doesn't imply a pull failure.
+                // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L305">                LOG.error(&quot;Could not propagate linked account {}&quot;, account.getConnObjectKeyValue());</span>
+<span class="nc" id="L306">                output = e;</span>
+<span class="nc" id="L307">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L308">            } catch (Exception e) {</span>
+<span class="nc" id="L309">                throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L311">                result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L312">                result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L313">                LOG.error(&quot;Could not update linked account {}&quot;, account, e);</span>
+<span class="nc" id="L314">                output = e;</span>
+<span class="nc" id="L315">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L316">            }</span>
+
+<span class="nc" id="L318">            end(Optional.of(account.getOwner().getKey()),</span>
+<span class="nc" id="L319">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L320">                    MatchingRule.toOp(matchingRule),</span>
+                    resultStatus,
+                    before,
+                    output,
+                    delta);
+<span class="nc" id="L325">            profile.getResults().add(result);</span>
+        }
+
+<span class="nc" id="L328">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome provision(
+            final UnmatchingRule rule,
+            final SyncDelta delta,
+            final User user,
+            final LinkedAccountTO accountTO,
+            final Provision provision)
+            throws JobExecutionException {
+
+<span class="nc bnc" id="L339" title="All 2 branches missed.">        if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L340">            LOG.debug(&quot;PullTask not configured for create&quot;);</span>
+<span class="nc" id="L341">            end(</span>
+<span class="nc" id="L342">                    Optional.empty(),</span>
+<span class="nc" id="L343">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L344">                    UnmatchingRule.toOp(rule),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L349">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L352">        LOG.debug(&quot;About to create {}&quot;, accountTO);</span>
+
+<span class="nc" id="L354">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L355">        result.setOperation(ResourceOperation.CREATE);</span>
+<span class="nc" id="L356">        result.setName(accountTO.getConnObjectKeyValue());</span>
+<span class="nc" id="L357">        result.setUidValue(accountTO.getConnObjectKeyValue());</span>
+<span class="nc" id="L358">        result.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L359">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        if (profile.isDryRun()) {</span>
+<span class="nc" id="L362">            result.setKey(null);</span>
+<span class="nc" id="L363">            end(Optional.empty(),</span>
+<span class="nc" id="L364">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L365">                    UnmatchingRule.toOp(rule),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L370">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+<span class="nc" id="L372">        result.setKey(user.getKey());</span>
+
+<span class="nc" id="L374">        UserTO owner = userDataBinder.getUserTO(user, false);</span>
+<span class="nc" id="L375">        UserCR connObject = connObjectUtils.getAnyCR(</span>
+<span class="nc" id="L376">                delta.getObject(), profile.getTask(), AnyTypeKind.USER, provision, false);</span>
+
+<span class="nc bnc" id="L378" title="All 2 branches missed.">        if (connObject.getUsername().equals(owner.getUsername())) {</span>
+<span class="nc" id="L379">            accountTO.setUsername(null);</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">        } else if (!connObject.getUsername().equals(accountTO.getUsername())) {</span>
+<span class="nc" id="L381">            accountTO.setUsername(connObject.getUsername());</span>
+        }
+
+<span class="nc bnc" id="L384" title="All 2 branches missed.">        if (connObject.getPassword() != null) {</span>
+<span class="nc" id="L385">            accountTO.setPassword(connObject.getPassword());</span>
+        }
+
+<span class="nc" id="L388">        accountTO.setSuspended(BooleanUtils.isTrue(BooleanUtils.negate(enabled(delta))));</span>
+
+<span class="nc" id="L390">        connObject.getPlainAttrs().forEach(connObjectAttr -&gt; {</span>
+<span class="nc" id="L391">            Optional&lt;Attr&gt; ownerAttr = owner.getPlainAttr(connObjectAttr.getSchema());</span>
+<span class="nc bnc" id="L392" title="All 4 branches missed.">            if (ownerAttr.isPresent() &amp;&amp; ownerAttr.get().getValues().equals(connObjectAttr.getValues())) {</span>
+<span class="nc" id="L393">                accountTO.getPlainAttrs().removeIf(attr -&gt; connObjectAttr.getSchema().equals(attr.getSchema()));</span>
+            } else {
+<span class="nc" id="L395">                accountTO.getPlainAttrs().add(connObjectAttr);</span>
+            }
+<span class="nc" id="L397">        });</span>
+
+<span class="nc bnc" id="L399" title="All 2 branches missed.">        for (InboundActions action : profile.getActions()) {</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">            if (rule == UnmatchingRule.ASSIGN) {</span>
+<span class="nc" id="L401">                action.beforeAssign(profile, delta, accountTO);</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">            } else if (rule == UnmatchingRule.PROVISION) {</span>
+<span class="nc" id="L403">                action.beforeProvision(profile, delta, accountTO);</span>
+            }
+<span class="nc" id="L405">        }</span>
+<span class="nc" id="L406">        result.setName(accountTO.getConnObjectKeyValue());</span>
+
+<span class="nc" id="L408">        UserUR req = new UserUR();</span>
+<span class="nc" id="L409">        req.setKey(user.getKey());</span>
+<span class="nc" id="L410">        req.getLinkedAccounts().add(new LinkedAccountUR.Builder().</span>
+<span class="nc" id="L411">                operation(PatchOperation.ADD_REPLACE).linkedAccountTO(accountTO).build());</span>
+
+        OpEvent.Outcome resultStatus;
+        Object output;
+
+        try {
+<span class="nc" id="L417">            userProvisioningManager.update(</span>
+                    req,
+                    result,
+                    null,
+<span class="nc" id="L421">                    Set.of(profile.getTask().getResource().getKey()),</span>
+                    true,
+<span class="nc" id="L423">                    profile.getExecutor(),</span>
+<span class="nc" id="L424">                    profile.getContext());</span>
+
+<span class="nc" id="L426">            LinkedAccountTO created = userDAO.findById(req.getKey()).</span>
+<span class="nc" id="L427">                    orElseThrow(() -&gt; new IllegalStateException(&quot;Could not find the User just updated&quot;)).</span>
+<span class="nc" id="L428">                    getLinkedAccount(accountTO.getResource(), accountTO.getConnObjectKeyValue()).</span>
+<span class="nc" id="L429">                    map(acct -&gt; userDataBinder.getLinkedAccountTO(acct)).</span>
+<span class="nc" id="L430">                    orElse(null);</span>
+
+<span class="nc" id="L432">            output = created;</span>
+<span class="nc" id="L433">            resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc bnc" id="L435" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L436">                action.after(profile, delta, created, result);</span>
+<span class="nc" id="L437">            }</span>
+
+<span class="nc" id="L439">            LOG.debug(&quot;Linked account {} successfully created&quot;, accountTO.getConnObjectKeyValue());</span>
+<span class="nc" id="L440">        } catch (PropagationException e) {</span>
+            // A propagation failure doesn't imply a pull failure.
+            // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L443">            LOG.error(&quot;Could not propagate linked account {}&quot;, accountTO.getConnObjectKeyValue());</span>
+<span class="nc" id="L444">            output = e;</span>
+<span class="nc" id="L445">            resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L446">        } catch (Exception e) {</span>
+<span class="nc" id="L447">            throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L449">            result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L450">            result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L451">            LOG.error(&quot;Could not create linked account {} &quot;, accountTO.getConnObjectKeyValue(), e);</span>
+<span class="nc" id="L452">            output = e;</span>
+<span class="nc" id="L453">            resultStatus = OpEvent.Outcome.FAILURE;</span>
+
+<span class="nc" id="L455">            createRemediationIfNeeded(req, delta, result);</span>
+<span class="nc" id="L456">        }</span>
+
+<span class="nc" id="L458">        end(Optional.of(user.getKey()),</span>
+<span class="nc" id="L459">                AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L460">                UnmatchingRule.toOp(rule),</span>
+                resultStatus,
+                null,
+                output,
+                delta);
+<span class="nc" id="L465">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L467">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome update(
+            final SyncDelta delta,
+            final LinkedAccount account,
+            final Provision provision)
+            throws JobExecutionException {
+
+<span class="nc bnc" id="L476" title="All 2 branches missed.">        if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L477">            LOG.debug(&quot;PullTask not configured for update&quot;);</span>
+<span class="nc" id="L478">            end(Optional.empty(),</span>
+<span class="nc" id="L479">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L480">                    MatchingRule.toOp(MatchingRule.UPDATE),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L485">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L488">        LOG.debug(&quot;About to update {}&quot;, account);</span>
+
+<span class="nc" id="L490">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L491">        result.setOperation(ResourceOperation.UPDATE);</span>
+<span class="nc" id="L492">        result.setKey(account.getKey());</span>
+<span class="nc" id="L493">        result.setUidValue(account.getConnObjectKeyValue());</span>
+<span class="nc" id="L494">        result.setName(account.getConnObjectKeyValue());</span>
+<span class="nc" id="L495">        result.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L496">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+
+<span class="nc" id="L498">        OpEvent.Outcome resultStatus = OpEvent.Outcome.SUCCESS;</span>
+<span class="nc bnc" id="L499" title="All 2 branches missed.">        if (!profile.isDryRun()) {</span>
+<span class="nc" id="L500">            LinkedAccountTO before = userDataBinder.getLinkedAccountTO(account);</span>
+
+<span class="nc" id="L502">            UserTO owner = userDataBinder.getUserTO(account.getOwner(), false);</span>
+<span class="nc" id="L503">            UserCR connObject = connObjectUtils.getAnyCR(</span>
+<span class="nc" id="L504">                    delta.getObject(), profile.getTask(), AnyTypeKind.USER, provision, false);</span>
+
+<span class="nc" id="L506">            LinkedAccountTO update = userDataBinder.getLinkedAccountTO(account);</span>
+
+<span class="nc bnc" id="L508" title="All 2 branches missed.">            if (connObject.getUsername().equals(owner.getUsername())) {</span>
+<span class="nc" id="L509">                update.setUsername(null);</span>
+<span class="nc bnc" id="L510" title="All 2 branches missed.">            } else if (!connObject.getUsername().equals(update.getUsername())) {</span>
+<span class="nc" id="L511">                update.setUsername(connObject.getUsername());</span>
+            }
+
+<span class="nc bnc" id="L514" title="All 2 branches missed.">            if (connObject.getPassword() != null) {</span>
+<span class="nc" id="L515">                update.setPassword(connObject.getPassword());</span>
+            }
+
+<span class="nc" id="L518">            update.setSuspended(BooleanUtils.isTrue(BooleanUtils.negate(enabled(delta))));</span>
+
+<span class="nc" id="L520">            Set&lt;String&gt; attrsToRemove = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L521">            connObject.getPlainAttrs().forEach(connObjectAttr -&gt; {</span>
+<span class="nc" id="L522">                Optional&lt;Attr&gt; ownerAttr = owner.getPlainAttr(connObjectAttr.getSchema());</span>
+<span class="nc bnc" id="L523" title="All 4 branches missed.">                if (ownerAttr.isPresent() &amp;&amp; ownerAttr.get().getValues().equals(connObjectAttr.getValues())) {</span>
+<span class="nc" id="L524">                    attrsToRemove.add(connObjectAttr.getSchema());</span>
+                } else {
+<span class="nc" id="L526">                    Optional&lt;Attr&gt; updateAttr = update.getPlainAttr(connObjectAttr.getSchema());</span>
+<span class="nc bnc" id="L527" title="All 4 branches missed.">                    if (updateAttr.isEmpty() || !updateAttr.get().getValues().equals(connObjectAttr.getValues())) {</span>
+<span class="nc" id="L528">                        attrsToRemove.add(connObjectAttr.getSchema());</span>
+<span class="nc" id="L529">                        update.getPlainAttrs().add(connObjectAttr);</span>
+                    }
+                }
+<span class="nc" id="L532">            });</span>
+<span class="nc" id="L533">            update.getPlainAttrs().removeIf(attr -&gt; attrsToRemove.contains(attr.getSchema()));</span>
+
+<span class="nc" id="L535">            UserUR req = new UserUR();</span>
+<span class="nc" id="L536">            req.setKey(account.getOwner().getKey());</span>
+<span class="nc" id="L537">            req.getLinkedAccounts().add(new LinkedAccountUR.Builder().</span>
+<span class="nc" id="L538">                    operation(PatchOperation.ADD_REPLACE).linkedAccountTO(update).build());</span>
+
+<span class="nc bnc" id="L540" title="All 2 branches missed.">            for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L541">                action.beforeUpdate(profile, delta, before, req);</span>
+<span class="nc" id="L542">            }</span>
+
+            Object output;
+            try {
+<span class="nc" id="L546">                userProvisioningManager.update(</span>
+                        req,
+                        result,
+                        null,
+<span class="nc" id="L550">                        Set.of(profile.getTask().getResource().getKey()),</span>
+                        true,
+<span class="nc" id="L552">                        profile.getExecutor(),</span>
+<span class="nc" id="L553">                        profile.getContext());</span>
+<span class="nc" id="L554">                resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L556">                LinkedAccountTO updated = userDAO.findById(req.getKey()).</span>
+<span class="nc" id="L557">                        orElseThrow(() -&gt; new IllegalStateException(&quot;Could not find the User just updated&quot;)).</span>
+<span class="nc" id="L558">                        getLinkedAccount(account.getResource().getKey(), account.getConnObjectKeyValue()).</span>
+<span class="nc" id="L559">                        map(acct -&gt; userDataBinder.getLinkedAccountTO(acct)).</span>
+<span class="nc" id="L560">                        orElse(null);</span>
+<span class="nc" id="L561">                output = updated;</span>
+
+<span class="nc bnc" id="L563" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L564">                    action.after(profile, delta, updated, result);</span>
+<span class="nc" id="L565">                }</span>
+
+<span class="nc" id="L567">                LOG.debug(&quot;Linked account {} successfully updated&quot;, account.getConnObjectKeyValue());</span>
+<span class="nc" id="L568">            } catch (PropagationException e) {</span>
+                // A propagation failure doesn't imply a pull failure.
+                // The propagation exception status will be reported into the propagation task execution.
+<span class="nc" id="L571">                LOG.error(&quot;Could not propagate linked account {}&quot;, account.getConnObjectKeyValue());</span>
+<span class="nc" id="L572">                output = e;</span>
+<span class="nc" id="L573">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+<span class="nc" id="L574">            } catch (Exception e) {</span>
+<span class="nc" id="L575">                throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L577">                result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L578">                result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L579">                LOG.error(&quot;Could not update linked account {}&quot;, account, e);</span>
+<span class="nc" id="L580">                output = e;</span>
+<span class="nc" id="L581">                resultStatus = OpEvent.Outcome.FAILURE;</span>
+
+<span class="nc" id="L583">                createRemediationIfNeeded(req, delta, result);</span>
+<span class="nc" id="L584">            }</span>
+
+<span class="nc" id="L586">            end(Optional.of(account.getOwner().getKey()),</span>
+<span class="nc" id="L587">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L588">                    MatchingRule.toOp(MatchingRule.UPDATE),</span>
+                    resultStatus,
+                    before,
+                    output,
+                    delta);
+<span class="nc" id="L593">            profile.getResults().add(result);</span>
+        }
+
+<span class="nc" id="L596">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome delete(final SyncDelta delta, final LinkedAccount account) {
+<span class="nc bnc" id="L600" title="All 2 branches missed.">        if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L601">            LOG.debug(&quot;PullTask not configured for delete&quot;);</span>
+<span class="nc" id="L602">            end(Optional.empty(),</span>
+<span class="nc" id="L603">                    AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L604">                    ResourceOperation.DELETE.name().toLowerCase(),</span>
+                    OpEvent.Outcome.SUCCESS,
+                    null,
+                    null,
+                    delta);
+<span class="nc" id="L609">            return OpEvent.Outcome.SUCCESS;</span>
+        }
+
+<span class="nc" id="L612">        LOG.debug(&quot;About to delete {}&quot;, account);</span>
+
+        Object output;
+<span class="nc" id="L615">        OpEvent.Outcome resultStatus = OpEvent.Outcome.FAILURE;</span>
+
+<span class="nc" id="L617">        ProvisioningReport result = new ProvisioningReport();</span>
+
+        try {
+<span class="nc" id="L620">            result.setKey(account.getKey());</span>
+<span class="nc" id="L621">            result.setName(account.getConnObjectKeyValue());</span>
+<span class="nc" id="L622">            result.setUidValue(account.getConnObjectKeyValue());</span>
+<span class="nc" id="L623">            result.setOperation(ResourceOperation.DELETE);</span>
+<span class="nc" id="L624">            result.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L625">            result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+
+<span class="nc bnc" id="L627" title="All 2 branches missed.">            if (!profile.isDryRun()) {</span>
+<span class="nc" id="L628">                LinkedAccountTO before = userDataBinder.getLinkedAccountTO(account);</span>
+
+<span class="nc bnc" id="L630" title="All 2 branches missed.">                for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L631">                    action.beforeDelete(profile, delta, before);</span>
+<span class="nc" id="L632">                }</span>
+
+<span class="nc" id="L634">                UserUR req = new UserUR();</span>
+<span class="nc" id="L635">                req.setKey(account.getOwner().getKey());</span>
+<span class="nc" id="L636">                req.getLinkedAccounts().add(new LinkedAccountUR.Builder().</span>
+<span class="nc" id="L637">                        operation(PatchOperation.DELETE).linkedAccountTO(before).build());</span>
+
+                try {
+<span class="nc" id="L640">                    userProvisioningManager.update(</span>
+                            req,
+                            result,
+                            null,
+<span class="nc" id="L644">                            Set.of(profile.getTask().getResource().getKey()),</span>
+                            true,
+<span class="nc" id="L646">                            profile.getExecutor(),</span>
+<span class="nc" id="L647">                            profile.getContext());</span>
+<span class="nc" id="L648">                    resultStatus = OpEvent.Outcome.SUCCESS;</span>
+
+<span class="nc" id="L650">                    output = null;</span>
+
+<span class="nc bnc" id="L652" title="All 2 branches missed.">                    for (InboundActions action : profile.getActions()) {</span>
+<span class="nc" id="L653">                        action.after(profile, delta, before, result);</span>
+<span class="nc" id="L654">                    }</span>
+<span class="nc" id="L655">                } catch (Exception e) {</span>
+<span class="nc" id="L656">                    throwIgnoreProvisionException(delta, e);</span>
+
+<span class="nc" id="L658">                    result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L659">                    result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+<span class="nc" id="L660">                    LOG.error(&quot;Could not delete linked account {}&quot;, account, e);</span>
+<span class="nc" id="L661">                    output = e;</span>
+
+<span class="nc" id="L663">                    createRemediationIfNeeded(req, delta, result);</span>
+<span class="nc" id="L664">                }</span>
+
+<span class="nc" id="L666">                end(Optional.of(account.getOwner().getKey()),</span>
+<span class="nc" id="L667">                        AnyTypeKind.USER.name(),</span>
+<span class="nc" id="L668">                        ResourceOperation.DELETE.name().toLowerCase(),</span>
+                        resultStatus,
+                        before,
+                        output,
+                        delta);
+<span class="nc" id="L673">                profile.getResults().add(result);</span>
+            }
+<span class="nc" id="L675">        } catch (Exception e) {</span>
+<span class="nc" id="L676">            LOG.error(&quot;Could not delete linked account {}&quot;, account, e);</span>
+<span class="nc" id="L677">        }</span>
+
+<span class="nc" id="L679">        return resultStatus;</span>
+    }
+
+    protected OpEvent.Outcome ignore(
+            final SyncDelta delta,
+            final LinkedAccount account,
+            final boolean matching,
+            final String... message) {
+
+<span class="nc" id="L688">        LOG.debug(&quot;Linked account to ignore {}&quot;, delta.getObject().getUid().getUidValue());</span>
+
+<span class="nc" id="L690">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L691">        result.setKey(Optional.ofNullable(account).map(LinkedAccount::getOwner).map(User::getKey).orElse(null));</span>
+<span class="nc" id="L692">        result.setName(delta.getUid().getUidValue());</span>
+<span class="nc" id="L693">        result.setUidValue(delta.getUid().getUidValue());</span>
+<span class="nc" id="L694">        result.setOperation(ResourceOperation.NONE);</span>
+<span class="nc" id="L695">        result.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L696">        result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+<span class="nc bnc" id="L697" title="All 4 branches missed.">        if (message != null &amp;&amp; message.length &gt;= 1) {</span>
+<span class="nc" id="L698">            result.setMessage(message[0]);</span>
+        }
+
+<span class="nc" id="L701">        end(Optional.ofNullable(result.getKey()),</span>
+<span class="nc" id="L702">                AnyTypeKind.USER.name(),</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">                matching ? MatchingRule.toOp(MatchingRule.IGNORE) : UnmatchingRule.toOp(UnmatchingRule.IGNORE),</span>
+                OpEvent.Outcome.SUCCESS,
+                null,
+                null,
+                delta);
+
+<span class="nc" id="L709">        profile.getResults().add(result);</span>
+<span class="nc" id="L710">        return OpEvent.Outcome.SUCCESS;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

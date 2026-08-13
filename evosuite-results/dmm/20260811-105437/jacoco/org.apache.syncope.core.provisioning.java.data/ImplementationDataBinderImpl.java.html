@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ImplementationDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">ImplementationDataBinderImpl.java</span></div><h1>ImplementationDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.lang.reflect.Modifier;
+import java.util.Optional;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.policy.RuleConf;
+import org.apache.syncope.common.lib.report.ReportConf;
+import org.apache.syncope.common.lib.to.ImplementationTO;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.IdMImplementationType;
+import org.apache.syncope.common.lib.types.IdRepoImplementationType;
+import org.apache.syncope.common.lib.types.ImplementationEngine;
+import org.apache.syncope.common.lib.types.ImplementationTypesHolder;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.persistence.api.entity.Implementation;
+import org.apache.syncope.core.provisioning.api.data.ImplementationDataBinder;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.apache.syncope.core.spring.implementation.ImplementationManager;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class ImplementationDataBinderImpl implements ImplementationDataBinder {
+
+<span class="nc" id="L44">    protected static final Logger LOG = LoggerFactory.getLogger(ImplementationDataBinder.class);</span>
+
+    protected final EntityFactory entityFactory;
+
+<span class="nc" id="L48">    public ImplementationDataBinderImpl(final EntityFactory entityFactory) {</span>
+<span class="nc" id="L49">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L50">    }</span>
+
+    @Override
+    public Implementation create(final ImplementationTO implementationTO) {
+<span class="nc" id="L54">        Implementation implementation = entityFactory.newEntity(Implementation.class);</span>
+<span class="nc" id="L55">        update(implementation, implementationTO);</span>
+<span class="nc" id="L56">        return implementation;</span>
+    }
+
+    @Override
+    public void update(final Implementation implementation, final ImplementationTO implementationTO) {
+<span class="nc" id="L61">        SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidImplementation);</span>
+
+<span class="nc bnc" id="L63" title="All 4 branches missed.">        if (implementation.getType() != null &amp;&amp; !implementation.getType().equals(implementationTO.getType())) {</span>
+<span class="nc" id="L64">            sce.getElements().add(&quot;ImplementationType cannot be changed&quot;);</span>
+<span class="nc" id="L65">            throw sce;</span>
+        }
+
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (StringUtils.isBlank(implementationTO.getBody())) {</span>
+<span class="nc" id="L69">            sce.getElements().add(&quot;No actual implementation provided&quot;);</span>
+<span class="nc" id="L70">            throw sce;</span>
+        }
+
+<span class="nc" id="L73">        implementation.setKey(implementationTO.getKey());</span>
+<span class="nc" id="L74">        implementation.setEngine(implementationTO.getEngine());</span>
+<span class="nc" id="L75">        implementation.setType(implementationTO.getType());</span>
+<span class="nc" id="L76">        implementation.setBody(implementationTO.getBody());</span>
+
+<span class="nc" id="L78">        Class&lt;?&gt; baseClazz = Optional.ofNullable(</span>
+<span class="nc" id="L79">                ImplementationTypesHolder.getInstance().getValues().get(implementation.getType())).</span>
+<span class="nc" id="L80">                map(intf -&gt; {</span>
+                    try {
+<span class="nc" id="L82">                        return Class.forName(intf);</span>
+<span class="nc" id="L83">                    } catch (ClassNotFoundException e) {</span>
+<span class="nc" id="L84">                        LOG.error(&quot;While resolving interface {} for implementation type {}&quot;,</span>
+<span class="nc" id="L85">                                intf, implementation.getType());</span>
+<span class="nc" id="L86">                        return null;</span>
+                    }
+                }).
+<span class="nc" id="L89">                orElse(null);</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (baseClazz == null) {</span>
+<span class="nc" id="L91">            sce.getElements().add(&quot;No Java interface found for &quot; + implementation.getType());</span>
+<span class="nc" id="L92">            throw sce;</span>
+        }
+
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (implementation.getEngine() == ImplementationEngine.JAVA) {</span>
+<span class="nc bnc" id="L96" title="All 3 branches missed.">            switch (implementation.getType()) {</span>
+                case IdRepoImplementationType.REPORT_DELEGATE:
+<span class="nc" id="L98">                    ReportConf conf = POJOHelper.deserialize(implementation.getBody(), ReportConf.class);</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">                    if (conf == null) {</span>
+<span class="nc" id="L100">                        sce.getElements().add(&quot;Could not deserialize as &quot; + ReportConf.class.getName());</span>
+<span class="nc" id="L101">                        throw sce;</span>
+                    }
+                    break;
+
+                case IdRepoImplementationType.ACCOUNT_RULE:
+                case IdRepoImplementationType.PASSWORD_RULE:
+                case IdMImplementationType.INBOUND_CORRELATION_RULE:
+                case IdMImplementationType.PUSH_CORRELATION_RULE:
+<span class="nc" id="L109">                    RuleConf rule = POJOHelper.deserialize(implementation.getBody(), RuleConf.class);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">                    if (rule == null) {</span>
+<span class="nc" id="L111">                        sce.getElements().add(&quot;Could not deserialize as neither &quot;</span>
+                                + &quot;Account, Password, Inbound nor Push Correlation RuleConf&quot;);
+<span class="nc" id="L113">                        throw sce;</span>
+                    }
+                    break;
+
+                default:
+<span class="nc" id="L118">                    check(implementation, baseClazz, sce);</span>
+<span class="nc" id="L119">            }</span>
+        } else {
+<span class="nc" id="L121">            check(implementation, baseClazz, sce);</span>
+        }
+<span class="nc" id="L123">    }</span>
+
+    protected void check(
+            final Implementation implementation,
+            final Class&lt;?&gt; baseClazz,
+            final SyncopeClientException sce) {
+
+<span class="nc" id="L130">        Class&lt;?&gt; clazz = null;</span>
+        try {
+<span class="nc" id="L132">            clazz = ImplementationManager.getClass(AuthContextUtils.getDomain(), implementation).getLeft();</span>
+<span class="nc" id="L133">        } catch (Exception e) {</span>
+<span class="nc" id="L134">            LOG.error(&quot;Could not get Class&quot;, e);</span>
+<span class="nc" id="L135">            sce.getElements().add(&quot;No &quot; + implementation.getKey() + &quot; class found&quot;);</span>
+<span class="nc" id="L136">            throw sce;</span>
+<span class="nc" id="L137">        }</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (!baseClazz.isAssignableFrom(clazz)) {</span>
+<span class="nc" id="L139">            sce.getElements().add(</span>
+<span class="nc" id="L140">                    implementation.getKey() + &quot; class must comply with &quot; + baseClazz.getName());</span>
+<span class="nc" id="L141">            throw sce;</span>
+        }
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (Modifier.isAbstract(clazz.getModifiers())) {</span>
+<span class="nc" id="L144">            sce.getElements().add(implementation.getKey() + &quot; class is abstract&quot;);</span>
+<span class="nc" id="L145">            throw sce;</span>
+        }
+
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (implementation.getEngine() == ImplementationEngine.GROOVY) {</span>
+            try {
+<span class="nc" id="L150">                ImplementationManager.build(AuthContextUtils.getDomain(), implementation);</span>
+<span class="nc" id="L151">            } catch (Exception e) {</span>
+<span class="nc" id="L152">                LOG.error(&quot;While building Groovy class {}&quot;, implementation.getKey(), e);</span>
+
+<span class="nc" id="L154">                sce.getElements().add(e.getMessage());</span>
+<span class="nc" id="L155">                throw sce;</span>
+<span class="nc" id="L156">            }</span>
+        }
+<span class="nc" id="L158">    }</span>
+
+    @Override
+    public ImplementationTO getImplementationTO(final Implementation implementation) {
+<span class="nc" id="L162">        ImplementationTO implementationTO = new ImplementationTO();</span>
+<span class="nc" id="L163">        implementationTO.setKey(implementation.getKey());</span>
+<span class="nc" id="L164">        implementationTO.setEngine(implementation.getEngine());</span>
+<span class="nc" id="L165">        implementationTO.setType(implementation.getType());</span>
+<span class="nc" id="L166">        implementationTO.setBody(implementation.getBody());</span>
+
+<span class="nc" id="L168">        return implementationTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

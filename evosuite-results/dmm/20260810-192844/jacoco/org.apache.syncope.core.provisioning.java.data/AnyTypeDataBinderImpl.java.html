@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AnyTypeDataBinderImpl.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.data</a> &gt; <span class="el_source">AnyTypeDataBinderImpl.java</span></div><h1>AnyTypeDataBinderImpl.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.data;
+
+import java.util.HashSet;
+import java.util.Set;
+import org.apache.syncope.common.lib.SyncopeClientException;
+import org.apache.syncope.common.lib.SyncopeConstants;
+import org.apache.syncope.common.lib.to.AnyTypeTO;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.CipherAlgorithm;
+import org.apache.syncope.common.lib.types.ClientExceptionType;
+import org.apache.syncope.common.lib.types.EntitlementsHolder;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.AccessTokenDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeClassDAO;
+import org.apache.syncope.core.persistence.api.dao.AnyTypeDAO;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.entity.AccessToken;
+import org.apache.syncope.core.persistence.api.entity.AnyType;
+import org.apache.syncope.core.persistence.api.entity.AnyTypeClass;
+import org.apache.syncope.core.persistence.api.entity.EntityFactory;
+import org.apache.syncope.core.provisioning.api.data.AnyTypeDataBinder;
+import org.apache.syncope.core.provisioning.api.serialization.POJOHelper;
+import org.apache.syncope.core.spring.security.AuthContextUtils;
+import org.apache.syncope.core.spring.security.SecurityProperties;
+import org.apache.syncope.core.spring.security.SyncopeGrantedAuthority;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.core.type.TypeReference;
+
+public class AnyTypeDataBinderImpl implements AnyTypeDataBinder {
+
+<span class="nc" id="L50">    protected static final Logger LOG = LoggerFactory.getLogger(AnyTypeDataBinder.class);</span>
+
+    protected final SecurityProperties securityProperties;
+
+    protected final EncryptorManager encryptorManager;
+
+    protected final AnyTypeDAO anyTypeDAO;
+
+    protected final AnyTypeClassDAO anyTypeClassDAO;
+
+    protected final AccessTokenDAO accessTokenDAO;
+
+    protected final EntityFactory entityFactory;
+
+    public AnyTypeDataBinderImpl(
+            final SecurityProperties securityProperties,
+            final EncryptorManager encryptorManager,
+            final AnyTypeDAO anyTypeDAO,
+            final AnyTypeClassDAO anyTypeClassDAO,
+            final AccessTokenDAO accessTokenDAO,
+<span class="nc" id="L70">            final EntityFactory entityFactory) {</span>
+
+<span class="nc" id="L72">        this.securityProperties = securityProperties;</span>
+<span class="nc" id="L73">        this.encryptorManager = encryptorManager;</span>
+<span class="nc" id="L74">        this.anyTypeDAO = anyTypeDAO;</span>
+<span class="nc" id="L75">        this.anyTypeClassDAO = anyTypeClassDAO;</span>
+<span class="nc" id="L76">        this.accessTokenDAO = accessTokenDAO;</span>
+<span class="nc" id="L77">        this.entityFactory = entityFactory;</span>
+<span class="nc" id="L78">    }</span>
+
+    @Override
+    public AnyType create(final AnyTypeTO anyTypeTO) {
+<span class="nc" id="L82">        AnyType anyType = entityFactory.newEntity(AnyType.class);</span>
+<span class="nc" id="L83">        update(anyType, anyTypeTO);</span>
+
+<span class="nc" id="L85">        Set&lt;String&gt; added = EntitlementsHolder.getInstance().addFor(anyType.getKey());</span>
+
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        if (!securityProperties.getAdminUser().equals(AuthContextUtils.getUsername())) {</span>
+<span class="nc" id="L88">            AccessToken accessToken = accessTokenDAO.findByOwner(AuthContextUtils.getUsername()).</span>
+<span class="nc" id="L89">                    orElseThrow(() -&gt; new NotFoundException(&quot;AccessToken for &quot; + AuthContextUtils.getUsername()));</span>
+            try {
+<span class="nc" id="L91">                Set&lt;SyncopeGrantedAuthority&gt; authorities = new HashSet&lt;&gt;(POJOHelper.deserialize(</span>
+<span class="nc" id="L92">                        encryptorManager.getInstance().decode(accessToken.getAuthorities(), CipherAlgorithm.AES),</span>
+<span class="nc" id="L93">                        new TypeReference&lt;Set&lt;SyncopeGrantedAuthority&gt;&gt;() {</span>
+                }));
+
+<span class="nc" id="L96">                added.forEach(e -&gt; authorities.add(new SyncopeGrantedAuthority(e, SyncopeConstants.ROOT_REALM)));</span>
+
+<span class="nc" id="L98">                accessToken.setAuthorities(encryptorManager.getInstance().</span>
+<span class="nc" id="L99">                        encode(POJOHelper.serialize(authorities), CipherAlgorithm.AES));</span>
+
+<span class="nc" id="L101">                accessTokenDAO.save(accessToken);</span>
+<span class="nc" id="L102">            } catch (Exception e) {</span>
+<span class="nc" id="L103">                LOG.error(&quot;Could not fetch or store authorities&quot;, e);</span>
+<span class="nc" id="L104">            }</span>
+        }
+
+<span class="nc" id="L107">        return anyType;</span>
+    }
+
+    @Override
+    public void update(final AnyType anyType, final AnyTypeTO anyTypeTO) {
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (anyType.getKey() == null) {</span>
+<span class="nc" id="L113">            anyType.setKey(anyTypeTO.getKey());</span>
+        }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (anyType.getKind() == null) {</span>
+<span class="nc" id="L116">            anyType.setKind(anyTypeTO.getKind());</span>
+        }
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (anyType.getKind() != anyTypeTO.getKind()) {</span>
+<span class="nc" id="L119">            SyncopeClientException sce = SyncopeClientException.build(ClientExceptionType.InvalidAnyType);</span>
+<span class="nc" id="L120">            sce.getElements().add(AnyTypeKind.class.getSimpleName() + &quot; cannot be changed&quot;);</span>
+<span class="nc" id="L121">            throw sce;</span>
+        }
+
+<span class="nc" id="L124">        anyTypeTO.getClasses().forEach(anyTypeClassName -&gt; anyTypeClassDAO.findById(anyTypeClassName).ifPresentOrElse(</span>
+<span class="nc" id="L125">                anyType::add,</span>
+<span class="nc" id="L126">                () -&gt; LOG.debug(&quot;Invalid {} {}, ignoring...&quot;, AnyTypeClass.class.getSimpleName(), anyTypeClassName)));</span>
+<span class="nc bnc" id="L127" title="All 4 branches missed.">        anyType.getClasses().removeIf(c -&gt; c == null || !anyTypeTO.getClasses().contains(c.getKey()));</span>
+<span class="nc" id="L128">    }</span>
+
+    @Override
+    public AnyTypeTO delete(final AnyType anyType) {
+<span class="nc" id="L132">        AnyTypeTO deleted = getAnyTypeTO(anyType);</span>
+
+<span class="nc" id="L134">        anyTypeDAO.deleteById(anyType.getKey());</span>
+
+<span class="nc" id="L136">        Set&lt;String&gt; removed = EntitlementsHolder.getInstance().removeFor(deleted.getKey());</span>
+
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (!securityProperties.getAdminUser().equals(AuthContextUtils.getUsername())) {</span>
+<span class="nc" id="L139">            AccessToken accessToken = accessTokenDAO.findByOwner(AuthContextUtils.getUsername()).</span>
+<span class="nc" id="L140">                    orElseThrow(() -&gt; new NotFoundException(&quot;AccessToken for &quot; + AuthContextUtils.getUsername()));</span>
+            try {
+<span class="nc" id="L142">                Set&lt;SyncopeGrantedAuthority&gt; authorities = new HashSet&lt;&gt;(POJOHelper.deserialize(</span>
+<span class="nc" id="L143">                        encryptorManager.getInstance().</span>
+<span class="nc" id="L144">                                decode(accessToken.getAuthorities(), CipherAlgorithm.AES),</span>
+<span class="nc" id="L145">                        new TypeReference&lt;Set&lt;SyncopeGrantedAuthority&gt;&gt;() {</span>
+                }));
+
+<span class="nc" id="L148">                authorities.removeAll(authorities.stream().</span>
+<span class="nc" id="L149">                        filter(authority -&gt; removed.contains(authority.getAuthority())).toList());</span>
+
+<span class="nc" id="L151">                accessToken.setAuthorities(encryptorManager.getInstance().</span>
+<span class="nc" id="L152">                        encode(POJOHelper.serialize(authorities), CipherAlgorithm.AES));</span>
+
+<span class="nc" id="L154">                accessTokenDAO.save(accessToken);</span>
+<span class="nc" id="L155">            } catch (Exception e) {</span>
+<span class="nc" id="L156">                LOG.error(&quot;Could not fetch or store authorities&quot;, e);</span>
+<span class="nc" id="L157">            }</span>
+        }
+
+<span class="nc" id="L160">        return deleted;</span>
+    }
+
+    @Override
+    public AnyTypeTO getAnyTypeTO(final AnyType anyType) {
+<span class="nc" id="L165">        AnyTypeTO anyTypeTO = new AnyTypeTO();</span>
+<span class="nc" id="L166">        anyTypeTO.setKey(anyType.getKey());</span>
+<span class="nc" id="L167">        anyTypeTO.setKind(anyType.getKind());</span>
+<span class="nc" id="L168">        anyTypeTO.getClasses().addAll(anyType.getClasses().stream().map(AnyTypeClass::getKey).toList());</span>
+<span class="nc" id="L169">        return anyTypeTO;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

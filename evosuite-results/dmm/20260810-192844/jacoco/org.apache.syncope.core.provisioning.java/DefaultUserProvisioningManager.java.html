@@ -1,0 +1,414 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultUserProvisioningManager.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">DefaultUserProvisioningManager.java</span></div><h1>DefaultUserProvisioningManager.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.request.PasswordPatch;
+import org.apache.syncope.common.lib.request.StatusR;
+import org.apache.syncope.common.lib.request.StringPatchItem;
+import org.apache.syncope.common.lib.request.UserCR;
+import org.apache.syncope.common.lib.request.UserUR;
+import org.apache.syncope.common.lib.to.PropagationStatus;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.PatchOperation;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.StatusRType;
+import org.apache.syncope.core.persistence.api.EncryptorManager;
+import org.apache.syncope.core.persistence.api.dao.NotFoundException;
+import org.apache.syncope.core.persistence.api.dao.UserDAO;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.UserProvisioningManager;
+import org.apache.syncope.core.provisioning.api.UserWorkflowResult;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationManager;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskExecutor;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.workflow.api.UserWorkflowAdapter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+public class DefaultUserProvisioningManager implements UserProvisioningManager {
+
+<span class="nc" id="L58">    protected static final Logger LOG = LoggerFactory.getLogger(UserProvisioningManager.class);</span>
+
+    protected final UserWorkflowAdapter uwfAdapter;
+
+    protected final PropagationManager propagationManager;
+
+    protected final PropagationTaskExecutor taskExecutor;
+
+    protected final UserDAO userDAO;
+
+    protected final EncryptorManager encryptorManager;
+
+    public DefaultUserProvisioningManager(
+            final UserWorkflowAdapter uwfAdapter,
+            final PropagationManager propagationManager,
+            final PropagationTaskExecutor taskExecutor,
+            final UserDAO userDAO,
+<span class="nc" id="L75">            final EncryptorManager encryptorManager) {</span>
+
+<span class="nc" id="L77">        this.uwfAdapter = uwfAdapter;</span>
+<span class="nc" id="L78">        this.propagationManager = propagationManager;</span>
+<span class="nc" id="L79">        this.taskExecutor = taskExecutor;</span>
+<span class="nc" id="L80">        this.userDAO = userDAO;</span>
+<span class="nc" id="L81">        this.encryptorManager = encryptorManager;</span>
+<span class="nc" id="L82">    }</span>
+
+    @Transactional(readOnly = true)
+    @Override
+    public boolean checkSecurityAnswer(final String key, final String value) {
+<span class="nc" id="L87">        User user = userDAO.findById(key).orElseThrow(() -&gt; new NotFoundException(&quot;User &quot; + key));</span>
+
+<span class="nc" id="L89">        return encryptorManager.getInstance().verify(value, user.getCipherAlgorithm(), user.getSecurityAnswer());</span>
+    }
+
+    @Override
+    public ProvisioningResult&lt;String&gt; create(
+            final UserCR userCR, final boolean nullPriorityAsync, final String creator, final String context) {
+
+<span class="nc" id="L96">        return create(userCR, false, null, Set.of(), nullPriorityAsync, creator, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public ProvisioningResult&lt;String&gt; create(
+            final UserCR userCR,
+            final boolean disablePwdPolicyCheck,
+            final Boolean enabled,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String creator,
+            final String context) {
+
+<span class="nc" id="L110">        UserWorkflowResult&lt;Pair&lt;String, Boolean&gt;&gt; created =</span>
+<span class="nc" id="L111">                uwfAdapter.create(userCR, disablePwdPolicyCheck, enabled, creator, context);</span>
+
+<span class="nc" id="L113">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUserCreateTasks(</span>
+<span class="nc" id="L114">                created.getResult().getLeft(),</span>
+<span class="nc" id="L115">                userCR.getPassword(),</span>
+<span class="nc" id="L116">                created.getResult().getRight(),</span>
+<span class="nc" id="L117">                created.getPropByRes(),</span>
+<span class="nc" id="L118">                created.getPropByLinkedAccount(),</span>
+                excludedResources);
+<span class="nc" id="L120">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, creator);</span>
+
+<span class="nc" id="L122">        return new ProvisioningResult&lt;&gt;(created.getResult().getLeft(), propagationReporter.getStatuses());</span>
+    }
+
+    @Override
+    public ProvisioningResult&lt;UserUR&gt; update(
+            final UserUR userUR, final boolean nullPriorityAsync, final String updater, final String context) {
+
+<span class="nc" id="L129">        List&lt;PropagationManager.PropagationAttrs&gt; beforeAttrs = propagationManager.prepareAttrs(</span>
+                AnyTypeKind.USER,
+<span class="nc" id="L131">                userUR.getKey(),</span>
+<span class="nc" id="L132">                Optional.ofNullable(userUR.getPassword()).map(PasswordPatch::getValue).orElse(null),</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">                userUR.getPassword() == null ? List.of() : userUR.getPassword().getResources(),</span>
+                null,
+<span class="nc" id="L135">                Set.of());</span>
+
+<span class="nc" id="L137">        UserWorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; updated = uwfAdapter.update(userUR, null, updater, context);</span>
+
+<span class="nc" id="L139">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.setAttributeDeltas(</span>
+<span class="nc" id="L140">                propagationManager.getUserUpdateTasks(updated),</span>
+                beforeAttrs);
+<span class="nc" id="L142">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, updater);</span>
+
+<span class="nc" id="L144">        return new ProvisioningResult&lt;&gt;(updated.getResult().getLeft(), propagationReporter.getStatuses());</span>
+    }
+
+    @Override
+    public ProvisioningResult&lt;UserUR&gt; update(
+            final UserUR userUR,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String updater,
+            final String context) {
+
+<span class="nc" id="L155">        return update(userUR, new ProvisioningReport(), null, excludedResources, nullPriorityAsync, updater, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public ProvisioningResult&lt;UserUR&gt; update(
+            final UserUR userUR,
+            final ProvisioningReport result,
+            final Boolean enabled,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String updater,
+            final String context) {
+
+<span class="nc" id="L169">        List&lt;PropagationManager.PropagationAttrs&gt; beforeAttrs = propagationManager.prepareAttrs(</span>
+                AnyTypeKind.USER,
+<span class="nc" id="L171">                userUR.getKey(),</span>
+<span class="nc" id="L172">                Optional.ofNullable(userUR.getPassword()).map(PasswordPatch::getValue).orElse(null),</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">                userUR.getPassword() == null ? List.of() : userUR.getPassword().getResources(),</span>
+                enabled,
+                excludedResources);
+
+        UserWorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; updated;
+        try {
+<span class="nc" id="L179">            updated = uwfAdapter.update(userUR, enabled, updater, context);</span>
+<span class="nc" id="L180">        } catch (Exception e) {</span>
+<span class="nc" id="L181">            LOG.error(&quot;Update of user {} failed, trying to pull its status anyway (if configured)&quot;,</span>
+<span class="nc" id="L182">                    userUR.getKey(), e);</span>
+
+<span class="nc" id="L184">            result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L185">            result.setMessage(&quot;Update failed, trying to pull status anyway (if configured)\n&quot; + e.getMessage());</span>
+
+<span class="nc" id="L187">            updated = new UserWorkflowResult&lt;&gt;(</span>
+<span class="nc" id="L188">                    Pair.of(userUR, false),</span>
+                    new UserWorkflowResult.PropagationInfo(
+                            new PropagationByResource&lt;&gt;(),
+                            new PropagationByResource&lt;&gt;()),
+                    new HashSet&lt;&gt;());
+<span class="nc" id="L193">        }</span>
+
+<span class="nc" id="L195">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.setAttributeDeltas(</span>
+<span class="nc" id="L196">                propagationManager.getUserUpdateTasks(</span>
+                        updated,
+<span class="nc bnc" id="L198" title="All 2 branches missed.">                        updated.getResult().getLeft().getPassword() != null</span>
+<span class="nc" id="L199">                        ? updated.getResult().getLeft().getPassword().getResources()</span>
+<span class="nc" id="L200">                        : List.of(),</span>
+                        excludedResources),
+                beforeAttrs);
+<span class="nc" id="L203">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, updater);</span>
+
+<span class="nc" id="L205">        return new ProvisioningResult&lt;&gt;(updated.getResult().getLeft(), propagationReporter.getStatuses());</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; delete(
+            final String key, final boolean nullPriorityAsync, final String eraser, final String context) {
+
+<span class="nc" id="L212">        return delete(key, Set.of(), nullPriorityAsync, eraser, context);</span>
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public List&lt;PropagationStatus&gt; delete(
+            final String key,
+            final Set&lt;String&gt; excludedResources,
+            final boolean nullPriorityAsync,
+            final String eraser,
+            final String context) {
+
+<span class="nc" id="L224">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L225">        propByRes.set(ResourceOperation.DELETE, userDAO.findAllResourceKeys(key));</span>
+
+<span class="nc" id="L227">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L228">        userDAO.findLinkedAccounts(key).forEach(account -&gt; propByLinkedAccount.add(</span>
+                ResourceOperation.DELETE,
+<span class="nc" id="L230">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue())));</span>
+
+        // Note here that we can only notify about &quot;delete&quot;, not any other
+        // task defined in workflow process definition: this because this
+        // information could only be available after uwfAdapter.delete(), which
+        // will also effectively remove user from db, thus making virtually
+        // impossible by NotificationManager to fetch required user information
+<span class="nc" id="L237">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+                AnyTypeKind.USER,
+                key,
+                propByRes,
+                propByLinkedAccount,
+                excludedResources);
+<span class="nc" id="L243">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, eraser);</span>
+
+<span class="nc" id="L245">        uwfAdapter.delete(key, eraser, context);</span>
+
+<span class="nc" id="L247">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public String unlink(final UserUR userUR, final String updater, final String context) {
+<span class="nc" id="L252">        UserWorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; updated = uwfAdapter.update(userUR, null, updater, context);</span>
+<span class="nc" id="L253">        return updated.getResult().getLeft().getKey();</span>
+    }
+
+    @Override
+    public String link(final UserUR userUR, final String updater, final String context) {
+<span class="nc" id="L258">        return uwfAdapter.update(userUR, null, updater, context).getResult().getLeft().getKey();</span>
+    }
+
+    @Override
+    public ProvisioningResult&lt;String&gt; activate(
+            final StatusR statusR, final boolean nullPriorityAsync, final String updater, final String context) {
+
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        UserWorkflowResult&lt;String&gt; updated = statusR.isOnSyncope()</span>
+<span class="nc" id="L266">                ? uwfAdapter.activate(statusR.getKey(), statusR.getToken(), updater, context)</span>
+<span class="nc" id="L267">                : new UserWorkflowResult&lt;&gt;(statusR.getKey(), null, statusR.getType().name().toLowerCase());</span>
+
+<span class="nc" id="L269">        return new ProvisioningResult&lt;&gt;(updated.getResult(), propagateStatus(statusR, nullPriorityAsync, updater));</span>
+    }
+
+    @Override
+    public ProvisioningResult&lt;String&gt; reactivate(
+            final StatusR statusR, final boolean nullPriorityAsync, final String updater, final String context) {
+
+<span class="nc bnc" id="L276" title="All 2 branches missed.">        UserWorkflowResult&lt;String&gt; updated = statusR.isOnSyncope()</span>
+<span class="nc" id="L277">                ? uwfAdapter.reactivate(statusR.getKey(), updater, context)</span>
+<span class="nc" id="L278">                : new UserWorkflowResult&lt;&gt;(statusR.getKey(), null, statusR.getType().name().toLowerCase());</span>
+
+<span class="nc" id="L280">        return new ProvisioningResult&lt;&gt;(updated.getResult(), propagateStatus(statusR, nullPriorityAsync, updater));</span>
+    }
+
+    @Override
+    public ProvisioningResult&lt;String&gt; suspend(
+            final StatusR statusR, final boolean nullPriorityAsync, final String updater, final String context) {
+
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        UserWorkflowResult&lt;String&gt; updated = statusR.isOnSyncope()</span>
+<span class="nc" id="L288">                ? uwfAdapter.suspend(statusR.getKey(), updater, context)</span>
+<span class="nc" id="L289">                : new UserWorkflowResult&lt;&gt;(statusR.getKey(), null, statusR.getType().name().toLowerCase());</span>
+
+<span class="nc" id="L291">        return new ProvisioningResult&lt;&gt;(updated.getResult(), propagateStatus(statusR, nullPriorityAsync, updater));</span>
+    }
+
+    protected List&lt;PropagationStatus&gt; propagateStatus(
+            final StatusR statusR, final boolean nullPriorityAsync, final String updater) {
+
+<span class="nc" id="L297">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L298">        propByRes.addAll(ResourceOperation.UPDATE, statusR.getResources());</span>
+<span class="nc" id="L299">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUpdateTasks(</span>
+                null,
+                AnyTypeKind.USER,
+<span class="nc" id="L302">                statusR.getKey(),</span>
+<span class="nc" id="L303">                List.of(),</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">                statusR.getType() != StatusRType.SUSPEND,</span>
+                propByRes,
+                null,
+                null);
+<span class="nc" id="L308">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, updater);</span>
+
+<span class="nc" id="L310">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public void suspendOnAuthFailures(final String key, final String updater, final String context) {
+<span class="nc" id="L315">        Pair&lt;UserWorkflowResult&lt;String&gt;, Boolean&gt; updated = uwfAdapter.suspendOnAuthFailures(key, updater, context);</span>
+
+        // propagate suspension if and only if it is required by policy
+<span class="nc bnc" id="L318" title="All 4 branches missed.">        if (updated != null &amp;&amp; updated.getRight()) {</span>
+<span class="nc" id="L319">            UserUR userUR = new UserUR();</span>
+<span class="nc" id="L320">            userUR.setKey(updated.getLeft().getResult());</span>
+
+<span class="nc" id="L322">            List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUserUpdateTasks(new UserWorkflowResult&lt;&gt;(</span>
+<span class="nc" id="L323">                    Pair.of(userUR, Boolean.FALSE),</span>
+                    new UserWorkflowResult.PropagationInfo(
+<span class="nc" id="L325">                            updated.getLeft().getPropByRes(),</span>
+<span class="nc" id="L326">                            updated.getLeft().getPropByLinkedAccount()),</span>
+<span class="nc" id="L327">                    updated.getLeft().getPerformedTasks()));</span>
+<span class="nc" id="L328">            taskExecutor.execute(taskInfos, false, updater);</span>
+        }
+<span class="nc" id="L330">    }</span>
+
+    @Override
+    public List&lt;PropagationStatus&gt; provision(
+            final String key,
+            final boolean changePwd,
+            final String password,
+            final Collection&lt;String&gt; resources,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L341">        UserUR userUR = new UserUR();</span>
+<span class="nc" id="L342">        userUR.setKey(key);</span>
+<span class="nc" id="L343">        userUR.getResources().addAll(resources.stream().</span>
+<span class="nc" id="L344">                map(r -&gt; new StringPatchItem.Builder().operation(PatchOperation.ADD_REPLACE).value(r).build()).</span>
+<span class="nc" id="L345">                collect(Collectors.toSet()));</span>
+
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        if (changePwd) {</span>
+<span class="nc" id="L348">            PasswordPatch passwordPatch = new PasswordPatch();</span>
+<span class="nc" id="L349">            passwordPatch.setOnSyncope(false);</span>
+<span class="nc" id="L350">            passwordPatch.getResources().addAll(resources);</span>
+<span class="nc" id="L351">            passwordPatch.setValue(password);</span>
+<span class="nc" id="L352">            userUR.setPassword(passwordPatch);</span>
+        }
+
+<span class="nc" id="L355">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L356">        propByRes.addAll(ResourceOperation.UPDATE, resources);</span>
+
+<span class="nc" id="L358">        UserWorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; wfResult = new UserWorkflowResult&lt;&gt;(</span>
+<span class="nc" id="L359">                Pair.of(userUR, null), new UserWorkflowResult.PropagationInfo(propByRes, null), &quot;update&quot;);</span>
+
+<span class="nc" id="L361">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUserUpdateTasks(wfResult,</span>
+<span class="nc bnc" id="L362" title="All 2 branches missed.">                userUR.getPassword() == null ? List.of() : userUR.getPassword().getResources(), null);</span>
+<span class="nc" id="L363">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, executor);</span>
+
+<span class="nc" id="L365">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public List&lt;PropagationStatus&gt; deprovision(
+            final String key,
+            final Collection&lt;String&gt; resources,
+            final boolean nullPriorityAsync,
+            final String executor) {
+
+<span class="nc" id="L375">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L376">        propByRes.set(ResourceOperation.DELETE, resources);</span>
+
+<span class="nc" id="L378">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L379">        userDAO.findLinkedAccounts(key).stream().</span>
+<span class="nc" id="L380">                filter(account -&gt; resources.contains(account.getResource().getKey())).</span>
+<span class="nc" id="L381">                forEach(account -&gt; propByLinkedAccount.add(</span>
+                ResourceOperation.DELETE,
+<span class="nc" id="L383">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue())));</span>
+
+<span class="nc" id="L385">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+                AnyTypeKind.USER,
+                key,
+                propByRes,
+                propByLinkedAccount,
+<span class="nc" id="L390">                userDAO.findAllResourceKeys(key).stream().</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                        filter(resource -&gt; !resources.contains(resource)).</span>
+<span class="nc" id="L392">                        toList());</span>
+<span class="nc" id="L393">        PropagationReporter propagationReporter = taskExecutor.execute(taskInfos, nullPriorityAsync, executor);</span>
+
+<span class="nc" id="L395">        return propagationReporter.getStatuses();</span>
+    }
+
+    @Override
+    public void requestPasswordReset(final String key, final String updater, final String context) {
+<span class="nc" id="L400">        uwfAdapter.requestPasswordReset(key, updater, context);</span>
+<span class="nc" id="L401">    }</span>
+
+    @Override
+    public void confirmPasswordReset(
+            final String key, final String token, final String password, final String updater, final String context) {
+
+<span class="nc" id="L407">        UserWorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; updated =</span>
+<span class="nc" id="L408">                uwfAdapter.confirmPasswordReset(key, token, password, updater, context);</span>
+
+<span class="nc" id="L410">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUserUpdateTasks(updated);</span>
+<span class="nc" id="L411">        taskExecutor.execute(taskInfos, false, updater);</span>
+<span class="nc" id="L412">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

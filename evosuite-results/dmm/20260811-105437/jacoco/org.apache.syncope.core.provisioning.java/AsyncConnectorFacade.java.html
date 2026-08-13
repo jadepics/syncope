@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AsyncConnectorFacade.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java</a> &gt; <span class="el_source">AsyncConnectorFacade.java</span></div><h1>AsyncConnectorFacade.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java;
+
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+import org.identityconnectors.common.security.GuardedString;
+import org.identityconnectors.framework.api.ConnectorFacade;
+import org.identityconnectors.framework.common.objects.Attribute;
+import org.identityconnectors.framework.common.objects.AttributeDelta;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.identityconnectors.framework.common.objects.ObjectClass;
+import org.identityconnectors.framework.common.objects.ObjectClassInfo;
+import org.identityconnectors.framework.common.objects.OperationOptions;
+import org.identityconnectors.framework.common.objects.SearchResult;
+import org.identityconnectors.framework.common.objects.SyncToken;
+import org.identityconnectors.framework.common.objects.Uid;
+import org.identityconnectors.framework.common.objects.filter.FilterBuilder;
+import org.identityconnectors.framework.spi.SearchResultsHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
+
+/**
+ * Intercept calls to ConnectorFacade's methods and check if the corresponding connector instance has been configured to
+ * allow every single operation: if not, simply do nothing.
+ */
+<span class="nc" id="L45">public class AsyncConnectorFacade {</span>
+
+<span class="nc" id="L47">    private static final Logger LOG = LoggerFactory.getLogger(AsyncConnectorFacade.class);</span>
+
+    @Async
+    public Future&lt;Uid&gt; authenticate(
+            final ConnectorFacade connector,
+            final String username,
+            final GuardedString password,
+            final OperationOptions options) {
+
+<span class="nc" id="L56">        return CompletableFuture.completedFuture(</span>
+<span class="nc" id="L57">                connector.authenticate(ObjectClass.ACCOUNT, username, password, options));</span>
+    }
+
+    @Async
+    public Future&lt;Uid&gt; create(
+            final ConnectorFacade connector,
+            final ObjectClass objectClass,
+            final Set&lt;Attribute&gt; attrs,
+            final OperationOptions options) {
+
+<span class="nc" id="L67">        return CompletableFuture.completedFuture(connector.create(objectClass, attrs, options));</span>
+    }
+
+    @Async
+    public Future&lt;Uid&gt; update(
+            final ConnectorFacade connector,
+            final ObjectClass objectClass,
+            final Uid uid,
+            final Set&lt;Attribute&gt; attrs,
+            final OperationOptions options) {
+
+<span class="nc" id="L78">        return CompletableFuture.completedFuture(connector.update(objectClass, uid, attrs, options));</span>
+    }
+
+    @Async
+    public Future&lt;Set&lt;AttributeDelta&gt;&gt; updateDelta(
+            final ConnectorFacade connector,
+            final ObjectClass objectClass,
+            final Uid uid,
+            final Set&lt;AttributeDelta&gt; modifications,
+            final OperationOptions options) {
+
+<span class="nc" id="L89">        return CompletableFuture.completedFuture(connector.updateDelta(objectClass, uid, modifications, options));</span>
+    }
+
+    @Async
+    public Future&lt;Uid&gt; delete(
+            final ConnectorFacade connector,
+            final ObjectClass objectClass,
+            final Uid uid,
+            final OperationOptions options) {
+
+<span class="nc" id="L99">        connector.delete(objectClass, uid, options);</span>
+<span class="nc" id="L100">        return CompletableFuture.completedFuture(uid);</span>
+    }
+
+    @Async
+    public Future&lt;SyncToken&gt; getLatestSyncToken(
+            final ConnectorFacade connector, final ObjectClass objectClass) {
+
+<span class="nc" id="L107">        return CompletableFuture.completedFuture(connector.getLatestSyncToken(objectClass));</span>
+    }
+
+    @Async
+    public Future&lt;ConnectorObject&gt; getObject(
+            final ConnectorFacade connector,
+            final ObjectClass objectClass,
+            final Attribute connObjectKey,
+            final boolean ignoreCaseMatch,
+            final OperationOptions options) {
+
+<span class="nc" id="L118">        ConnectorObject[] objects = new ConnectorObject[1];</span>
+<span class="nc" id="L119">        connector.search(</span>
+                objectClass,
+<span class="nc bnc" id="L121" title="All 2 branches missed.">                ignoreCaseMatch ? FilterBuilder.equalsIgnoreCase(connObjectKey) : FilterBuilder.equalTo(connObjectKey),</span>
+<span class="nc" id="L122">                new SearchResultsHandler() {</span>
+
+            @Override
+            public boolean handle(final ConnectorObject connectorObject) {
+<span class="nc" id="L126">                objects[0] = connectorObject;</span>
+<span class="nc" id="L127">                return false;</span>
+            }
+
+            @Override
+            public void handleResult(final SearchResult sr) {
+                // do nothing
+<span class="nc" id="L133">            }</span>
+        },
+                options);
+
+<span class="nc" id="L137">        return CompletableFuture.completedFuture(objects[0]);</span>
+    }
+
+    @Async
+    public Future&lt;Set&lt;ObjectClassInfo&gt;&gt; getObjectClassInfo(final ConnectorFacade connector) {
+<span class="nc" id="L142">        Set&lt;ObjectClassInfo&gt; result = Set.of();</span>
+
+        try {
+<span class="nc" id="L145">            result = connector.schema().getObjectClassInfo();</span>
+<span class="nc" id="L146">        } catch (Exception e) {</span>
+            // catch exception in order to manage unpredictable behaviors
+<span class="nc" id="L148">            LOG.debug(&quot;While reading schema on connector {}&quot;, connector, e);</span>
+<span class="nc" id="L149">        }</span>
+
+<span class="nc" id="L151">        return CompletableFuture.completedFuture(result);</span>
+    }
+
+    @Async
+    public Future&lt;String&gt; validate(final ConnectorFacade connector) {
+<span class="nc" id="L156">        connector.validate();</span>
+<span class="nc" id="L157">        return CompletableFuture.completedFuture(&quot;OK&quot;);</span>
+    }
+
+    @Async
+    public Future&lt;String&gt; test(final ConnectorFacade connector) {
+<span class="nc" id="L162">        connector.test();</span>
+<span class="nc" id="L163">        return CompletableFuture.completedFuture(&quot;OK&quot;);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

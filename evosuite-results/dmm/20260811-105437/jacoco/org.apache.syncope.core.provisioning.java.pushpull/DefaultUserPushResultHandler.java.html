@@ -1,0 +1,404 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="it"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultUserPushResultHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">Apache Syncope Core Provisioning Java</a> &gt; <a href="index.source.html" class="el_package">org.apache.syncope.core.provisioning.java.pushpull</a> &gt; <span class="el_source">DefaultUserPushResultHandler.java</span></div><h1>DefaultUserPushResultHandler.java</h1><pre class="source lang-java linenums">/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * &quot;License&quot;); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.syncope.core.provisioning.java.pushpull;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.syncope.common.lib.request.AnyUR;
+import org.apache.syncope.common.lib.request.UserUR;
+import org.apache.syncope.common.lib.to.AnyTO;
+import org.apache.syncope.common.lib.to.Provision;
+import org.apache.syncope.common.lib.to.ProvisioningReport;
+import org.apache.syncope.common.lib.types.AnyTypeKind;
+import org.apache.syncope.common.lib.types.MatchType;
+import org.apache.syncope.common.lib.types.MatchingRule;
+import org.apache.syncope.common.lib.types.ResourceOperation;
+import org.apache.syncope.common.lib.types.UnmatchingRule;
+import org.apache.syncope.core.persistence.api.entity.Any;
+import org.apache.syncope.core.persistence.api.entity.AnyUtils;
+import org.apache.syncope.core.persistence.api.entity.ExternalResource;
+import org.apache.syncope.core.persistence.api.entity.user.LinkedAccount;
+import org.apache.syncope.core.persistence.api.entity.user.User;
+import org.apache.syncope.core.provisioning.api.PropagationByResource;
+import org.apache.syncope.core.provisioning.api.UserWorkflowResult;
+import org.apache.syncope.core.provisioning.api.WorkflowResult;
+import org.apache.syncope.core.provisioning.api.job.JobExecutionException;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationReporter;
+import org.apache.syncope.core.provisioning.api.propagation.PropagationTaskInfo;
+import org.apache.syncope.core.provisioning.api.pushpull.IgnoreProvisionException;
+import org.apache.syncope.core.provisioning.api.pushpull.PushActions;
+import org.apache.syncope.core.provisioning.api.pushpull.UserPushResultHandler;
+import org.apache.syncope.core.provisioning.java.propagation.DefaultPropagationReporter;
+import org.apache.syncope.core.provisioning.java.utils.MappingUtils;
+import org.identityconnectors.framework.common.objects.ConnectorObject;
+import org.springframework.transaction.annotation.Transactional;
+
+<span class="nc" id="L56">public class DefaultUserPushResultHandler extends AbstractPushResultHandler implements UserPushResultHandler {</span>
+
+    @Override
+    protected AnyUtils anyUtils() {
+<span class="nc" id="L60">        return anyUtilsFactory.getInstance(AnyTypeKind.USER);</span>
+    }
+
+    @Override
+    protected String getName(final Any any) {
+<span class="nc" id="L65">        return User.class.cast(any).getUsername();</span>
+    }
+
+    @Override
+    protected AnyTO getAnyTO(final Any any) {
+<span class="nc" id="L70">        return userDataBinder.getUserTO((User) any, true);</span>
+    }
+
+    @Override
+    protected void provision(final Any any, final Boolean enabled, final ProvisioningReport result) {
+<span class="nc" id="L75">        AnyTO before = getAnyTO(any);</span>
+
+<span class="nc" id="L77">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(before.getResources());</span>
+<span class="nc" id="L78">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L80">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L81">        propByRes.add(ResourceOperation.CREATE, profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L83">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L84">        ((User) any).getLinkedAccounts(profile.getTask().getResource().getKey()).</span>
+<span class="nc" id="L85">                forEach(account -&gt; propByLinkedAccount.add(</span>
+                ResourceOperation.CREATE,
+<span class="nc" id="L87">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue())));</span>
+
+<span class="nc" id="L89">        PropagationReporter reporter = taskExecutor.execute(propagationManager.getUserCreateTasks(</span>
+<span class="nc" id="L90">                before.getKey(),</span>
+                null,
+                enabled,
+                propByRes,
+                propByLinkedAccount,
+                noPropResources),
+                false,
+<span class="nc" id="L97">                profile.getExecutor());</span>
+<span class="nc" id="L98">        reportPropagation(result, reporter);</span>
+<span class="nc" id="L99">    }</span>
+
+    @Override
+    protected void update(
+            final Any any,
+            final Boolean enable,
+            final ConnectorObject beforeObj,
+            final ProvisioningReport result) {
+
+<span class="nc" id="L108">        List&lt;String&gt; ownedResources = anyUtils().getAllResources(any).stream().</span>
+<span class="nc" id="L109">                map(ExternalResource::getKey).toList();</span>
+
+<span class="nc" id="L111">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(ownedResources);</span>
+<span class="nc" id="L112">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L114">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L115">        propByRes.add(ResourceOperation.UPDATE, profile.getTask().getResource().getKey());</span>
+<span class="nc" id="L116">        propByRes.addOldConnObjectKey(profile.getTask().getResource().getKey(), beforeObj.getUid().getUidValue());</span>
+
+<span class="nc" id="L118">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L119">        ((User) any).getLinkedAccounts(profile.getTask().getResource().getKey()).</span>
+<span class="nc" id="L120">                forEach(account -&gt; propByLinkedAccount.add(</span>
+                ResourceOperation.UPDATE,
+<span class="nc" id="L122">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue())));</span>
+
+<span class="nc" id="L124">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUpdateTasks(</span>
+                null,
+<span class="nc" id="L126">                any.getType().getKind(),</span>
+<span class="nc" id="L127">                any.getKey(),</span>
+<span class="nc" id="L128">                List.of(profile.getTask().getResource().getKey()),</span>
+                enable,
+                propByRes,
+                propByLinkedAccount,
+                noPropResources);
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L134">            taskInfos.getFirst().setBeforeObj(Optional.of(beforeObj));</span>
+<span class="nc" id="L135">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L136">            taskExecutor.execute(taskInfos.getFirst(), reporter, profile.getExecutor());</span>
+<span class="nc" id="L137">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L139">    }</span>
+
+    @Override
+    protected void deprovision(final Any any, final ConnectorObject beforeObj, final ProvisioningReport result) {
+<span class="nc" id="L143">        AnyTO before = getAnyTO(any);</span>
+
+<span class="nc" id="L145">        List&lt;String&gt; noPropResources = new ArrayList&lt;&gt;(before.getResources());</span>
+<span class="nc" id="L146">        noPropResources.remove(profile.getTask().getResource().getKey());</span>
+
+<span class="nc" id="L148">        PropagationByResource&lt;String&gt; propByRes = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L149">        propByRes.add(ResourceOperation.DELETE, profile.getTask().getResource().getKey());</span>
+<span class="nc" id="L150">        propByRes.addOldConnObjectKey(profile.getTask().getResource().getKey(), beforeObj.getUid().getUidValue());</span>
+
+<span class="nc" id="L152">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L153">        ((User) any).getLinkedAccounts(profile.getTask().getResource().getKey()).</span>
+<span class="nc" id="L154">                forEach(account -&gt; propByLinkedAccount.add(</span>
+                ResourceOperation.DELETE,
+<span class="nc" id="L156">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue())));</span>
+
+<span class="nc" id="L158">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getDeleteTasks(</span>
+<span class="nc" id="L159">                any.getType().getKind(),</span>
+<span class="nc" id="L160">                any.getKey(),</span>
+                propByRes,
+                propByLinkedAccount,
+                noPropResources);
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L165">            taskInfos.getFirst().setBeforeObj(Optional.of(beforeObj));</span>
+<span class="nc" id="L166">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L167">            taskExecutor.execute(taskInfos.getFirst(), reporter, profile.getExecutor());</span>
+<span class="nc" id="L168">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L170">    }</span>
+
+    @Override
+    protected WorkflowResult&lt;? extends AnyUR&gt; update(final AnyUR req) {
+<span class="nc" id="L174">        WorkflowResult&lt;Pair&lt;UserUR, Boolean&gt;&gt; update =</span>
+<span class="nc" id="L175">                uwfAdapter.update((UserUR) req, null, profile.getExecutor(), profile.getContext());</span>
+<span class="nc" id="L176">        return new WorkflowResult&lt;&gt;(update.getResult().getLeft(), update.getPropByRes(), update.getPerformedTasks());</span>
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public boolean handle(final LinkedAccount account, final Provision provision) {
+        try {
+<span class="nc" id="L183">            doHandle(account, provision);</span>
+<span class="nc" id="L184">            return true;</span>
+<span class="nc" id="L185">        } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L186">            ProvisioningReport ignoreResult = profile.getResults().stream().</span>
+<span class="nc" id="L187">                    filter(report -&gt; account.getKey().equalsIgnoreCase(report.getKey())).</span>
+<span class="nc" id="L188">                    findFirst().</span>
+<span class="nc" id="L189">                    orElse(null);</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">            if (ignoreResult == null) {</span>
+<span class="nc" id="L191">                ignoreResult = new ProvisioningReport();</span>
+<span class="nc" id="L192">                ignoreResult.setKey(account.getKey());</span>
+<span class="nc" id="L193">                ignoreResult.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L194">                ignoreResult.setUidValue(account.getConnObjectKeyValue());</span>
+
+<span class="nc" id="L196">                profile.getResults().add(ignoreResult);</span>
+            }
+
+<span class="nc" id="L199">            ignoreResult.setOperation(ResourceOperation.NONE);</span>
+<span class="nc" id="L200">            ignoreResult.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L201">            ignoreResult.setMessage(e.getMessage());</span>
+
+<span class="nc" id="L203">            LOG.warn(&quot;Ignoring during push&quot;, e);</span>
+<span class="nc" id="L204">            return true;</span>
+<span class="nc" id="L205">        } catch (JobExecutionException e) {</span>
+<span class="nc" id="L206">            LOG.error(&quot;Push failed&quot;, e);</span>
+<span class="nc" id="L207">            return false;</span>
+        }
+    }
+
+    protected void doHandle(final LinkedAccount account, final Provision provision) throws JobExecutionException {
+<span class="nc" id="L212">        ProvisioningReport result = new ProvisioningReport();</span>
+<span class="nc" id="L213">        profile.getResults().add(result);</span>
+
+<span class="nc" id="L215">        result.setKey(account.getKey());</span>
+<span class="nc" id="L216">        result.setAnyType(MatchType.LINKED_ACCOUNT.name());</span>
+<span class="nc" id="L217">        result.setUidValue(account.getConnObjectKeyValue());</span>
+<span class="nc" id="L218">        result.setName(account.getConnObjectKeyValue());</span>
+
+<span class="nc" id="L220">        LOG.debug(&quot;Pushing linked account {} towards {}&quot;, account.getKey(), profile.getTask().getResource());</span>
+
+        // Try to read remote object BEFORE any actual operation
+<span class="nc" id="L223">        Optional&lt;ConnectorObject&gt; connObj = MappingUtils.getConnObjectKeyItem(provision).</span>
+<span class="nc" id="L224">                flatMap(connObjectKeyItem -&gt; outboundMatcher.matchByConnObjectKeyValue(</span>
+<span class="nc" id="L225">                profile.getConnector(),</span>
+                connObjectKeyItem,
+<span class="nc" id="L227">                account.getConnObjectKeyValue(),</span>
+                provision,
+<span class="nc" id="L229">                Optional.empty()));</span>
+<span class="nc" id="L230">        LOG.debug(&quot;Match found for linked account {} as {}: {}&quot;, account, provision.getObjectClass(), connObj);</span>
+
+<span class="nc" id="L232">        ConnectorObject beforeObj = connObj.orElse(null);</span>
+
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if (profile.isDryRun()) {</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">            if (beforeObj == null) {</span>
+<span class="nc" id="L236">                result.setOperation(toResourceOperation(profile.getTask().getUnmatchingRule()));</span>
+            } else {
+<span class="nc" id="L238">                result.setOperation(toResourceOperation(profile.getTask().getMatchingRule()));</span>
+            }
+<span class="nc" id="L240">            result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+        } else {
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            Boolean enable = profile.getTask().isSyncStatus()</span>
+<span class="nc" id="L243">                    ? BooleanUtils.negate(account.isSuspended())</span>
+<span class="nc" id="L244">                    : null;</span>
+            try {
+<span class="nc bnc" id="L246" title="All 2 branches missed.">                if (beforeObj == null) {</span>
+<span class="nc" id="L247">                    result.setOperation(toResourceOperation(profile.getTask().getUnmatchingRule()));</span>
+
+<span class="nc bnc" id="L249" title="All 4 branches missed.">                    switch (profile.getTask().getUnmatchingRule()) {</span>
+                        case ASSIGN:
+                        case PROVISION:
+<span class="nc bnc" id="L252" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">                                if (profile.getTask().getUnmatchingRule() == UnmatchingRule.ASSIGN) {</span>
+<span class="nc" id="L254">                                    action.beforeAssign(profile, account);</span>
+                                } else {
+<span class="nc" id="L256">                                    action.beforeProvision(profile, account);</span>
+                                }
+<span class="nc" id="L258">                            }</span>
+
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                            if (!profile.getTask().isPerformCreate()) {</span>
+<span class="nc" id="L261">                                LOG.debug(&quot;PushTask not configured for create&quot;);</span>
+<span class="nc" id="L262">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L264">                                provision(account, enable, result);</span>
+                            }
+<span class="nc" id="L266">                            break;</span>
+
+                        case UNLINK:
+<span class="nc" id="L269">                            LOG.warn(&quot;{} not applicable to linked accounts, ignoring&quot;,</span>
+<span class="nc" id="L270">                                    profile.getTask().getUnmatchingRule());</span>
+<span class="nc" id="L271">                            break;</span>
+
+                        case IGNORE:
+<span class="nc" id="L274">                            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L275">                            break;</span>
+
+                        default:
+                        // do nothing
+                    }
+                } else {
+<span class="nc" id="L281">                    result.setOperation(toResourceOperation(profile.getTask().getMatchingRule()));</span>
+
+<span class="nc bnc" id="L283" title="All 5 branches missed.">                    switch (profile.getTask().getMatchingRule()) {</span>
+                        case UPDATE:
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L286">                                action.beforeUpdate(profile, account);</span>
+<span class="nc" id="L287">                            }</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">                            if (!profile.getTask().isPerformUpdate()) {</span>
+<span class="nc" id="L289">                                LOG.debug(&quot;PushTask not configured for update&quot;);</span>
+<span class="nc" id="L290">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L292">                                update(account, enable, beforeObj, ResourceOperation.UPDATE, result);</span>
+                            }
+<span class="nc" id="L294">                            break;</span>
+
+                        case UNASSIGN:
+                        case DEPROVISION:
+<span class="nc bnc" id="L298" title="All 2 branches missed.">                            for (PushActions action : profile.getActions()) {</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">                                if (profile.getTask().getMatchingRule() == MatchingRule.UNASSIGN) {</span>
+<span class="nc" id="L300">                                    action.beforeUnassign(profile, account);</span>
+                                } else {
+<span class="nc" id="L302">                                    action.beforeDeprovision(profile, account);</span>
+                                }
+<span class="nc" id="L304">                            }</span>
+
+<span class="nc bnc" id="L306" title="All 2 branches missed.">                            if (!profile.getTask().isPerformDelete()) {</span>
+<span class="nc" id="L307">                                LOG.debug(&quot;PushTask not configured for delete&quot;);</span>
+<span class="nc" id="L308">                                result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+                            } else {
+<span class="nc" id="L310">                                update(account, enable, beforeObj, ResourceOperation.DELETE, result);</span>
+                            }
+<span class="nc" id="L312">                            break;</span>
+
+                        case LINK:
+                        case UNLINK:
+<span class="nc" id="L316">                            LOG.warn(&quot;{} not applicable to linked accounts, ignoring&quot;,</span>
+<span class="nc" id="L317">                                    profile.getTask().getMatchingRule());</span>
+<span class="nc" id="L318">                            break;</span>
+
+                        case IGNORE:
+<span class="nc" id="L321">                            result.setStatus(ProvisioningReport.Status.IGNORE);</span>
+<span class="nc" id="L322">                            break;</span>
+
+                        default:
+                        // do nothing
+                    }
+                }
+
+<span class="nc bnc" id="L329" title="All 2 branches missed.">                for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L330">                    action.after(profile, account, result);</span>
+<span class="nc" id="L331">                }</span>
+
+<span class="nc bnc" id="L333" title="All 2 branches missed.">                if (result.getStatus() == null) {</span>
+<span class="nc" id="L334">                    result.setStatus(ProvisioningReport.Status.SUCCESS);</span>
+                }
+<span class="nc" id="L336">            } catch (IgnoreProvisionException e) {</span>
+<span class="nc" id="L337">                throw e;</span>
+<span class="nc" id="L338">            } catch (Exception e) {</span>
+<span class="nc" id="L339">                result.setStatus(ProvisioningReport.Status.FAILURE);</span>
+<span class="nc" id="L340">                result.setMessage(ExceptionUtils.getRootCauseMessage(e));</span>
+
+<span class="nc" id="L342">                LOG.warn(&quot;Error pushing linked account {} towards {}&quot;, account, profile.getTask().getResource(), e);</span>
+
+<span class="nc bnc" id="L344" title="All 2 branches missed.">                for (PushActions action : profile.getActions()) {</span>
+<span class="nc" id="L345">                    action.onError(profile, account, result, e);</span>
+<span class="nc" id="L346">                }</span>
+
+<span class="nc" id="L348">                throw new JobExecutionException(e);</span>
+<span class="nc" id="L349">            }</span>
+        }
+<span class="nc" id="L351">    }</span>
+
+    protected void provision(
+            final LinkedAccount account,
+            final Boolean enable,
+            final ProvisioningReport result) {
+
+<span class="nc" id="L358">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L359">        propByLinkedAccount.add(</span>
+                ResourceOperation.CREATE,
+<span class="nc" id="L361">                Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue()));</span>
+
+<span class="nc" id="L363">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUserCreateTasks(</span>
+<span class="nc" id="L364">                account.getOwner().getKey(),</span>
+                null,
+                enable,
+                new PropagationByResource&lt;&gt;(),
+                propByLinkedAccount,
+                null);
+<span class="nc bnc" id="L370" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L371">            taskInfos.getFirst().setBeforeObj(Optional.empty());</span>
+<span class="nc" id="L372">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L373">            taskExecutor.execute(taskInfos.getFirst(), reporter, profile.getExecutor());</span>
+<span class="nc" id="L374">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L376">    }</span>
+
+    protected void update(
+            final LinkedAccount account,
+            final Boolean enable,
+            final ConnectorObject beforeObj,
+            final ResourceOperation operation,
+            final ProvisioningReport result) {
+
+<span class="nc" id="L385">        UserUR req = new UserUR();</span>
+<span class="nc" id="L386">        req.setKey(account.getOwner().getKey());</span>
+
+<span class="nc" id="L388">        PropagationByResource&lt;Pair&lt;String, String&gt;&gt; propByLinkedAccount = new PropagationByResource&lt;&gt;();</span>
+<span class="nc" id="L389">        propByLinkedAccount.add(operation, Pair.of(account.getResource().getKey(), account.getConnObjectKeyValue()));</span>
+
+<span class="nc" id="L391">        List&lt;PropagationTaskInfo&gt; taskInfos = propagationManager.getUserUpdateTasks(</span>
+                new UserWorkflowResult&lt;&gt;(
+<span class="nc" id="L393">                        Pair.of(req, enable),</span>
+                        new UserWorkflowResult.PropagationInfo(new PropagationByResource&lt;&gt;(), propByLinkedAccount),
+                        &quot;&quot;));
+<span class="nc bnc" id="L396" title="All 2 branches missed.">        if (!taskInfos.isEmpty()) {</span>
+<span class="nc" id="L397">            taskInfos.getFirst().setBeforeObj(Optional.empty());</span>
+<span class="nc" id="L398">            PropagationReporter reporter = new DefaultPropagationReporter();</span>
+<span class="nc" id="L399">            taskExecutor.execute(taskInfos.getFirst(), reporter, profile.getExecutor());</span>
+<span class="nc" id="L400">            reportPropagation(result, reporter);</span>
+        }
+<span class="nc" id="L402">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
