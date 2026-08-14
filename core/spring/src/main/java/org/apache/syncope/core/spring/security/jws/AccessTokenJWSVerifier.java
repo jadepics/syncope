@@ -77,3 +77,4 @@ public class AccessTokenJWSVerifier implements JWSVerifier {
         return delegate.verify(header, signingInput, signature);
     }
 }
+//questa è c1

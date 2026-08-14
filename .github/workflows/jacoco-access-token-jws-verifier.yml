@@ -1,0 +1,52 @@
+name: JaCoCo - AccessTokenJWSVerifier
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+jobs:
+  jacoco-access-token-jws-verifier:
+    name: JaCoCo - AccessTokenJWSVerifier
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Run AccessTokenJWSVerifier tests with JaCoCo
+        run: >
+          mvn
+          -Dmaven.build.cache.enabled=false
+          -DskipTests=false
+          -Dtest=AccessTokenJWSVerifierTest,AccessTokenJWSVerifierMidLevelTest,AccessTokenJWSSignerVerifierIntegrationTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -pl core/spring
+          -am
+          clean
+          org.jacoco:jacoco-maven-plugin:0.8.15:prepare-agent
+          test
+          org.jacoco:jacoco-maven-plugin:0.8.15:report
+
+      - name: Upload JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-access-token-jws-verifier
+          path: core/spring/target/site/jacoco/
+          if-no-files-found: warn
+
+      - name: Upload Surefire test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-access-token-jws-verifier
+          path: core/spring/target/surefire-reports/
+          if-no-files-found: warn
