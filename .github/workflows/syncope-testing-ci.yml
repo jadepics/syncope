@@ -1,0 +1,304 @@
+name: Syncope Testing CI
+
+on:
+  push:
+    paths:
+      - 'core/**'
+      - 'pom.xml'
+      - '.mvn/**'
+      - '.github/workflows/syncope-testing-ci.yml'
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'pom.xml'
+      - '.mvn/**'
+      - '.github/workflows/syncope-testing-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: syncope-testing-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  junit-tests:
+    name: JUnit - ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: default-mapping-zero-prompting
+            name: DefaultMappingManagerTestZeroPrompting
+            module: core/provisioning-java
+            test: org.apache.syncope.core.provisioning.java.LLM.DefaultMappingManagerTestZeroPrompting
+
+          - id: default-mapping-zero-prompting-clone
+            name: DefaultMappingManagerTestZeroPrompting.testClonePlainAttrValue
+            module: core/provisioning-java
+            test: 'org.apache.syncope.core.provisioning.java.LLM.DefaultMappingManagerTestZeroPrompting#testClonePlainAttrValue'
+
+          - id: default-mapping-zero-prompting2-realm
+            name: DefaultMappingManagerTestZeroPrompting2.testPrepareAttrForRealm
+            module: core/provisioning-java
+            test: 'org.apache.syncope.core.provisioning.java.LLM.DefaultMappingManagerTestZeroPrompting2#testPrepareAttrForRealm'
+
+          - id: default-mapping-few-shot-set-int-values
+            name: TestLLMFewShotSetIntValues
+            module: core/provisioning-java
+            test: org.apache.syncope.core.provisioning.java.LLM.TestLLMFewShotSetIntValues
+
+          - id: access-token-partial-tot
+            name: TestPartialToTAccessTokenJWSVerifier
+            module: core/spring
+            test: org.apache.syncope.core.spring.security.jws.LLM.TestPartialToTAccessTokenJWSVerifier
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Run JUnit configuration
+        run: |
+          mvn -B \
+            -pl "${{ matrix.module }}" \
+            -am \
+            "-Dtest=${{ matrix.test }}" \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            -DargLine=-ea \
+            test
+
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-junit-${{ matrix.id }}
+          path: ${{ matrix.module }}/target/surefire-reports/**
+          if-no-files-found: warn
+
+  jacoco-tests:
+    name: JaCoCo - ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: default-mapping-manager
+            name: DefaultMappingManager
+            module: core/provisioning-java
+            tests: DefaultMappingManagerGetIntValuesTest,DefaultMappingManagerSetIntValuesTest,DefaultMappingManagerPrepareAttrTest,DefaultMappingManagerPrepareAttrsFromAnyTest,DefaultMappingManagerGetIntValuesMidLevelTest,DefaultMappingManagerSetIntValuesMidLevelTest,DefaultMappingManagerPrepareAttrsFromAnyMidLevelTest,DefaultMappingManagerRealmBlackBoxRefinementTest
+
+          - id: default-mapping-manager-llm
+            name: DefaultMappingManager LLM
+            module: core/provisioning-java
+            tests: DefaultMappingManagerTestZeroPrompting,DefaultMappingManagerTestZeroPrompting2,TestLLMFewShotSetIntValues
+
+          - id: access-token-jws-verifier
+            name: AccessTokenJWSVerifier
+            module: core/spring
+            tests: AccessTokenJWSVerifierTest,AccessTokenJWSVerifierMidLevelTest,AccessTokenJWSSignerVerifierIntegrationTest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Run tests with JaCoCo
+        run: |
+          mvn -B \
+            -Dmaven.build.cache.enabled=false \
+            -DskipTests=false \
+            "-Dtest=${{ matrix.tests }}" \
+            -Dsurefire.failIfNoSpecifiedTests=false \
+            -pl "${{ matrix.module }}" \
+            -am \
+            clean \
+            org.jacoco:jacoco-maven-plugin:0.8.15:prepare-agent \
+            test \
+            org.jacoco:jacoco-maven-plugin:0.8.15:report
+
+      - name: Upload JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-${{ matrix.id }}
+          path: ${{ matrix.module }}/target/site/jacoco/**
+          if-no-files-found: warn
+
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-jacoco-${{ matrix.id }}
+          path: ${{ matrix.module }}/target/surefire-reports/**
+          if-no-files-found: warn
+
+  pit-tests:
+    name: PIT - ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Existing / already validated locally.
+          - id: default-mapping-manager
+            name: DefaultMappingManager
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: ''
+
+          # DefaultMappingManager experimental splits.
+          - id: default-mapping-zero-prompting
+            name: DefaultMappingManager Zero Prompting Only
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: org.apache.syncope.core.provisioning.java.LLM.DefaultMappingManagerTestZeroPrompting
+
+          - id: default-mapping-zero-prompting2
+            name: DefaultMappingManager Zero Prompting 2 Only
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: org.apache.syncope.core.provisioning.java.LLM.DefaultMappingManagerTestZeroPrompting2
+
+          - id: default-mapping-few-shot
+            name: DefaultMappingManager Few Shot Only
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: org.apache.syncope.core.provisioning.java.LLM.TestLLMFewShotSetIntValues
+
+          - id: default-mapping-blackbox-base
+            name: DefaultMappingManager BlackBox Base
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: '*DefaultMappingManagerGetIntValuesTest,*DefaultMappingManagerSetIntValuesTest,*DefaultMappingManagerPrepareAttrTest,*DefaultMappingManagerPrepareAttrsFromAnyTest'
+
+          - id: default-mapping-midlevel
+            name: DefaultMappingManager MidLevel
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: '*DefaultMappingManagerGetIntValuesMidLevelTest,*DefaultMappingManagerSetIntValuesMidLevelTest,*DefaultMappingManagerPrepareAttrsFromAnyMidLevelTest'
+
+          - id: default-mapping-blackbox-refinement
+            name: DefaultMappingManager BlackBox Refinement
+            module: core/provisioning-java
+            profile: pit-default-mapping
+            target_tests: '*DefaultMappingManagerRealmBlackBoxRefinementTest'
+
+          # AccessTokenJWSVerifier configurations supplied from IntelliJ/Maven.
+          - id: access-token-verifier-extended
+            name: AccessTokenVerifier Extended
+            module: core/spring
+            profile: pit-access-token-verifier-extended
+            target_tests: ''
+
+          - id: access-token-integration-only
+            name: AccessToken Integration Only
+            module: core/spring
+            profile: pit-access-token-verifier-integration-only
+            target_tests: ''
+
+          - id: access-token-jws-integration
+            name: AccessToken JWS Integration
+            module: core/spring
+            profile: pit-access-token-jws-integration
+            target_tests: ''
+
+          - id: access-token-jws-integration-blackbox-refinement
+            name: AccessToken JWS Integration BlackBox Refinement
+            module: core/spring
+            profile: pit-access-token-jws-integration
+            target_tests: ''
+
+          - id: access-token-jws-verifier
+            name: AccessTokenJWSVerifier
+            module: core/spring
+            profile: pit-access-token-verifier
+            target_tests: ''
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Run PIT mutation testing
+        working-directory: ${{ matrix.module }}
+        env:
+          PIT_TARGET_TESTS: ${{ matrix.target_tests }}
+        run: |
+          set -euo pipefail
+
+          TARGET_TESTS_ARG=()
+          if [ -n "$PIT_TARGET_TESTS" ]; then
+            TARGET_TESTS_ARG+=("-DtargetTests=$PIT_TARGET_TESTS")
+          fi
+
+          mvn -B \
+            -P"${{ matrix.profile }}" \
+            -Djacoco.skip=true \
+            "${TARGET_TESTS_ARG[@]}" \
+            clean \
+            test-compile \
+            org.pitest:pitest-maven:1.25.9:mutationCoverage
+
+      - name: Upload PIT reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pit-${{ matrix.id }}
+          path: ${{ matrix.module }}/target/pit-reports/**
+          if-no-files-found: warn
+
+  randoop-prep:
+    name: RANDOOP PREP - ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: access-token
+            name: AccessToken
+            module: core/spring
+
+          - id: default-mapping-manager
+            name: DefaultMappingManager
+            module: core/provisioning-java
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Compile module for Randoop
+        working-directory: ${{ matrix.module }}
+        run: |
+          mvn -B -DskipTests test-compile
