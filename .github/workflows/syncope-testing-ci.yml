@@ -28,12 +28,17 @@ defaults:
 
 jobs:
   junit-tests:
-    name: JUnit - ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    name: JUnit - ${{ matrix.config.name }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        include:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        config:
           - id: default-mapping-zero-prompting
             name: DefaultMappingManagerTestZeroPrompting
             module: core/provisioning-java
@@ -101,9 +106,9 @@ jobs:
       - name: Run JUnit configuration
         run: |
           mvn -B \
-            -pl "${{ matrix.module }}" \
+            -pl "${{ matrix.config.module }}" \
             -am \
-            "-Dtest=${{ matrix.test }}" \
+            "-Dtest=${{ matrix.config.test }}" \
             -Dsurefire.failIfNoSpecifiedTests=false \
             -DargLine=-ea \
             test
@@ -112,17 +117,22 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-junit-${{ matrix.id }}
-          path: ${{ matrix.module }}/target/surefire-reports/**
+          name: surefire-junit-${{ matrix.config.id }}-${{ matrix.os }}
+          path: ${{ matrix.config.module }}/target/surefire-reports/**
           if-no-files-found: warn
 
   jacoco-tests:
-    name: JaCoCo - ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    name: JaCoCo - ${{ matrix.config.name }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        include:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        config:
           - id: default-mapping-manager
             name: DefaultMappingManager
             module: core/provisioning-java
@@ -182,9 +192,9 @@ jobs:
           mvn -B \
             -Dmaven.build.cache.enabled=false \
             -DskipTests=false \
-            "-Dtest=${{ matrix.tests }}" \
+            "-Dtest=${{ matrix.config.tests }}" \
             -Dsurefire.failIfNoSpecifiedTests=false \
-            -pl "${{ matrix.module }}" \
+            -pl "${{ matrix.config.module }}" \
             -am \
             clean \
             org.jacoco:jacoco-maven-plugin:0.8.15:prepare-agent \
@@ -195,25 +205,30 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jacoco-${{ matrix.id }}
-          path: ${{ matrix.module }}/target/site/jacoco/**
+          name: jacoco-${{ matrix.config.id }}-${{ matrix.os }}
+          path: ${{ matrix.config.module }}/target/site/jacoco/**
           if-no-files-found: warn
 
       - name: Upload Surefire reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-jacoco-${{ matrix.id }}
-          path: ${{ matrix.module }}/target/surefire-reports/**
+          name: surefire-jacoco-${{ matrix.config.id }}-${{ matrix.os }}
+          path: ${{ matrix.config.module }}/target/surefire-reports/**
           if-no-files-found: warn
 
   pit-tests:
-    name: PIT - ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    name: PIT - ${{ matrix.config.name }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        include:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        config:
           - id: default-mapping-manager
             name: DefaultMappingManager
             module: core/provisioning-java
@@ -332,14 +347,14 @@ jobs:
             -Drat.skip=true \
             -Dcheckstyle.skip=true \
             -Dspotless.check.skip=true \
-            -pl "${{ matrix.module }}" \
+            -pl "${{ matrix.config.module }}" \
             -am \
             install
 
       - name: Run PIT mutation testing
-        working-directory: ${{ matrix.module }}
+        working-directory: ${{ matrix.config.module }}
         env:
-          PIT_TARGET_TESTS: ${{ matrix.target_tests }}
+          PIT_TARGET_TESTS: ${{ matrix.config.target_tests }}
         run: |
           set -euo pipefail
 
@@ -349,7 +364,7 @@ jobs:
           fi
 
           mvn -B \
-            -P"${{ matrix.profile }}" \
+            -P"${{ matrix.config.profile }}" \
             -Djacoco.skip=true \
             "${TARGET_TESTS_ARG[@]}" \
             clean \
@@ -360,17 +375,22 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pit-${{ matrix.id }}
-          path: ${{ matrix.module }}/target/pit-reports/**
+          name: pit-${{ matrix.config.id }}-${{ matrix.os }}
+          path: ${{ matrix.config.module }}/target/pit-reports/**
           if-no-files-found: warn
 
   randoop-prep:
-    name: RANDOOP PREP - ${{ matrix.name }}
-    runs-on: ubuntu-latest
+    name: RANDOOP PREP - ${{ matrix.config.name }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        include:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        config:
           - id: access-token
             name: AccessToken
             module: core/spring
@@ -425,11 +445,11 @@ jobs:
             -Drat.skip=true \
             -Dcheckstyle.skip=true \
             -Dspotless.check.skip=true \
-            -pl "${{ matrix.module }}" \
+            -pl "${{ matrix.config.module }}" \
             -am \
             install
 
       - name: Compile module for Randoop
-        working-directory: ${{ matrix.module }}
+        working-directory: ${{ matrix.config.module }}
         run: |
           mvn -B -DskipTests test-compile
