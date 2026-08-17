@@ -18,6 +18,9 @@
  */
 package org.apache.syncope.core.spring.security.jws;
 
+import static com.nimbusds.jose.JWSAlgorithm.Family.HMAC_SHA;
+import static com.nimbusds.jose.JWSAlgorithm.Family.RSA;
+
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -26,6 +29,7 @@ import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jca.JCAContext;
 import com.nimbusds.jose.util.Base64URL;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.interfaces.RSAPublicKey;
@@ -42,16 +46,17 @@ public class AccessTokenJWSVerifier implements JWSVerifier {
     public AccessTokenJWSVerifier(final JWSAlgorithm jwsAlgorithm, final String jwsKey)
             throws JOSEException, NoSuchAlgorithmException, InvalidKeySpecException {
 
-        if (JWSAlgorithm.Family.RSA.contains(jwsAlgorithm)) {
+        if (RSA.contains(jwsAlgorithm)) {
             if (jwsKey.indexOf(':') == -1) {
                 throw new IllegalArgumentException("A key pair is required, in the 'private:public' format");
             }
 
             KeyFactory kf = KeyFactory.getInstance("RSA");
             X509EncodedKeySpec keySpecX509 = new X509EncodedKeySpec(
-                    Base64.getDecoder().decode(StringUtils.substringAfter(jwsKey, ":").getBytes()));
+                    Base64.getDecoder().decode(
+                            StringUtils.substringAfter(jwsKey, ":").getBytes(StandardCharsets.UTF_8)));
             delegate = new RSASSAVerifier((RSAPublicKey) kf.generatePublic(keySpecX509));
-        } else if (JWSAlgorithm.Family.HMAC_SHA.contains(jwsAlgorithm)) {
+        } else if (HMAC_SHA.contains(jwsAlgorithm)) {
             delegate = new MACVerifier(jwsKey);
         } else {
             throw new IllegalArgumentException("Unsupported JWS algorithm: " + jwsAlgorithm.getName());

@@ -244,6 +244,15 @@ jobs:
           java-version: '25'
           cache: maven
 
+      - name: Install Syncope reactor dependencies for PIT
+        run: |
+          mvn -B \
+            -Dmaven.test.skip=true \
+            -Drat.skip=true \
+            -pl "${{ matrix.module }}" \
+            -am \
+            install
+
       - name: Run PIT mutation testing
         working-directory: ${{ matrix.module }}
         env:
@@ -297,6 +306,15 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+
+      - name: Install Syncope reactor dependencies for Randoop
+        run: |
+          mvn -B \
+            -Dmaven.test.skip=true \
+            -Drat.skip=true \
+            -pl "${{ matrix.module }}" \
+            -am \
+            install
 
       - name: Compile module for Randoop
         working-directory: ${{ matrix.module }}

@@ -789,32 +789,17 @@ Invoke-Maven -JdkHome $script:Jdk21Home -WorkingDirectory $script:RepoRoot -Argu
 "-am",
 "-DtargetJdk=21",
 
-# IMPORTANTE:
-# -DskipTests salta solo l'esecuzione ma continua a compilare src/test/java.
-# Nel tuo progetto sono presenti test Randoop JUnit 4 che il POM normale
-# di core/provisioning-java non compila senza JUnit 4.
-#
-# In questa fase ci serve soltanto ricostruire il production bytecode reale
-# di Syncope con JDK 21. I test verranno compilati nella fase successiva
-# usando il POM temporaneo EvoSuite, che aggiunge JUnit 4 / Vintage.
 "-Dmaven.test.skip=true",
-
-# Apache RAT controlla gli header di licenza anche dei file locali
-# temporanei/generati (.tmp/randoop, script PowerShell, ecc.).
-# Questa è una build tecnica locale per il testing EvoSuite:
-# saltiamo RAT senza modificare il POM reale del progetto.
 "-Drat.skip=true",
-
 "-Dspotless.check.skip=true",
 "-Dcheckstyle.skip=true",
 
-# In questa fase ci serve solo il bytecode production reale della CUT.
-# "install" attraversa package/verify e attiva controlli di packaging
-# (Geronimo verify-legal-files, Javadoc, ecc.) non pertinenti a EvoSuite.
-# "clean compile" ricostruisce invece target/classes con JDK 21 e si ferma
-# prima di package/verify.
+# IMPORTANTE: evita di recuperare output precedenti dalla build cache
+"-Dmaven.build.cache.skipCache=true",
+
+# Produce i JAR JDK21 dei moduli upstream nel reactor.
 "clean",
-"compile"
+"package"
 )
 
 if (-not (Test-Path $script:RealClassFile)) {
@@ -824,9 +809,6 @@ throw "Dopo la build JDK21 la CUT reale non è stata trovata: $script:RealClassF
 $major = Get-ClassMajorVersion -ClassFile $script:RealClassFile
 Write-Host "CUT reale classfile major version: $major"
 
-# Java 21 = classfile major 65.
-# Controllo esplicito per evitare di eseguire accidentalmente i test
-# contro la CUT compatibility Java 11 o contro una build Java 25.
 if ($major -ne 65) {
 throw @"
 La CUT reale non risulta compilata per Java 21.

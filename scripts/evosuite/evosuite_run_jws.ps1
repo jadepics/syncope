@@ -445,6 +445,7 @@ Invoke-Maven -JdkHome $script:Jdk21Home -WorkingDirectory $script:RepoRoot -Argu
 "-pl", "core/spring",
 "-am",
 "-DtargetJdk=21",
+"-Dmaven.build.cache.skipCache=true",
 
 # IMPORTANTE:
 # -DskipTests salta solo l'esecuzione ma continua a compilare src/test/java.
