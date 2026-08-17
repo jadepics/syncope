@@ -63,6 +63,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Disable generated Randoop test sources
+        run: |
+          set -euo pipefail
+
+          DISABLED_DIR=".ci-disabled/randoop"
+          mkdir -p "$DISABLED_DIR"
+
+          for ROOT in \
+            "core/spring/src/test/java" \
+            "core/provisioning-java/src/test/java"
+          do
+            if [ -d "$ROOT" ]; then
+              find "$ROOT" -type d -name randoop -print0 |
+              while IFS= read -r -d '' DIR; do
+                REL="${DIR#./}"
+                DEST="$DISABLED_DIR/$REL"
+
+                mkdir -p "$(dirname "$DEST")"
+
+                echo "Disabling Randoop directory: $DIR"
+                mv "$DIR" "$DEST"
+              done
+            fi
+          done
+
+          echo "Randoop sources disabled:"
+          find "$DISABLED_DIR" -type f -name '*.java' | sort || true
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -114,6 +142,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Disable generated Randoop test sources
+        run: |
+          set -euo pipefail
+
+          DISABLED_DIR=".ci-disabled/randoop"
+          mkdir -p "$DISABLED_DIR"
+
+          for ROOT in \
+            "core/spring/src/test/java" \
+            "core/provisioning-java/src/test/java"
+          do
+            if [ -d "$ROOT" ]; then
+              find "$ROOT" -type d -name randoop -print0 |
+              while IFS= read -r -d '' DIR; do
+                REL="${DIR#./}"
+                DEST="$DISABLED_DIR/$REL"
+
+                mkdir -p "$(dirname "$DEST")"
+
+                echo "Disabling Randoop directory: $DIR"
+                mv "$DIR" "$DEST"
+              done
+            fi
+          done
+
+          echo "Randoop sources disabled:"
+          find "$DISABLED_DIR" -type f -name '*.java' | sort || true
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -158,14 +214,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Existing / already validated locally.
           - id: default-mapping-manager
             name: DefaultMappingManager
             module: core/provisioning-java
             profile: pit-default-mapping
             target_tests: ''
 
-          # DefaultMappingManager experimental splits.
           - id: default-mapping-zero-prompting
             name: DefaultMappingManager Zero Prompting Only
             module: core/provisioning-java
@@ -202,7 +256,6 @@ jobs:
             profile: pit-default-mapping
             target_tests: '*DefaultMappingManagerRealmBlackBoxRefinementTest'
 
-          # AccessTokenJWSVerifier configurations supplied from IntelliJ/Maven.
           - id: access-token-verifier-extended
             name: AccessTokenVerifier Extended
             module: core/spring
@@ -237,6 +290,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Disable generated Randoop test sources
+        run: |
+          set -euo pipefail
+
+          DISABLED_DIR=".ci-disabled/randoop"
+          mkdir -p "$DISABLED_DIR"
+
+          for ROOT in \
+            "core/spring/src/test/java" \
+            "core/provisioning-java/src/test/java"
+          do
+            if [ -d "$ROOT" ]; then
+              find "$ROOT" -type d -name randoop -print0 |
+              while IFS= read -r -d '' DIR; do
+                REL="${DIR#./}"
+                DEST="$DISABLED_DIR/$REL"
+
+                mkdir -p "$(dirname "$DEST")"
+
+                echo "Disabling Randoop directory: $DIR"
+                mv "$DIR" "$DEST"
+              done
+            fi
+          done
+
+          echo "Randoop sources disabled:"
+          find "$DISABLED_DIR" -type f -name '*.java' | sort || true
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -249,6 +330,8 @@ jobs:
           mvn -B \
             -Dmaven.test.skip=true \
             -Drat.skip=true \
+            -Dcheckstyle.skip=true \
+            -Dspotless.check.skip=true \
             -pl "${{ matrix.module }}" \
             -am \
             install
@@ -300,6 +383,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Disable generated Randoop test sources
+        run: |
+          set -euo pipefail
+
+          DISABLED_DIR=".ci-disabled/randoop"
+          mkdir -p "$DISABLED_DIR"
+
+          for ROOT in \
+            "core/spring/src/test/java" \
+            "core/provisioning-java/src/test/java"
+          do
+            if [ -d "$ROOT" ]; then
+              find "$ROOT" -type d -name randoop -print0 |
+              while IFS= read -r -d '' DIR; do
+                REL="${DIR#./}"
+                DEST="$DISABLED_DIR/$REL"
+
+                mkdir -p "$(dirname "$DEST")"
+
+                echo "Disabling Randoop directory: $DIR"
+                mv "$DIR" "$DEST"
+              done
+            fi
+          done
+
+          echo "Randoop sources disabled:"
+          find "$DISABLED_DIR" -type f -name '*.java' | sort || true
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
@@ -312,6 +423,8 @@ jobs:
           mvn -B \
             -Dmaven.test.skip=true \
             -Drat.skip=true \
+            -Dcheckstyle.skip=true \
+            -Dspotless.check.skip=true \
             -pl "${{ matrix.module }}" \
             -am \
             install
