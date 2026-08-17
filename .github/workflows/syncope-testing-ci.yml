@@ -32,7 +32,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         os:
           - ubuntu-latest
@@ -122,11 +122,13 @@ jobs:
           if-no-files-found: warn
 
   jacoco-tests:
+    needs: junit-tests
+    if: always()
     name: JaCoCo - ${{ matrix.config.name }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         os:
           - ubuntu-latest
@@ -218,11 +220,13 @@ jobs:
           if-no-files-found: warn
 
   pit-tests:
+    needs: jacoco-tests
+    if: always()
     name: PIT - ${{ matrix.config.name }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         os:
           - ubuntu-latest
@@ -380,11 +384,13 @@ jobs:
           if-no-files-found: warn
 
   randoop-prep:
+    needs: pit-tests
+    if: always()
     name: RANDOOP PREP - ${{ matrix.config.name }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         os:
           - ubuntu-latest
