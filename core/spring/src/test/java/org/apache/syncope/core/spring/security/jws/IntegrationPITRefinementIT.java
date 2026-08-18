@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * signing input. Vengono selezionati pochi casi rappresentativi senza
  * esplorare sistematicamente tutte le configurazioni supportate.
  */
-class AccessTokenJWSSignerVerifierIntegrationBlackBoxRefinementTest {
+class AccessTokenJWSSignerVerifierIntegrationBlackBoxRefinementIT {
 
     private static final String HS256_KEY =
             "0123456789abcdef0123456789abcdef";

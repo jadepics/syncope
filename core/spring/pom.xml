@@ -161,8 +161,21 @@ under the License.
         <configuration>
           <testExcludes>
             <testExclude>${test.excludes}</testExclude>
+            <testExclude>**/randoop/**</testExclude>
           </testExcludes>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -328,7 +341,7 @@ under the License.
 
               <targetTests>
                 <param>
-                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationTest
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIT
                 </param>
               </targetTests>
 
@@ -397,10 +410,10 @@ under the License.
               -->
               <targetTests>
                 <param>
-                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationTest
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIT
                 </param>
                 <param>
-                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationBlackBoxRefinementTest
+                  org.apache.syncope.core.spring.security.jws.AccessTokenJWSSignerVerifierIntegrationBlackBoxRefinementIT
                 </param>
 
               </targetTests>

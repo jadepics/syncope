@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Non deve essere contato tra i test di unità
  * della sola classe AccessTokenJWSVerifier.
  */
-class AccessTokenJWSSignerVerifierIntegrationTest {
+class AccessTokenJWSSignerVerifierIT {
 
     /**
      * Verifica che una firma generata dal signer Syncope
