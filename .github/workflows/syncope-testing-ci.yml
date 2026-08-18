@@ -362,18 +362,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          TARGET_TESTS_ARG=()
           if [ -n "$PIT_TARGET_TESTS" ]; then
-            TARGET_TESTS_ARG+=("-DtargetTests=$PIT_TARGET_TESTS")
+            mvn -B \
+              -P"${{ matrix.config.profile }}" \
+              -Djacoco.skip=true \
+              "-DtargetTests=$PIT_TARGET_TESTS" \
+              clean \
+              test-compile \
+              org.pitest:pitest-maven:1.25.9:mutationCoverage
+          else
+            mvn -B \
+              -P"${{ matrix.config.profile }}" \
+              -Djacoco.skip=true \
+              clean \
+              test-compile \
+              org.pitest:pitest-maven:1.25.9:mutationCoverage
           fi
-
-          mvn -B \
-            -P"${{ matrix.config.profile }}" \
-            -Djacoco.skip=true \
-            "${TARGET_TESTS_ARG[@]}" \
-            clean \
-            test-compile \
-            org.pitest:pitest-maven:1.25.9:mutationCoverage
 
       - name: Upload PIT reports
         if: always()
